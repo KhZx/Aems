@@ -1,7 +1,6 @@
-// Bootstrap: seeds reference data + users into an EMPTY database on deploy.
-// Guarded by user count; every row is an upsert so partially-seeded databases
-// are reconciled instead of skipped. A failure here is logged but never
-// blocks the API from starting.
+// Bootstrap: reconciles the database with prisma/seed-data.json on every deploy.
+// All writes are upserts — idempotent, safe on empty, partial or fully-seeded
+// databases. A failure here is logged but never blocks the API from starting.
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'node:fs';
 
@@ -10,12 +9,6 @@ const prisma = new PrismaClient();
 const d = (v) => (v == null ? null : new Date(v));
 
 async function main() {
-  const userCount = await prisma.user.count();
-  if (userCount > 0) {
-    console.log(`bootstrap: ${userCount} users already present — skipping`);
-    return;
-  }
-
   const raw = JSON.parse(readFileSync(new URL('../prisma/seed-data.json', import.meta.url), 'utf8'));
   let created = 0;
   const note = (n) => { created += n; };
@@ -75,7 +68,7 @@ async function main() {
 
   for (const u of raw.users) {
     await prisma.user.upsert({
-      where: { id: u.id },
+      where: { firebaseUid: u.firebaseUid },
       create: {
         ...u,
         approvedAt: d(u.approvedAt),
