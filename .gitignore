@@ -20,9 +20,6 @@ dist/
 build/
 *.tsbuildinfo
 
-# ── Prisma ────────────────────────────────────────────────────
-server/prisma/migrations/dev.db*
-
 # ── Logs ──────────────────────────────────────────────────────
 logs/
 *.log
@@ -32,19 +29,17 @@ npm-debug.log*
 coverage/
 .tmp/
 
+# ── Deploy tooling / local overrides ──────────────────────────
+.vercel/
+*.local
+
 # ── OS / editor ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 *.swp
 .idea/
 .vscode/
 
-# ── Stray project copies ──────────────────────────────────────
-_archive/
-pictures/New folder/
-temporary screenshots/
+# ── Stray Explorer/OneDrive copies ────────────────────────────
 * - Copy*
-
-# ── Deploy tooling / local overrides ──────────────────────────
-.vercel/
-*.local
