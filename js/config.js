@@ -20,7 +20,7 @@ export const FIREBASE_CONFIG = {
 // Railway URL for the REST API. Set this to your service domain
 // before deploying to Vercel, e.g. "https://aems-api.up.railway.app"
 // (leave empty on purpose for local dev — localhost:4000 is used then).
-export const RAILWAY_API_ORIGIN = "";
+export const RAILWAY_API_ORIGIN = "https://aems-production-fef1.up.railway.app";
 
 // ── App Settings ──────────────────────────────────────────────
 export const APP_VERSION   = "1.0.0";
