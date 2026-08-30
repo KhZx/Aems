@@ -1,0 +1,25 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "node_modules",
+      ".git"
+    ],
+    "rewrites": [
+      { "source": "/app", "destination": "/app.html" }
+    ],
+    "cleanUrls": true,
+    "trailingSlash": false,
+    "errorPages": {
+      "404": "/error.html"
+    },
+    "headers": [
+      {
+        "source": "**/*.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ]
+  }
+}

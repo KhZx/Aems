@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEMS — Ambulance Equipment Management System</title>
+  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <meta name="description" content="AEMS v1.0 — Dubai Corporation of Ambulance Services. Real-time equipment tracking, expiry alerts, and shift handovers for every DCA station.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="AEMS — Ambulance Equipment Management System">
+  <meta property="og:description" content="Real-time inventory, smart expiry alerts, and shift handovers — unified platform for every DCA ambulance.">
+  <meta name="theme-color" content="#06080F">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;0,800;0,900;1,700&family=Outfit:wght@300;400;500;600;700&family=Cairo:wght@400;500;600;700;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <script src="js/error-handler.js"></script>
+  <style>
+    .ic { width:1.15em; height:1.15em; vertical-align:-0.2em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; pointer-events:none; }
+    :root {
+      --red:   #C8102E;
+      --red2:  #E52030;
+      --red3:  rgba(200,16,46,.14);
+      --red4:  rgba(200,16,46,.06);
+      --bg:    #06080F;
+      --bg2:   #0C0E18;
+      --bg3:   #111420;
+      --bg4:   #181B28;
+      --text:  #E8EAF2;
+      --text2: #686A80;
+      --text3: #3A3C50;
+      --brd:   rgba(255,255,255,0.055);
+      --brd2:  rgba(255,255,255,0.10);
+      --mono:  'Share Tech Mono', monospace;
+      --disp:  'Barlow Condensed', sans-serif;
+      --body:  'Outfit', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { font-family: var(--body); background: var(--bg); color: var(--text); overflow-x: hidden; }
+
+    /* ─── GRAIN ─── */
+    body::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: .022;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.88' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    /* ─── GLOBAL GRID OVERLAY ─── */
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 1;
+      background-image:
+        linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+
+    /* ─── HEADER ─── */
+    .hdr {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      height: 66px; padding: 0 2.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(6,8,15,.92); backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--brd);
+    }
+
+    /* DCA SVG logo */
+    .brand { text-decoration: none; display: flex; align-items: center; }
+    .dca-logo { height: 40px; width: auto; direction: ltr; }
+    .dca-logo .ecg-line { stroke: var(--red); }
+    .dca-logo .ar-text  { fill: var(--red); }
+    .dca-logo .en-text  { fill: #4A9BDF; }
+
+    .hdr-nav { display: flex; align-items: center; gap: 1.6rem; }
+    .nav-lnk { font-size: .82rem; font-weight: 500; color: var(--text3); text-decoration: none; transition: color .2s; letter-spacing: .01em; }
+    .nav-lnk:hover { color: var(--text2); }
+    .btn-ghost { padding: 7px 15px; background: transparent; color: var(--text3); border: 1px solid var(--brd); border-radius: 6px; font-family: var(--body); font-size: .8rem; font-weight: 500; cursor: pointer; text-decoration: none; transition: all .18s; }
+    .btn-ghost:hover { color: var(--text2); border-color: var(--brd2); }
+    .btn-acc { padding: 7px 18px; background: var(--red); color: #fff; border: none; border-radius: 6px; font-family: var(--body); font-size: .8rem; font-weight: 700; cursor: pointer; text-decoration: none; transition: all .18s; box-shadow: 0 2px 14px rgba(200,16,46,.35); }
+    .btn-acc:hover { background: var(--red2); transform: translateY(-1px); }
+    .lang-btn { padding: 6px 12px; background: transparent; color: var(--text3); border: 1px solid var(--brd); border-radius: 6px; font-family: var(--body); font-size: .72rem; font-weight: 700; cursor: pointer; transition: all .18s; }
+    .lang-btn:hover { color: var(--text2); border-color: var(--brd2); }
+
+    /* ─── HERO ─── */
+    .hero {
+      min-height: 100vh;
+      display: grid; grid-template-columns: 44% 56%;
+      padding-top: 66px; position: relative; overflow: hidden;
+    }
+
+    /* Dark atmospheric background */
+    .hero-atm {
+      position: absolute; inset: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 70% 80% at 70% 55%, rgba(200,16,46,.10) 0%, transparent 55%),
+        radial-gradient(ellipse 50% 60% at 20% 40%, rgba(200,16,46,.07) 0%, transparent 50%),
+        linear-gradient(170deg, #06080F 0%, #080B16 100%);
+    }
+
+    /* Emergency light flicker on bg */
+    .light-r, .light-b {
+      position: absolute; width: 460px; height: 460px; border-radius: 50%; pointer-events: none;
+      filter: blur(80px);
+    }
+    .light-r { background: rgba(200,16,46,.16); top: 5%; right: 12%; animation: lFlash .9s ease-in-out infinite; }
+    .light-b { background: rgba(0,61,165,.10); top: 5%; right: 28%; animation: lFlash .9s ease-in-out infinite .45s; }
+    @keyframes lFlash { 0%,100%{opacity:.3} 50%{opacity:1} }
+
+    /* Left — text */
+    .hero-l {
+      padding: 0 3rem 4rem 2.5rem;
+      display: flex; flex-direction: column; justify-content: center;
+      position: relative; z-index: 2;
+    }
+    .h-eyebrow {
+      display: inline-flex; align-items: center; gap: 8px; margin-bottom: 24px;
+      padding: 4px 12px; border-radius: 3px;
+      background: var(--red3); border: 1px solid rgba(200,16,46,.22);
+      font-family: var(--mono); font-size: .68rem; color: rgba(200,16,46,.9);
+      letter-spacing: .08em; width: fit-content;
+      opacity: 0; animation: riseIn .5s ease forwards .1s;
+    }
+    .h-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--red); animation: blink 1.8s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:.25} 50%{opacity:1} }
+
+    .h-title {
+      font-family: var(--disp); font-weight: 900; line-height: .9;
+      letter-spacing: -0.025em; color: var(--text);
+      font-size: clamp(4rem, 7vw, 7.5rem);
+      margin-bottom: 28px;
+      opacity: 0; animation: riseIn .55s ease forwards .22s;
+    }
+    .h-title .acc { color: var(--red); display: block; }
+    .h-title .small { font-size: .45em; color: var(--text2); display: block; font-weight: 700; margin-top: 4px; letter-spacing: .04em; }
+
+    .h-sub {
+      font-size: .96rem; line-height: 1.74; color: var(--text2);
+      max-width: 400px; margin-bottom: 36px;
+      opacity: 0; animation: riseIn .55s ease forwards .36s;
+    }
+    .h-btns {
+      display: flex; gap: 11px; flex-wrap: wrap; margin-bottom: 44px;
+      opacity: 0; animation: riseIn .55s ease forwards .5s;
+    }
+    .btn-primary {
+      padding: 13px 26px; background: var(--red); color: #fff;
+      border: none; border-radius: 8px; font-family: var(--body);
+      font-size: .92rem; font-weight: 700; cursor: pointer; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 8px;
+      box-shadow: 0 4px 20px rgba(200,16,46,.42);
+      transition: transform .18s, box-shadow .18s, background .12s;
+    }
+    .btn-primary:hover { background: var(--red2); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(200,16,46,.58); }
+    .btn-outline {
+      padding: 13px 26px; background: transparent; color: var(--text2);
+      border: 1px solid var(--brd2); border-radius: 8px; font-family: var(--body);
+      font-size: .92rem; font-weight: 600; cursor: pointer; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 8px; transition: all .18s;
+    }
+    .btn-outline:hover { color: var(--text); border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.04); }
+
+    /* Operational status row */
+    .h-ops {
+      display: flex; gap: 0; border: 1px solid var(--brd); border-radius: 8px; overflow: hidden;
+      opacity: 0; animation: riseIn .55s ease forwards .64s; width: fit-content;
+    }
+    .ops-item {
+      padding: 10px 20px; background: var(--bg2);
+      border-right: 1px solid var(--brd); display: flex; flex-direction: column; gap: 2px;
+    }
+    .ops-item:last-child { border-right: none; }
+    .ops-val { font-family: var(--disp); font-size: 1.3rem; font-weight: 800; color: var(--text); line-height: 1; }
+    .ops-val .r { color: var(--red); }
+    .ops-lbl { font-family: var(--mono); font-size: .55rem; color: var(--text3); letter-spacing: .1em; text-transform: uppercase; }
+    .ops-live { display: flex; align-items: center; gap: 5px; }
+    .ops-live-dot { width: 5px; height: 5px; border-radius: 50%; background: #22D36B; animation: blink 1.5s ease-in-out infinite; }
+    .ops-live-txt { font-family: var(--mono); font-size: .62rem; color: #22D36B; letter-spacing: .1em; }
+
+    @keyframes riseIn { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+    /* Right — cinematic ambulance */
+    .hero-r {
+      position: relative; z-index: 1;
+      display: flex; align-items: center; justify-content: center;
+      padding: 40px 2rem 40px 0;
+    }
+
+    /* Radar rings */
+    .radar {
+      position: absolute; width: 580px; height: 580px;
+      top: 50%; left: 50%; transform: translate(-52%, -50%);
+      pointer-events: none;
+    }
+    .r-ring {
+      position: absolute; border-radius: 50%; border: 1px solid rgba(200,16,46,.18);
+      top: 50%; left: 50%; transform: translate(-50%,-50%);
+      animation: radarPing 3.6s ease-out infinite;
+    }
+    .r-ring:nth-child(1) { width: 120px; height: 120px; animation-delay: 0s; }
+    .r-ring:nth-child(2) { width: 240px; height: 240px; animation-delay: .6s; }
+    .r-ring:nth-child(3) { width: 380px; height: 380px; animation-delay: 1.2s; border-color: rgba(200,16,46,.1); }
+    .r-ring:nth-child(4) { width: 520px; height: 520px; animation-delay: 1.8s; border-color: rgba(200,16,46,.06); }
+    @keyframes radarPing {
+      0%   { opacity: 0; transform: translate(-50%,-50%) scale(.6); }
+      15%  { opacity: 1; }
+      100% { opacity: 0; transform: translate(-50%,-50%) scale(1); }
+    }
+    /* Crosshair in center */
+    .radar::before, .radar::after {
+      content: ''; position: absolute; background: rgba(200,16,46,.2);
+      top: 50%; left: 50%; transform: translate(-50%,-50%);
+    }
+    .radar::before { width: 1px; height: 200px; margin-top: -100px; }
+    .radar::after  { width: 200px; height: 1px; margin-left: -100px; }
+
+    /* Speed lines */
+    .speed-wrap {
+      position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+    }
+    .spd-line {
+      position: absolute; left: 0; right: 55%; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(200,16,46,.25));
+      animation: spdSlide 2.6s ease-in-out infinite;
+    }
+    .spd-line:nth-child(1) { top: 36%; animation-delay: 0s; right: 58%; }
+    .spd-line:nth-child(2) { top: 42%; animation-delay: .4s; right: 60%; opacity: .6; }
+    .spd-line:nth-child(3) { top: 48%; animation-delay: .8s; right: 55%; }
+    .spd-line:nth-child(4) { top: 54%; animation-delay: .2s; right: 62%; opacity: .5; }
+    .spd-line:nth-child(5) { top: 60%; animation-delay: .6s; right: 57%; opacity: .7; }
+    [dir="rtl"] .spd-line { left: 55%; right: 0; background: linear-gradient(270deg, transparent, rgba(200,16,46,.25)); }
+    @keyframes spdSlide { 0%{opacity:0;transform:scaleX(0);transform-origin:right} 30%{opacity:1} 100%{opacity:0;transform:scaleX(1);transform-origin:right} }
+
+    /* ─── APP DEMO WINDOW ─── */
+    .app-win {
+      position: relative; z-index: 2; width: 100%; max-width: 560px;
+      border-radius: 14px; overflow: hidden;
+      border: 1px solid rgba(255,255,255,.10);
+      box-shadow:
+        0 0 0 1px rgba(200,16,46,.12),
+        0 32px 80px rgba(0,0,0,.65),
+        0 8px 24px rgba(200,16,46,.08);
+      animation: winRise .7s cubic-bezier(.22,1,.36,1) forwards .18s;
+      opacity: 0; transform: translateY(28px) scale(.97);
+    }
+    @keyframes winRise { to { opacity:1; transform:translateY(0) scale(1); } }
+
+    /* Title bar */
+    .aw-bar {
+      height: 38px; background: #0D0F1A; border-bottom: 1px solid rgba(255,255,255,.07);
+      display: flex; align-items: center; padding: 0 14px; gap: 12px;
+    }
+    .aw-dots { display: flex; gap: 6px; }
+    .aw-dot { width: 11px; height: 11px; border-radius: 50%; }
+    .aw-dot:nth-child(1) { background: #FF5F56; }
+    .aw-dot:nth-child(2) { background: #FFBD2E; }
+    .aw-dot:nth-child(3) { background: #27C93F; }
+    .aw-title { font-family: var(--mono); font-size: .64rem; color: rgba(255,255,255,.3); letter-spacing: .08em; flex: 1; text-align: center; }
+    .aw-pill {
+      display: flex; align-items: center; gap: 5px;
+      background: rgba(34,211,107,.1); border: 1px solid rgba(34,211,107,.22);
+      border-radius: 100px; padding: 2px 8px;
+      font-family: var(--mono); font-size: .52rem; color: #22D36B; letter-spacing: .08em;
+    }
+    .aw-pill-dot { width: 4px; height: 4px; border-radius: 50%; background: #22D36B; animation: blink 1.4s ease-in-out infinite; }
+
+    /* App layout */
+    .aw-body { display: flex; background: #080A14; }
+
+    /* Sidebar */
+    .aw-sb {
+      width: 120px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,.06);
+      padding: 14px 0;
+    }
+    .aw-sb-hd { font-family: var(--mono); font-size: .52rem; color: var(--text3); letter-spacing: .12em; padding: 0 12px 10px; text-transform: uppercase; }
+    .aw-st {
+      padding: 7px 12px; display: flex; align-items: center; gap: 7px; cursor: pointer;
+      font-size: .72rem; color: var(--text3); transition: background .15s, color .15s;
+      border-left: 2px solid transparent; font-family: var(--mono);
+    }
+    .aw-st.on { background: rgba(200,16,46,.1); color: var(--text2); border-left-color: var(--red); }
+    .aw-st-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+    .aw-st.on .aw-st-dot { background: #22D36B; }
+    .aw-st:hover:not(.on) { background: rgba(255,255,255,.03); color: var(--text2); }
+    .aw-sb-div { height: 1px; background: rgba(255,255,255,.06); margin: 8px 0; }
+
+    /* Main area */
+    .aw-main { flex: 1; display: flex; flex-direction: column; }
+
+    /* Unit header strip */
+    .aw-unit {
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.06);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .aw-unit-id { font-family: var(--mono); font-size: .65rem; color: var(--text2); letter-spacing: .06em; }
+    .aw-unit-badge {
+      font-family: var(--mono); font-size: .52rem; color: var(--red); letter-spacing: .08em;
+      background: var(--red3); border: 1px solid rgba(200,16,46,.22); border-radius: 3px; padding: 2px 7px;
+    }
+
+    /* Equipment rows */
+    .aw-eq { padding: 6px 14px; }
+    .aw-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.04);
+      opacity: 0; animation: rowIn .35s ease forwards;
+    }
+    @keyframes rowIn { from{opacity:0;transform:translateX(10px)} to{opacity:1;transform:translateX(0)} }
+    .aw-row:nth-child(1) { animation-delay: .5s; }
+    .aw-row:nth-child(2) { animation-delay: .65s; }
+    .aw-row:nth-child(3) { animation-delay: .8s; }
+    .aw-row:nth-child(4) { animation-delay: .95s; }
+    .aw-row:nth-child(5) { animation-delay: 1.1s; }
+    .aw-row:nth-child(6) { animation-delay: 1.25s; }
+    .aw-row:nth-child(7) { animation-delay: 1.4s; }
+    .aw-row-ico { font-size: .9rem; flex-shrink: 0; }
+    .aw-row-nm { font-size: .73rem; color: var(--text2); flex: 1; font-family: var(--body); }
+    .aw-row-qty { font-family: var(--mono); font-size: .58rem; color: var(--text3); }
+    .aw-status {
+      font-family: var(--mono); font-size: .52rem; font-weight: 700; padding: 2px 7px; border-radius: 3px;
+    }
+    .aw-status.ok   { background: rgba(34,211,107,.1); color: #22D36B; }
+    .aw-status.warn { background: rgba(240,165,0,.1); color: #F0A500; }
+    .aw-status.chk  { background: rgba(74,144,226,.1); color: #4A90E2; }
+
+    /* Alert notification */
+    .aw-alert {
+      margin: 10px 14px; padding: 9px 12px; border-radius: 7px;
+      background: rgba(200,16,46,.08); border: 1px solid rgba(200,16,46,.22);
+      display: flex; align-items: flex-start; gap: 10px;
+      opacity: 0; animation: alertSlide .5s cubic-bezier(.22,1,.36,1) forwards 2.2s;
+    }
+    @keyframes alertSlide { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+    .aw-alert-ico { font-size: .9rem; flex-shrink: 0; margin-top: 1px; }
+    .aw-alert-title { font-family: var(--mono); font-size: .6rem; color: var(--red); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 3px; }
+    .aw-alert-body { font-size: .68rem; color: var(--text2); line-height: 1.45; }
+
+    /* ECG heartbeat at bottom of hero */
+    .hero-ecg {
+      position: absolute; bottom: 0; left: 0; right: 0; height: 60px; z-index: 3;
+      background: linear-gradient(to top, rgba(6,8,15,.8) 0%, transparent 100%);
+      display: flex; align-items: flex-end; justify-content: center;
+    }
+    .ecg-svg { width: 100%; height: 44px; opacity: .4; }
+    .ecg-path { stroke-dasharray: 2000; stroke-dashoffset: 0; animation: ecgDraw 3s linear infinite; }
+    @keyframes ecgDraw { 0%{stroke-dashoffset:2000} 100%{stroke-dashoffset:0} }
+
+    /* Unit tag overlay */
+    .unit-tag {
+      position: absolute; bottom: 70px; right: 12%; z-index: 4;
+      background: rgba(6,8,15,.88); border: 1px solid var(--brd2);
+      border-radius: 6px; padding: 8px 14px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .unit-tag-dot { width: 6px; height: 6px; border-radius: 50%; background: #22D36B; animation: blink 1.5s ease-in-out infinite; flex-shrink: 0; }
+    .unit-tag-id { font-family: var(--mono); font-size: .7rem; color: var(--text2); letter-spacing: .08em; }
+    [dir="rtl"] .unit-tag { right: auto; left: 12%; }
+
+    /* ─── DIVIDER STRIP ─── */
+    .divider-strip {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(200,16,46,.3) 30%, rgba(200,16,46,.15) 70%, transparent);
+    }
+
+    /* ─── STATS ─── */
+    .stats-bar {
+      background: var(--bg2); border-bottom: 1px solid var(--brd);
+      padding: 3.2rem 2.5rem; position: relative; z-index: 1;
+    }
+    .stats-inner { max-width: 1260px; margin: 0 auto; display: grid; grid-template-columns: repeat(4,1fr); }
+    .s-item { text-align: center; position: relative; padding: 0 1.5rem; }
+    .s-item + .s-item::before { content: ''; position: absolute; left: 0; top: 15%; bottom: 15%; width: 1px; background: var(--brd); }
+    .s-num { font-family: var(--disp); font-size: clamp(2.2rem,3.5vw,3.2rem); font-weight: 900; color: var(--text); line-height: 1; letter-spacing: -0.02em; }
+    .s-num .acc { color: var(--red); }
+    .s-lbl { font-family: var(--mono); font-size: .62rem; color: var(--text3); margin-top: 7px; text-transform: uppercase; letter-spacing: .1em; }
+
+    /* ─── SECTION COMMON ─── */
+    .sec { padding: 5.5rem 2.5rem; position: relative; z-index: 1; }
+    .sec.alt { background: var(--bg2); }
+    .sec-inner { max-width: 1260px; margin: 0 auto; }
+    .sec-hd { text-align: center; margin-bottom: 3.5rem; }
+    .sec-tag {
+      display: inline-flex; align-items: center; gap: 7px; margin-bottom: 14px;
+      padding: 3px 11px; border-radius: 3px;
+      background: var(--red4); border: 1px solid rgba(200,16,46,.18);
+      font-family: var(--mono); font-size: .66rem; color: rgba(200,16,46,.8);
+      letter-spacing: .1em; text-transform: uppercase;
+    }
+    .sec-title { font-family: var(--disp); font-size: clamp(2rem,3.5vw,2.8rem); font-weight: 800; color: var(--text); letter-spacing: -0.02em; margin-bottom: 10px; }
+    .sec-sub { font-size: .91rem; color: var(--text2); max-width: 430px; margin: 0 auto; line-height: 1.66; }
+
+    /* ─── DEMO ─── */
+    /* Rear section */
+    .ambu-center { max-width: 1260px; margin: 0 auto; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+    .rear-sec { max-width: 900px; width: 100%; background: var(--bg2); border: 1px solid var(--brd); border-radius: 12px; overflow: hidden; }
+    .rear-sec-top { padding: 12px 20px; border-bottom: 1px solid var(--brd); display: flex; align-items: center; gap: 12px; }
+    .rear-tag { font-family: var(--mono); font-size: .7rem; color: var(--red); text-transform: uppercase; letter-spacing: .12em; }
+    .rear-body { padding: 1.8rem; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+
+    /* CSS Ambulance rear view */
+    .ambu { max-width: 600px; width: 100%; filter: drop-shadow(0 14px 36px rgba(0,0,0,.7)) drop-shadow(0 2px 8px rgba(200,16,46,.1)); }
+    .a-lb { height: 22px; background: linear-gradient(180deg,#181c28,#20263a); border-radius: 5px 5px 0 0; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 18px; border: 1px solid rgba(255,255,255,.06); border-bottom: none; }
+    .a-led { width: 16px; height: 9px; border-radius: 2px; }
+    .a-led.r { background: var(--red); box-shadow: 0 0 7px var(--red); animation: ledR .9s ease-in-out infinite; }
+    .a-led.b { background: #003DA5; box-shadow: 0 0 7px #003DA5; animation: ledB .9s ease-in-out infinite; }
+    @keyframes ledR { 0%,100%{opacity:1} 50%{opacity:.08} }
+    @keyframes ledB { 0%,100%{opacity:.08} 50%{opacity:1} }
+    .a-body { background: linear-gradient(180deg,#DCE0EC,#C6CAD8); padding: 14px 26px; display: flex; align-items: center; justify-content: space-between; border-left: 1px solid #B4B8C4; border-right: 1px solid #B4B8C4; min-height: 74px; position: relative; }
+    .a-brand-ar { font-family:'Cairo',sans-serif; font-size: 1.75rem; font-weight: 900; color: var(--red); display: block; line-height: 1; }
+    .a-brand-en { font-family: var(--disp); font-size: .82rem; font-weight: 700; color: #003DA5; letter-spacing: .22em; display: block; }
+    .a-hb { position: absolute; left: 22px; top: 50%; transform: translateY(-50%); }
+    .a-num { position: absolute; right: 22px; top: 50%; transform: translateY(-50%); font-family: var(--disp); font-size: 1.3rem; font-weight: 800; color: #003DA5; opacity: .6; }
+    [dir="rtl"] .a-hb { left: auto; right: 22px; }
+    [dir="rtl"] .a-num { right: auto; left: 22px; }
+    .a-stripe { display: flex; height: 20px; border-left: 1px solid #B4B8C4; border-right: 1px solid #B4B8C4; }
+    .a-sb { background: #003DA5; flex: 1; }
+    .a-ck-row { display: flex; }
+    .ck { width: 20px; height: 20px; flex-shrink: 0; }
+    .ck.r{background:var(--red)}.ck.w{background:#fff}.ck.b{background:#003DA5}
+    .a-df { position: relative; display: block; height: 220px; border-left: 1px solid #888; border-right: 1px solid #888; background: #04050A; }
+
+    /* Bay depth — walls, ceiling, floor (fake 3D trapezoids) */
+    .i-wall { position: absolute; left: 14%; right: 14%; top: 11%; bottom: 25%; background: linear-gradient(168deg,#3B4258 0%,#272D42 48%,#1B2032 100%); box-shadow: inset 0 0 30px rgba(0,0,0,.65); }
+    .i-wall::after { content:''; position:absolute; inset-inline:0; bottom:0; height:3px; background:rgba(255,255,255,.07); }
+    .i-win { position:absolute; top:13%; width:16%; height:26%; border:2px solid #4A5270; border-radius:3px; background:linear-gradient(135deg,rgba(120,170,230,.3),rgba(24,48,92,.45)); box-shadow:inset 0 0 10px rgba(0,0,0,.55); }
+    .i-win.w1 { left:13%; } .i-win.w2 { right:13%; }
+    .i-ceil { position:absolute; top:0; left:0; right:0; height:12%; background:linear-gradient(180deg,#2B3147,#151A29); clip-path:polygon(0 0,100% 0,86% 100%,14% 100%); }
+    .i-led { position:absolute; left:40%; right:40%; top:44%; height:4px; border-radius:2px; background:#DCE6FF; transition:box-shadow .5s .45s; }
+    .i-fl-l { position:absolute; left:0; top:12%; bottom:25%; width:14%; background:linear-gradient(90deg,#0E1220,#2C334A); clip-path:polygon(0 0,100% 11%,100% 89%,0 100%); }
+    .i-fl-r { position:absolute; right:0; top:12%; bottom:25%; width:14%; background:linear-gradient(-90deg,#0E1220,#2C334A); clip-path:polygon(0 11%,100% 0,100% 100%,0 89%); }
+    .i-floor { position:absolute; left:0; right:0; bottom:0; height:25%; background:linear-gradient(180deg,#39415A,#50587A); clip-path:polygon(14% 0,86% 0,100% 100%,0 100%); }
+    .i-floor::before { content:''; position:absolute; inset:0; background:
+      linear-gradient(78deg, transparent 45%, rgba(0,0,0,.3) 46.5%, rgba(0,0,0,.3) 48%, transparent 49.5%),
+      linear-gradient(-78deg, transparent 45%, rgba(0,0,0,.3) 46.5%, rgba(0,0,0,.3) 48%, transparent 49.5%); }
+    .i-light { position:absolute; inset:0; background:radial-gradient(ellipse 72% 90% at 50% -4%, rgba(255,246,222,.17), transparent 62%); opacity:0; transition:opacity .6s .45s; pointer-events:none; }
+    .i-shade { position:absolute; inset:0; background:#02030A; opacity:.94; transition:opacity .55s .1s; pointer-events:none; z-index:4; }
+    .ambu.open .i-shade { opacity:.14; }
+    .ambu.open .i-light { opacity:1; }
+    .ambu.open .i-led { box-shadow:0 0 20px 7px rgba(220,230,255,.35); }
+
+    /* Equipment objects (clickable) */
+    .eq { position:absolute; padding:0; appearance:none; font-family:inherit; border:none; background:none; cursor:pointer; transition:filter .18s, transform .18s; }
+    .eq:hover { filter:brightness(1.28); transform:translateY(-1px); }
+    .eq.sel { filter:brightness(1.4) drop-shadow(0 0 7px rgba(229,32,48,.85)); }
+    .eq:focus-visible { outline:2px solid var(--red2); outline-offset:2px; }
+    .eq-led { position:absolute; top:-3px; right:-2px; width:5px; height:5px; border-radius:50%; z-index:2; }
+    .eq.ok .eq-led { background:#22D36B; box-shadow:0 0 5px #22D36B; }
+    .eq.warn .eq-led { background:#F0A500; box-shadow:0 0 5px #F0A500; }
+    .eq.chk .eq-led { background:#4A90E2; box-shadow:0 0 5px #4A90E2; }
+    [dir="rtl"] .eq-led { right:auto; left:-2px; }
+
+    /* Lifepak — wall unit with live trace */
+    .e-defib { left:15.5%; top:20%; width:13%; height:27%; background:linear-gradient(160deg,#F2F4F8,#C7CDDA); border-radius:5px; box-shadow:0 5px 9px rgba(0,0,0,.55), inset 0 -7px 10px rgba(0,0,0,.14); }
+    .e-defib::before { content:''; position:absolute; left:7%; top:12%; width:60%; height:76%; background:#0A1220; border-radius:2px; box-shadow:inset 0 0 5px #000; }
+    .e-defib::after { content:''; position:absolute; right:8%; top:16%; width:19%; height:68%; background:repeating-linear-gradient(180deg,#8A93A8 0 3px,#AEB6C6 3px 6px); border-radius:2px; }
+    .def-trace { position:absolute; left:9%; top:30%; width:50%; height:34%; }
+    .def-trace polyline { fill:none; stroke:#22D36B; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; filter:drop-shadow(0 0 2px #22D36B); }
+    /* Ventilator */
+    .e-vent { left:15.5%; top:52%; width:11%; height:19%; background:linear-gradient(160deg,#E8EBF2,#B6BDCA); border-radius:4px; box-shadow:0 5px 9px rgba(0,0,0,.55); }
+    .e-vent::before { content:''; position:absolute; left:10%; top:16%; width:36%; height:68%; border-radius:50%; background:radial-gradient(circle at 50% 50%, #161D2E 36%, #333C55 37%, #333C55 47%, transparent 48%); }
+    .e-vent::after { content:''; position:absolute; right:8%; top:22%; width:28%; height:56%; background:#0A1220; border-radius:2px; }
+    /* Med bag */
+    .e-med { left:16%; bottom:8%; width:10.5%; height:22%; background:linear-gradient(170deg,#D81E2E,#7E101C); border-radius:4px; box-shadow:0 5px 9px rgba(0,0,0,.55); }
+    .e-med::before { content:''; position:absolute; left:50%; top:52%; width:36%; height:36%; transform:translate(-50%,-50%); background:#fff; clip-path:polygon(35% 0,65% 0,65% 35%,100% 35%,100% 65%,65% 65%,65% 100%,35% 100%,35% 65%,0 65%,0 35%,35% 35%); }
+    .e-med::after { content:''; position:absolute; left:30%; right:30%; top:-7px; height:9px; border:3px solid #7A0E1A; border-bottom:none; border-radius:8px 8px 0 0; }
+    /* Suction */
+    .e-suc { right:16%; top:22%; width:9.5%; height:23%; background:linear-gradient(160deg,#E9EDF4,#B4BBC8); border-radius:4px; box-shadow:0 5px 9px rgba(0,0,0,.55); }
+    .e-suc::before { content:''; position:absolute; left:12%; top:14%; width:42%; height:44%; background:#0A1220; border-radius:2px; }
+    .e-suc::after { content:''; position:absolute; right:14%; bottom:14%; width:24%; height:26%; border-radius:50%; background:radial-gradient(circle at 45% 40%,#A9B1C2,#5F6880); box-shadow:inset 0 0 3px #000; }
+    /* O2 bottles */
+    .e-oxy { right:16%; bottom:8%; width:7.5%; height:46%; }
+    .e-oxy::before, .e-oxy::after { content:''; position:absolute; bottom:0; width:42%; height:100%; border-radius:8px 8px 2px 2px; background:linear-gradient(90deg,#0C3D26,#1E8A50 34%,#9FDDBC 50%,#1B7A44 66%,#0A3320); box-shadow:0 3px 6px rgba(0,0,0,.55); }
+    .e-oxy::before { left:0; } .e-oxy::after { right:0; }
+    .oxy-strap { position:absolute; left:-22%; right:-22%; height:5px; background:linear-gradient(180deg,#E4E9F2,#AEB6C6); border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,.5); z-index:2; }
+    .oxy-strap.a { top:24%; } .oxy-strap.b { top:62%; }
+    /* Responder bag on bench */
+    .e-bag { right:16%; bottom:10%; width:11%; height:21%; background:linear-gradient(170deg,#2A3147,#12161F); border:1px solid #3A415A; border-radius:5px; box-shadow:0 5px 9px rgba(0,0,0,.55); }
+    .e-bag::before { content:''; position:absolute; left:14%; right:14%; top:42%; height:3px; background:#C8102E; border-radius:2px; }
+    .e-bag::after { content:''; position:absolute; left:38%; right:38%; top:-6px; height:10px; border:3px solid #3A415A; border-bottom:none; border-radius:8px 8px 0 0; }
+
+    /* Stretcher */
+    .i-str { position:absolute; left:29%; right:29%; bottom:7%; height:56%; pointer-events:none; }
+    .str-bed { position:absolute; left:0; right:0; top:0; height:17%; background:linear-gradient(180deg,#F4BCC2,#C8424E 68%); border-radius:4px; box-shadow:0 4px 8px rgba(0,0,0,.5); }
+    .str-pill { position:absolute; left:3%; top:-7%; width:22%; height:15%; background:#FAFCFF; border-radius:5px; box-shadow:0 2px 4px rgba(0,0,0,.4); }
+    .str-strap { position:absolute; width:5px; top:-2%; height:22%; background:#1A1F30; border-radius:2px; }
+    .str-strap.s1 { left:36%; } .str-strap.s2 { left:62%; }
+    .str-frame { position:absolute; left:4%; right:4%; top:17%; height:5%; background:linear-gradient(180deg,#9AA3B5,#5F6880); border-radius:2px; }
+    .str-leg { position:absolute; top:21%; height:58%; width:4px; background:#8B94A7; border-radius:2px; }
+    .str-leg.l1 { left:20%; transform:rotate(9deg); } .str-leg.l2 { left:26%; transform:rotate(-9deg); }
+    .str-leg.l3 { right:20%; transform:rotate(-9deg); } .str-leg.l4 { right:26%; transform:rotate(9deg); }
+    .str-wh { position:absolute; bottom:0; width:11px; height:11px; border-radius:50%; background:radial-gradient(circle at 40% 35%,#3A415A,#0A0D14); box-shadow:0 1px 2px rgba(0,0,0,.6); }
+    .str-wh.w1 { left:16%; } .str-wh.w2 { right:16%; }
+    .str-shadow { position:absolute; bottom:-6%; left:4%; right:4%; height:12%; background:radial-gradient(ellipse at 50% 50%, rgba(0,0,0,.6), transparent 72%); }
+    .e-str { left:28%; right:28%; top:30%; bottom:1%; z-index:3; }
+    .e-str .eq-name { position:absolute; bottom:2%; left:50%; transform:translateX(-50%); font-family:var(--mono); font-size:.5rem; letter-spacing:.06em; color:#8A93A8; white-space:nowrap; opacity:0; transition:opacity .18s; }
+    .e-str:hover .eq-name, .e-str.sel .eq-name { opacity:1; }
+
+    /* Doors — two real faces (outside skin + inside panel) */
+    .a-door { position:absolute; top:0; height:100%; width:50%; transition:transform .95s cubic-bezier(.3,.66,.28,1); will-change:transform; z-index:10; transform-style:preserve-3d; }
+    .door-l { left:0; transform-origin:left center; }
+    .door-r { right:0; transform-origin:right center; transition-delay:.09s; }
+    .ambu.open .door-l { transform:perspective(760px) rotateY(-101deg); }
+    .ambu.open .door-r { transform:perspective(760px) rotateY(101deg); }
+    .d-face { position:absolute; inset:0; backface-visibility:hidden; }
+    .d-out { background:linear-gradient(150deg,#CECEE0 0%,#BABAC8 60%,#AEAEC0 100%); border-right:2px solid rgba(0,0,0,.15); }
+    .door-r .d-out { border-right:none; border-left:2px solid rgba(0,0,0,.15); }
+    .d-in { transform:rotateY(180deg); background:linear-gradient(205deg,#C7CCD8,#8F96A7 55%,#7B8293); box-shadow:inset 0 0 26px rgba(0,0,0,.4); }
+    .d-in::before { content:''; position:absolute; inset:7% 15%; background:repeating-linear-gradient(180deg, rgba(0,0,0,.07) 0 12px, transparent 12px 30px); border:2px solid rgba(0,0,0,.14); border-radius:7px; }
+    .d-winin { position:absolute; left:23%; right:23%; top:11%; height:24%; background:linear-gradient(180deg,#5F7699,#3E4D66); border:2px solid #7A8296; border-radius:4px; box-shadow:inset 0 0 8px rgba(0,0,0,.5); }
+    .d-grip { position:absolute; top:44%; height:22%; width:6px; background:linear-gradient(180deg,#6B7280,#3F4553); border-radius:3px; box-shadow:0 2px 3px rgba(0,0,0,.5); }
+    .door-l .d-grip { right:11%; } .door-r .d-grip { left:11%; }
+    .dp { height:100%; display:flex; flex-direction:column; align-items:center; padding:14px 10px; gap:8px; }
+    .d-win { width:64%; aspect-ratio:2.2/1; background:linear-gradient(135deg,rgba(120,170,230,.38),rgba(70,130,210,.25)); border-radius:4px; border:2px solid rgba(0,0,0,.12); }
+    .d-brand { text-align:center; margin-top:auto; }
+    .d-ar { font-family:'Cairo',sans-serif; font-size:.95rem; font-weight:900; color:var(--red); }
+    .d-en { font-family:var(--disp); font-size:.52rem; font-weight:700; color:#003DA5; letter-spacing:.1em; display:block; }
+    .d-hndl { width:28px; height:3px; background:linear-gradient(180deg,#9CA3AF,#6B7280); border-radius:2px; margin-top:auto; }
+    .d-hngs { position:absolute; top:0; bottom:0; display:flex; flex-direction:column; justify-content:space-evenly; z-index:2; }
+    .door-l .d-hngs { left:3px; } .door-r .d-hngs { right:3px; }
+    .hinge { width:7px; height:12px; background:#626470; border-radius:2px; }
+    .door-cl { position:absolute; left:50%; top:0; bottom:0; width:2px; background:rgba(0,0,0,.15); z-index:11; transition:opacity .3s; }
+    .ambu.open .door-cl { opacity:0; }
+    .a-bumper { height: 20px; background: linear-gradient(180deg,#222632,#1A1E2A); border-radius: 0 0 5px 5px; border: 1px solid rgba(255,255,255,.05); border-top: none; display: flex; align-items: center; justify-content: center; }
+    .a-plate { background: #FFFDE7; border: 1px solid #999; border-radius: 2px; padding: 1px 8px; font-family: var(--mono); font-size: .42rem; color: #333; letter-spacing: .12em; }
+    .open-btn { padding: 11px 26px; background: var(--red); color: #fff; border: none; border-radius: 7px; font-family: var(--body); font-size: .88rem; font-weight: 700; cursor: pointer; box-shadow: 0 4px 18px rgba(200,16,46,.38); transition: transform .18s, box-shadow .18s, background .3s; }
+    .open-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(200,16,46,.52); }
+    .ambu.open .open-btn { background: var(--bg4); box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+    .item-det { width: 100%; max-width: 600px; background: var(--bg3); border: 1px solid var(--brd); border-radius: 10px; padding: 16px 20px; display: none; animation: fadeUp .3s ease; }
+    .item-det.on { display: flex; gap: 16px; align-items: flex-start; }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+    .id-ico { font-size: 2.4rem; flex-shrink: 0; }
+    .id-nm { font-family: var(--disp); font-size: 1.3rem; font-weight: 800; color: var(--text); margin-bottom: 2px; }
+    .id-cat { font-family: var(--mono); font-size: .6rem; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 12px; }
+    .id-row { display: flex; gap: 1.3rem; flex-wrap: wrap; }
+    .id-f .id-l { font-family: var(--mono); font-size: .54rem; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+    .id-f .id-v { font-size: .84rem; color: var(--text); font-weight: 500; }
+    .bdg { padding: 2px 8px; border-radius: 3px; font-family: var(--mono); font-size: .62rem; font-weight: 700; }
+    .bdg.ok { background: rgba(34,211,107,.12); color: #22D36B; }
+    .bdg.warn { background: rgba(240,165,0,.12); color: #F0A500; }
+    .bdg.chk { background: rgba(74,144,226,.12); color: #4A90E2; }
+    [dir="rtl"] .item-det.on { flex-direction: row-reverse; }
+
+    /* ─── PATIENT MONITOR (interactive demo) ─── */
+    .mon-wrap { max-width: 1060px; margin: 0 auto; display: grid; grid-template-columns: 1fr 290px; gap: 1.4rem; align-items: start; }
+    .mon-screen { background: #04060C; border: 1px solid var(--brd2); border-radius: 14px; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,.55); transition: border-color .3s, box-shadow .3s; }
+    .mon-screen.alarm { border-color: rgba(239,68,68,.6); box-shadow: 0 24px 64px rgba(0,0,0,.55), 0 0 46px rgba(239,68,68,.14); }
+    .mon-screen.shocked { animation: flashGreen .9s ease; }
+    @keyframes flashGreen { 0% { box-shadow: 0 24px 64px rgba(0,0,0,.55); } 30% { box-shadow: 0 0 70px rgba(34,211,107,.5); } 100% { box-shadow: 0 24px 64px rgba(0,0,0,.55); } }
+    .mon-top { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--bg3); border-bottom: 1px solid var(--brd); font-family: var(--mono); font-size: .64rem; letter-spacing: .1em; color: var(--text3); }
+    .mon-pt { color: var(--text2); }
+    .mon-alarm { margin-inline-start: auto; padding: 3px 10px; border-radius: 100px; font-weight: 700; color: #FCA5A5; background: rgba(239,68,68,.14); border: 1px solid rgba(239,68,68,.4); opacity: 0; transition: opacity .25s; white-space: nowrap; }
+    .mon-screen.alarm .mon-alarm { opacity: 1; animation: blink 1s ease-in-out infinite; }
+    .mon-snd { background: none; border: 1px solid var(--brd2); border-radius: 5px; color: var(--text3); font-family: var(--mono); font-size: .58rem; letter-spacing: .08em; padding: 3px 9px; cursor: pointer; transition: all .18s; white-space: nowrap; }
+    .mon-snd:hover { color: var(--text2); border-color: rgba(255,255,255,.22); }
+    .mon-snd.on { color: #22D36B; border-color: rgba(34,211,107,.4); }
+    .mon-traces { padding: 10px 12px 6px; display: flex; flex-direction: column; gap: 4px; }
+    .mon-trace { position: relative; }
+    .mon-trace canvas { display: block; width: 100%; }
+    .mon-trace-lbl { position: absolute; top: 2px; inset-inline-start: 4px; font-family: var(--mono); font-size: .56rem; letter-spacing: .1em; opacity: .9; pointer-events: none; }
+    .mon-trace.ecgw .mon-trace-lbl { color: #22D36B; }
+    .mon-trace.spo2w .mon-trace-lbl { color: #4A90E2; }
+    .mon-trace.co2w  .mon-trace-lbl { color: #F0A500; }
+    .mon-nums { display: grid; grid-template-columns: repeat(4,1fr); border-top: 1px solid var(--brd); }
+    .mon-num { padding: 9px 6px 12px; text-align: center; border-inline-start: 1px solid var(--brd); }
+    .mon-num:first-child { border-inline-start: none; }
+    .mon-num label { display: block; font-family: var(--mono); font-size: .54rem; letter-spacing: .14em; color: var(--text3); margin-bottom: 3px; }
+    .mon-num output { font-family: var(--disp); font-size: 2rem; font-weight: 800; line-height: 1; display: block; }
+    .mon-num.hr output { color: #22D36B; }
+    .mon-num.spo2n output { color: #4A90E2; }
+    .mon-num.etco2n output { color: #F0A500; }
+    .mon-num.bp output { color: var(--text); font-size: 1.4rem; padding-top: 7px; }
+    .mon-num output.crit { color: #EF4444 !important; }
+    .mon-side { background: var(--bg2); border: 1px solid var(--brd); border-radius: 14px; padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 8px; }
+    .mon-h { font-family: var(--mono); font-size: .58rem; color: var(--text3); text-transform: uppercase; letter-spacing: .14em; margin-top: 6px; }
+    .mon-h:first-child { margin-top: 0; }
+    .rbtn { text-align: start; background: var(--bg3); border: 1px solid var(--brd); border-inline-start: 2px solid transparent; border-radius: 7px; color: var(--text2); font-family: var(--body); font-size: .8rem; font-weight: 600; padding: 8px 12px; cursor: pointer; transition: all .18s; }
+    .rbtn:hover { background: rgba(255,255,255,.06); color: var(--text); transform: translateX(2px); }
+    [dir="rtl"] .rbtn:hover { transform: translateX(-2px); }
+    .rbtn.sel { border-inline-start-color: var(--red); color: var(--text); background: var(--red4); }
+    .mon-joules { display: flex; gap: 6px; }
+    .jbtn { flex: 1; background: var(--bg3); border: 1px solid var(--brd); border-radius: 6px; color: var(--text3); font-family: var(--mono); font-size: .68rem; padding: 6px 0; cursor: pointer; transition: all .18s; }
+    .jbtn:hover { color: var(--text2); border-color: var(--brd2); }
+    .jbtn.sel { background: rgba(240,165,0,.12); border-color: rgba(240,165,0,.45); color: #F0A500; }
+    .chg-btn, .shk-btn { position: relative; overflow: hidden; border-radius: 8px; font-family: var(--disp); font-weight: 800; letter-spacing: .12em; font-size: .98rem; padding: 12px 0; cursor: pointer; transition: all .2s; }
+    .chg-btn { background: var(--bg4); color: #F0A500; border: 1px solid rgba(240,165,0,.35); }
+    .chg-btn:hover { background: rgba(240,165,0,.14); }
+    .chg-btn .fill { position: absolute; inset-block: 0; inset-inline-start: 0; width: 0; background: rgba(240,165,0,.22); pointer-events: none; }
+    .chg-btn .chg-lbl { position: relative; z-index: 1; }
+    .shk-btn { background: linear-gradient(135deg,#E8152F,#C8102E); color: #fff; border: none; box-shadow: 0 4px 18px rgba(200,16,46,.35); }
+    .shk-btn:disabled { opacity: .3; cursor: not-allowed; box-shadow: none; }
+    .shk-btn:not(:disabled) { animation: pulseShk 1.3s ease-in-out infinite; }
+    .shk-btn:not(:disabled):hover { transform: translateY(-2px); filter: brightness(1.1); }
+    @keyframes pulseShk { 0%,100% { box-shadow: 0 4px 18px rgba(200,16,46,.35); } 50% { box-shadow: 0 4px 34px rgba(200,16,46,.8); } }
+    .mon-log { border-top: 1px dashed var(--brd2); margin-top: 6px; padding-top: 9px; display: flex; flex-direction: column; gap: 4px; }
+    .mon-log div { font-family: var(--mono); font-size: .62rem; color: var(--text3); line-height: 1.45; }
+    .mon-log div.okl { color: #22D36B; }
+    .mon-log div.badl { color: #FCA5A5; }
+    .mon-log div.warnl { color: #FDE68A; }
+    @media(max-width:1024px) { .mon-wrap { grid-template-columns: 1fr; } .mon-side { order: 2; } }
+
+    /* ─── FEATURES ─── */
+    .feat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 1.2rem; }
+    .feat-card { background: var(--bg3); border: 1px solid var(--brd); border-radius: 10px; padding: 24px; transition: transform .22s, border-color .22s, box-shadow .22s; position: relative; overflow: hidden; }
+    .feat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background: linear-gradient(180deg, var(--red), transparent); opacity: 0; transition: opacity .22s; }
+    .feat-card:hover { transform: translateY(-4px); border-color: rgba(200,16,46,.2); box-shadow: 0 10px 36px rgba(200,16,46,.08); }
+    .feat-card:hover::before { opacity: 1; }
+    .feat-ico { font-size: 1.5rem; margin-bottom: 14px; }
+    .feat-title { font-family: var(--disp); font-size: 1.08rem; font-weight: 700; color: var(--text); margin-bottom: 7px; }
+    .feat-desc { font-size: .8rem; color: var(--text2); line-height: 1.62; }
+
+    /* ─── HOW ─── */
+    .how-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 3rem; position: relative; max-width: 940px; margin: 0 auto; }
+    .how-grid::before { content: ''; position: absolute; top: 27px; left: calc(16.67% + 27px); right: calc(16.67% + 27px); height: 1px; background: linear-gradient(90deg, var(--red), rgba(200,16,46,.2), var(--red)); opacity: .35; }
+    .how-step { text-align: center; }
+    .step-n { width: 54px; height: 54px; border-radius: 50%; background: var(--red); display: flex; align-items: center; justify-content: center; font-family: var(--disp); font-size: 1.5rem; font-weight: 900; color: #fff; margin: 0 auto 16px; box-shadow: 0 4px 18px rgba(200,16,46,.42); }
+    .step-t { font-family: var(--disp); font-size: 1.02rem; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .step-d { font-size: .8rem; color: var(--text2); line-height: 1.62; }
+
+    /* ─── CTA ─── */
+    .cta-sec { padding: 5.5rem 2.5rem; text-align: center; position: relative; overflow: hidden; background: var(--bg2); }
+    .cta-sec::before { content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 560px; height: 360px; background: radial-gradient(ellipse, rgba(200,16,46,.1) 0%, transparent 70%); pointer-events: none; }
+    .cta-title { font-family: var(--disp); font-size: clamp(2.5rem,4.5vw,4rem); font-weight: 900; color: var(--text); letter-spacing: -0.02em; margin-bottom: 12px; position: relative; z-index: 1; }
+    .cta-sub { font-size: .91rem; color: var(--text2); margin-bottom: 32px; position: relative; z-index: 1; }
+    .cta-btns { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; position: relative; z-index: 1; }
+
+    /* ─── FOOTER ─── */
+    footer { background: #04050A; border-top: 1px solid var(--brd); padding: 2.5rem; }
+    .foot-row { max-width: 1260px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1.5rem; }
+    .foot-brand { display: flex; align-items: center; gap: 9px; }
+    .foot-cross { width: 22px; height: 22px; position: relative; flex-shrink: 0; }
+    .foot-cross::before, .foot-cross::after { content: ''; position: absolute; background: var(--red); border-radius: 1px; }
+    .foot-cross::before { width: 6px; height: 22px; left: 50%; transform: translateX(-50%); }
+    .foot-cross::after  { width: 22px; height: 6px; top: 50%; transform: translateY(-50%); }
+    .foot-brand-text .fn { font-family: var(--disp); font-size: .9rem; font-weight: 800; color: var(--text); display: block; }
+    .foot-brand-text .fs { font-family: var(--mono); font-size: .52rem; color: var(--text3); letter-spacing: .12em; display: block; text-transform: uppercase; }
+    .foot-links { display: flex; gap: 2rem; }
+    .foot-lnk { font-size: .76rem; color: var(--text3); text-decoration: none; transition: color .18s; }
+    .foot-lnk:hover { color: var(--text2); }
+    .foot-cp { font-family: var(--mono); font-size: .58rem; color: var(--text3); letter-spacing: .06em; }
+
+    /* ─── REVEAL ─── */
+    .rv { opacity: 0; transform: translateY(20px); transition: opacity .6s ease, transform .6s ease; }
+    .rv.in { opacity: 1; transform: translateY(0); }
+
+    /* ─── RESPONSIVE ─── */
+    @media(max-width:880px)  { .hero { grid-template-columns: 1fr; } .hero-r { padding: 0 2rem 3rem; } .car-stage { max-width: 460px; margin: 0 auto; } .feat-grid { grid-template-columns: repeat(2,1fr); } .stats-inner { grid-template-columns: repeat(2,1fr); } .how-grid { grid-template-columns: 1fr; } .how-grid::before { display: none; } .h-ops { flex-wrap: wrap; } }
+    @media(max-width:600px)  { .feat-grid { grid-template-columns: 1fr; } .hdr-nav .nav-lnk { display: none; } .foot-row { flex-direction: column; text-align: center; } .foot-links { justify-content: center; } }
+  
+/* Dark scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) rgba(255,255,255,0.03); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.14);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  html { scroll-behavior: auto; }
+}
+  </style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<header class="hdr">
+  <!-- DCA SVG Logo -->
+  <a href="/" class="brand" aria-label="Dubai Corporation for Ambulance Services">
+    <svg class="dca-logo" viewBox="0 0 205 48" xmlns="http://www.w3.org/2000/svg" dir="ltr">
+      <!-- ECG Heartbeat Waveform -->
+      <polyline class="ecg-line" points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34"
+        fill="none" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <!-- إسعاف Arabic -->
+      <text class="ar-text" x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" text-anchor="end" direction="ltr">إسعاف</text>
+      <!-- Ambulance English -->
+      <text class="en-text" x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" direction="ltr">Ambulance</text>
+    </svg>
+  </a>
+  <nav class="hdr-nav">
+    <a href="#demo" class="nav-lnk" data-i18n="nav.demo">Live Demo</a>
+    <a href="#monitor" class="nav-lnk" data-i18n="nav.monitor">Monitor</a>
+    <a href="#features" class="nav-lnk" data-i18n="nav.features">Features</a>
+    <a href="#how" class="nav-lnk" data-i18n="nav.about">About</a>
+    <a href="/login.html" class="btn-ghost" data-i18n="nav.login">Sign In</a>
+    <a href="/signup.html" class="btn-acc" data-i18n="nav.signup">Get Access</a>
+    <button class="lang-btn lang-toggle" id="langToggle">عربي</button>
+  </nav>
+</header>
+
+<!-- ═══ HERO ═══ -->
+<section class="hero">
+  <div class="hero-atm"></div>
+  <div class="light-r"></div>
+  <div class="light-b"></div>
+
+  <!-- LEFT: Text -->
+  <div class="hero-l">
+    <div class="h-eyebrow"><span class="h-dot"></span><span>AEMS v1.0 · OPERATIONAL</span></div>
+    <h1 class="h-title">
+      <span data-i18n="hero.title1">Equipment Management,</span>
+      <span class="acc" data-i18n="hero.title2">Reimagined.</span>
+    </h1>
+    <p class="h-sub" data-i18n="hero.subtitle">
+      Real-time inventory tracking, smart expiry alerts, and shift reporting — unified platform for every DCA station.
+    </p>
+    <div class="h-btns">
+      <a href="/login.html" class="btn-primary" data-i18n="hero.cta.primary">Sign In to Dashboard</a>
+      <a href="#monitor" class="btn-outline" data-i18n="hero.cta.monitor">Try the Monitor ↓</a>
+      <a href="#demo" class="btn-outline" data-i18n="hero.cta.demo">Explore the Vehicle ↓</a>
+    </div>
+    <!-- Operational stats row -->
+    <div class="h-ops">
+      <div class="ops-item">
+        <div class="ops-live"><span class="ops-live-dot"></span><span class="ops-live-txt">LIVE</span></div>
+        <div class="ops-lbl">System Status</div>
+      </div>
+      <div class="ops-item">
+        <div class="ops-val"><span class="counter" data-target="500">0</span><span class="r">+</span></div>
+        <div class="ops-lbl" data-i18n="stats.equipment">Equipment Items</div>
+      </div>
+      <div class="ops-item">
+        <div class="ops-val"><span class="counter" data-target="24">0</span></div>
+        <div class="ops-lbl" data-i18n="stats.stations">Active Stations</div>
+      </div>
+      <div class="ops-item">
+        <div class="ops-val">99.9<span class="r">%</span></div>
+        <div class="ops-lbl" data-i18n="stats.uptime">Uptime</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Interactive App Demo Window -->
+  <div class="hero-r">
+    <!-- Decorative radar rings behind window -->
+    <div class="radar" style="opacity:.35">
+      <div class="r-ring"></div><div class="r-ring"></div>
+      <div class="r-ring"></div><div class="r-ring"></div>
+    </div>
+
+    <!-- AEMS App Preview Window -->
+    <div class="app-win">
+      <!-- Title bar -->
+      <div class="aw-bar">
+        <div class="aw-dots">
+          <div class="aw-dot"></div><div class="aw-dot"></div><div class="aw-dot"></div>
+        </div>
+        <div class="aw-title">AEMS Dashboard · Station 7 · Unit 17</div>
+        <div class="aw-pill"><div class="aw-pill-dot"></div>LIVE</div>
+      </div>
+
+      <!-- App body -->
+      <div class="aw-body">
+        <!-- Sidebar: stations list -->
+        <div class="aw-sb">
+          <div class="aw-sb-hd">Stations</div>
+          <div class="aw-st on"><div class="aw-st-dot"></div>STA-7</div>
+          <div class="aw-st"><div class="aw-st-dot"></div>STA-12</div>
+          <div class="aw-st"><div class="aw-st-dot"></div>STA-3</div>
+          <div class="aw-st"><div class="aw-st-dot"></div>STA-18</div>
+          <div class="aw-st"><div class="aw-st-dot"></div>STA-21</div>
+          <div class="aw-sb-div"></div>
+          <div class="aw-sb-hd">Reports</div>
+          <div class="aw-st"><div class="aw-st-dot"></div>Shifts</div>
+          <div class="aw-st"><div class="aw-st-dot"></div>Expiry</div>
+        </div>
+
+        <!-- Main content -->
+        <div class="aw-main">
+          <!-- Unit strip -->
+          <div class="aw-unit">
+            <div class="aw-unit-id">Unit 17 · DXB·E·1701</div>
+            <div class="aw-unit-badge">SHIFT ACTIVE</div>
+          </div>
+
+          <!-- Equipment list -->
+          <div class="aw-eq">
+            <div class="aw-row">
+              <span class="aw-row-ico"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span>
+              <span class="aw-row-nm">Lifepak 15 Monitor</span>
+              <span class="aw-row-qty">×1</span>
+              <span class="aw-status ok">Ready</span>
+            </div>
+            <div class="aw-row">
+              <span class="aw-row-ico"><svg class="ic" aria-hidden="true"><use href="#i-droplet"/></svg></span>
+              <span class="aw-row-nm">O₂ Cylinder</span>
+              <span class="aw-row-qty">×3</span>
+              <span class="aw-status ok">Ready</span>
+            </div>
+            <div class="aw-row">
+              <span class="aw-row-ico"><svg class="ic" aria-hidden="true"><use href="#i-carevent"/></svg></span>
+              <span class="aw-row-nm">CAREVENT Ventilator</span>
+              <span class="aw-row-qty">×1</span>
+              <span class="aw-status chk">Check</span>
+            </div>
+            <div class="aw-row">
+              <span class="aw-row-ico"><svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg></span>
+              <span class="aw-row-nm">Medication Bag (ACLS)</span>
+              <span class="aw-row-qty">×1</span>
+              <span class="aw-status warn">Expiring</span>
+            </div>
+            <div class="aw-row">
+              <span class="aw-row-ico"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg></span>
+              <span class="aw-row-nm">Suction Unit</span>
+              <span class="aw-row-qty">×1</span>
+              <span class="aw-status ok">Ready</span>
+            </div>
+            <div class="aw-row">
+              <span class="aw-row-ico"><svg class="ic" aria-hidden="true"><use href="#i-backpack"/></svg></span>
+              <span class="aw-row-nm">First Responder Bag</span>
+              <span class="aw-row-qty">×2</span>
+              <span class="aw-status ok">Ready</span>
+            </div>
+            <div class="aw-row">
+              <span class="aw-row-ico"><svg class="ic" aria-hidden="true"><use href="#i-bed"/></svg></span>
+              <span class="aw-row-nm">Stretcher / Gurney</span>
+              <span class="aw-row-qty">×1</span>
+              <span class="aw-status ok">Ready</span>
+            </div>
+          </div>
+
+          <!-- Live expiry alert -->
+          <div class="aw-alert">
+            <span class="aw-alert-ico"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg></span>
+            <div>
+              <div class="aw-alert-title">Expiry Alert · 14 Days</div>
+              <div class="aw-alert-body">Morphine 3mg Ampoule — Unit 17 · Station 7. Schedule replacement before next shift.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ECG line across bottom -->
+  <div class="hero-ecg">
+    <svg class="ecg-svg" viewBox="0 0 1400 44" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+      <path class="ecg-path" d="M0,22 L80,22 L100,22 L112,6 L124,38 L136,2 L148,38 L160,22 L172,22 L240,22 L320,22 L332,22 L344,6 L356,38 L368,2 L380,38 L392,22 L404,22 L540,22 L552,22 L564,6 L576,38 L588,2 L600,38 L612,22 L624,22 L800,22 L812,22 L824,6 L836,38 L848,2 L860,38 L872,22 L884,22 L1100,22 L1112,22 L1124,6 L1136,38 L1148,2 L1160,38 L1172,22 L1184,22 L1400,22" stroke="#C8102E" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+</section>
+
+<div class="divider-strip"></div>
+
+<!-- ═══ STATS ═══ -->
+<div class="stats-bar rv" id="stats">
+  <div class="stats-inner">
+    <div class="s-item"><div class="s-num"><span class="counter" data-target="500">0</span><span class="acc">+</span></div><div class="s-lbl" data-i18n="stats.equipment">Equipment Items</div></div>
+    <div class="s-item"><div class="s-num"><span class="counter" data-target="24">0</span></div><div class="s-lbl" data-i18n="stats.stations">Active Stations</div></div>
+    <div class="s-item"><div class="s-num">99.9<span class="acc">%</span></div><div class="s-lbl" data-i18n="stats.uptime">System Uptime</div></div>
+    <div class="s-item"><div class="s-num"><span class="counter" data-target="1200">0</span><span class="acc">+</span></div><div class="s-lbl" data-i18n="stats.reports">Reports Generated</div></div>
+  </div>
+</div>
+
+<!-- ═══ INTERACTIVE DEMO ═══ -->
+<section class="sec" id="demo">
+  <div class="sec-inner">
+    <div class="sec-hd rv">
+      <div class="sec-tag" data-i18n="ambu.tag">Interactive Demo</div>
+      <h2 class="sec-title" data-i18n="ambu.title">Explore Every Unit</h2>
+      <p class="sec-sub" data-i18n="ambu.subtitle">Open the rear doors and tap any equipment slot to inspect it live</p>
+    </div>
+
+    <!-- Interactive CSS Ambulance -->
+    <div class="ambu-center rv">
+      <div class="rear-sec">
+        <div class="rear-sec-top">
+          <span class="rear-tag">REAR VIEW · INTERACTIVE</span>
+          <span style="font-size:.8rem;color:var(--text2)" data-i18n="ambu.subtitle.rear">Open the rear doors to inspect the full equipment bay</span>
+        </div>
+      <div class="rear-body">
+        <div class="ambu" id="ambuEl">
+          <div class="a-lb">
+            <div class="a-led r"></div><div class="a-led b"></div><div class="a-led r"></div><div class="a-led b"></div>
+            <div class="a-led r"></div><div class="a-led b"></div><div class="a-led r"></div><div class="a-led b"></div>
+            <div class="a-led r"></div><div class="a-led b"></div><div class="a-led r"></div><div class="a-led b"></div>
+            <div class="a-led r"></div><div class="a-led b"></div><div class="a-led r"></div><div class="a-led b"></div>
+            <div class="a-led r"></div><div class="a-led b"></div><div class="a-led r"></div><div class="a-led b"></div>
+          </div>
+          <div class="a-body">
+            <div class="a-hb">
+              <svg width="58" height="20" viewBox="0 0 58 20" fill="none">
+                <polyline points="0,12 9,12 13,4 17,18 22,2 27,14 31,12 58,12" stroke="#C8102E" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <div style="text-align:center">
+              <span class="a-brand-ar">إسعاف</span>
+              <span class="a-brand-en">AMBULANCE</span>
+            </div>
+            <div class="a-num">17</div>
+          </div>
+          <div class="a-stripe">
+            <div class="a-sb"></div>
+            <div class="a-ck-row">
+              <div class="ck r"></div><div class="ck w"></div><div class="ck b"></div><div class="ck w"></div>
+              <div class="ck r"></div><div class="ck w"></div><div class="ck b"></div><div class="ck w"></div>
+              <div class="ck r"></div><div class="ck w"></div><div class="ck b"></div><div class="ck w"></div>
+            </div>
+            <div class="a-sb" style="background:var(--red)"></div>
+          </div>
+          <div class="a-df">
+            <div class="i-room">
+              <div class="i-ceil"><div class="i-led"></div></div>
+              <div class="i-wall"><div class="i-win w1"></div><div class="i-win w2"></div></div>
+              <div class="i-fl-l"></div><div class="i-fl-r"></div>
+              <div class="i-floor"></div>
+              <div class="i-str">
+                <div class="str-shadow"></div>
+                <div class="str-leg l1"></div><div class="str-leg l2"></div><div class="str-leg l3"></div><div class="str-leg l4"></div>
+                <div class="str-wh w1"></div><div class="str-wh w2"></div>
+                <div class="str-frame"></div>
+                <div class="str-bed"></div>
+                <div class="str-pill"></div>
+                <div class="str-strap s1"></div><div class="str-strap s2"></div>
+              </div>
+              <button class="eq e-defib ok" type="button" onclick="openEq('lifepak')" id="s-lifepak" title="Lifepak 15 — Defibrillator"><span class="eq-led"></span>
+                <svg class="def-trace" viewBox="0 0 60 20" preserveAspectRatio="none"><polyline points="0,14 10,14 14,14 18,4 22,18 26,14 34,14 38,10 42,14 52,14 60,14"/></svg>
+              </button>
+              <button class="eq e-vent chk" type="button" onclick="openEq('carevent')" id="s-carevent" title="CAREVENT Ventilator"><span class="eq-led"></span></button>
+              <button class="eq e-med ok" type="button" onclick="openEq('medication')" id="s-medication" title="Medication Bag"><span class="eq-led"></span></button>
+              <button class="eq e-suc warn" type="button" onclick="openEq('suction')" id="s-suction" title="Suction Unit"><span class="eq-led"></span></button>
+              <button class="eq e-oxy ok" type="button" onclick="openEq('oxygen')" id="s-oxygen" title="O₂ Cylinders"><span class="eq-led"></span><span class="oxy-strap a"></span><span class="oxy-strap b"></span></button>
+              <button class="eq e-bag ok" type="button" onclick="openEq('responder')" id="s-responder" title="First Responder Bag"><span class="eq-led"></span></button>
+              <button class="eq e-str" type="button" onclick="openEq('stretcher')" id="s-stretcher" title="Power Stretcher"><span class="eq-name">STRETCHER</span></button>
+              <div class="i-light"></div>
+              <div class="i-shade"></div>
+            </div>
+            <div class="a-door door-l"><div class="d-hngs"><div class="hinge"></div><div class="hinge"></div><div class="hinge"></div></div>
+              <div class="d-face d-out"><div class="dp"><div class="d-win"></div><div class="d-brand"><div class="d-ar">إسعاف</div><div class="d-en">AMBULANCE</div></div><div class="d-hndl"></div></div></div>
+              <div class="d-face d-in"><div class="d-winin"></div><div class="d-grip"></div></div>
+            </div>
+            <div class="a-door door-r"><div class="d-hngs"><div class="hinge"></div><div class="hinge"></div><div class="hinge"></div></div>
+              <div class="d-face d-out"><div class="dp"><div class="d-win"></div><div class="d-brand"><div class="d-ar">دبي</div><div class="d-en">DUBAI</div></div><div class="d-hndl"></div></div></div>
+              <div class="d-face d-in"><div class="d-winin"></div><div class="d-grip"></div></div>
+            </div>
+            <div class="door-cl"></div>
+          </div>
+          <div class="a-bumper"><div class="a-plate">DXB · E · 1701</div></div>
+        </div>
+        <button class="open-btn" onclick="toggleDoors()"><span class="door-ico"><svg class="ic" aria-hidden="true"><use href="#i-door"/></svg></span> <span id="doorLbl" data-i18n="ambu.open">Open Rear Doors</span></button>
+        <div class="item-det" id="itemDet"></div>
+      </div>
+    </div>
+    </div><!-- /rear-sec -->
+    </div><!-- /ambu-center -->
+  </div>
+</section>
+
+<!-- ═══ PATIENT MONITOR SIMULATOR ═══ -->
+<section class="sec" id="monitor">
+  <div class="sec-inner">
+    <div class="sec-hd rv">
+      <div class="sec-tag" data-i18n="monitor.tag">Interactive Simulator</div>
+      <h2 class="sec-title" data-i18n="monitor.title">Try It Like You're On Shift</h2>
+      <p class="sec-sub" data-i18n="monitor.subtitle">A live patient monitor. Pick a rhythm, charge the defibrillator — and bring the patient back.</p>
+    </div>
+    <div class="mon-wrap rv">
+      <div class="mon-screen" id="monScreen">
+        <div class="mon-top">
+          <span class="mon-pt" data-i18n="monitor.pt">PT · AEMS DEMO 01</span>
+          <span class="mon-alarm" id="monAlarm"></span>
+          <button class="mon-snd" id="monSnd" type="button">SND OFF</button>
+        </div>
+        <div class="mon-traces">
+          <div class="mon-trace ecgw"><span class="mon-trace-lbl">ECG II</span><canvas id="ecgC"></canvas></div>
+          <div class="mon-trace spo2w"><span class="mon-trace-lbl">SpO₂</span><canvas id="plC"></canvas></div>
+          <div class="mon-trace co2w"><span class="mon-trace-lbl">EtCO₂</span><canvas id="co2C"></canvas></div>
+        </div>
+        <div class="mon-nums">
+          <div class="mon-num hr"><label>HR</label><output id="mHr">78</output></div>
+          <div class="mon-num spo2n"><label>SpO₂</label><output id="mSpo2">98%</output></div>
+          <div class="mon-num etco2n"><label>EtCO₂</label><output id="mEt">38</output></div>
+          <div class="mon-num bp"><label>NIBP</label><output id="mBp">118/76</output></div>
+        </div>
+      </div>
+      <aside class="mon-side">
+        <div class="mon-h" data-i18n="monitor.rhythms">Select rhythm</div>
+        <button class="rbtn sel" type="button" data-rhythm="nsr" data-i18n="monitor.r.nsr">Normal Sinus Rhythm</button>
+        <button class="rbtn" type="button" data-rhythm="tachy" data-i18n="monitor.r.tachy">Sinus Tachycardia</button>
+        <button class="rbtn" type="button" data-rhythm="vfib" data-i18n="monitor.r.vfib">Ventricular Fibrillation</button>
+        <button class="rbtn" type="button" data-rhythm="asystole" data-i18n="monitor.r.asy">Asystole</button>
+        <div class="mon-h" data-i18n="monitor.energy">Shock energy</div>
+        <div class="mon-joules">
+          <button class="jbtn" type="button" data-j="150">150 J</button>
+          <button class="jbtn sel" type="button" data-j="200">200 J</button>
+          <button class="jbtn" type="button" data-j="300">300 J</button>
+        </div>
+        <div class="mon-h" data-i18n="monitor.defib">Defibrillator</div>
+        <button class="chg-btn" type="button" id="monCharge"><span class="fill" id="monFill"></span><span class="chg-lbl" id="monChargeLbl">CHARGE 200J</span></button>
+        <button class="shk-btn" type="button" id="monShock" disabled data-i18n="monitor.shock">SHOCK</button>
+        <div class="mon-log" id="monLog"></div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FEATURES ═══ -->
+<section class="sec alt" id="features">
+  <div class="sec-inner">
+    <div class="sec-hd rv">
+      <div class="sec-tag">Features</div>
+      <h2 class="sec-title" data-i18n="features.title">Built for Emergency Services</h2>
+      <p class="sec-sub" data-i18n="features.subtitle">Every feature designed with paramedics and supervisors in mind.</p>
+    </div>
+    <div class="feat-grid">
+      <div class="feat-card rv"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-antenna"/></svg></div><div class="feat-title" data-i18n="features.sync.title">Real-Time Sync</div><p class="feat-desc" data-i18n="features.sync.desc">Real-time sync through the AEMS API keeps every station updated instantly. Changes propagate across all devices within milliseconds.</p></div>
+      <div class="feat-card rv" style="transition-delay:.07s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg></div><div class="feat-title" data-i18n="features.alerts.title">Smart Alerts</div><p class="feat-desc" data-i18n="features.alerts.desc">Automatic notifications for expiring medication, low stock levels, and equipment requiring inspection.</p></div>
+      <div class="feat-card rv" style="transition-delay:.14s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></div><div class="feat-title" data-i18n="features.reports.title">Shift Reports</div><p class="feat-desc" data-i18n="features.reports.desc">Generate professional shift reports with one click. Share via WhatsApp or export as PDF.</p></div>
+      <div class="feat-card rv" style="transition-delay:.07s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></div><div class="feat-title" data-i18n="features.audit.title">Audit Trail</div><p class="feat-desc" data-i18n="features.audit.desc">Complete history of every equipment change, inspection, and usage event with timestamps.</p></div>
+      <div class="feat-card rv" style="transition-delay:.14s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg></div><div class="feat-title" data-i18n="features.stations.title">Multi-Station</div><p class="feat-desc" data-i18n="features.stations.desc">Manage equipment across all DCA stations from a single dashboard with per-station filtering.</p></div>
+      <div class="feat-card rv" style="transition-delay:.21s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-smartphone"/></svg></div><div class="feat-title" data-i18n="features.mobile.title">Mobile Ready</div><p class="feat-desc" data-i18n="features.mobile.desc">Fully responsive design works seamlessly on tablets and smartphones used in the field.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ HOW ═══ -->
+<section class="sec" id="how">
+  <div class="sec-inner">
+    <div class="sec-hd rv">
+      <div class="sec-tag">Process</div>
+      <h2 class="sec-title" data-i18n="how.title">How It Works</h2>
+    </div>
+    <div class="how-grid">
+      <div class="how-step rv"><div class="step-n">1</div><div class="step-t" data-i18n="how.step1.title">Request Access</div><p class="step-d" data-i18n="how.step1.desc">Sign up with your DCA Employee ID. Your supervisor approves your account.</p></div>
+      <div class="how-step rv" style="transition-delay:.13s"><div class="step-n">2</div><div class="step-t" data-i18n="how.step2.title">Sign In</div><p class="step-d" data-i18n="how.step2.desc">Authenticate with your work email and password. Station data loads instantly.</p></div>
+      <div class="how-step rv" style="transition-delay:.26s"><div class="step-n">3</div><div class="step-t" data-i18n="how.step3.title">Manage & Report</div><p class="step-d" data-i18n="how.step3.desc">Track equipment, log inspections, and generate shift reports.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CTA ═══ -->
+<section class="cta-sec">
+  <div class="rv">
+    <h2 class="cta-title" data-i18n="cta.title">Ready to get started?</h2>
+    <p class="cta-sub" data-i18n="cta.subtitle">Join Dubai Corporation of Ambulance staff already using AEMS.</p>
+    <div class="cta-btns">
+      <a href="/login.html" class="btn-primary" data-i18n="cta.signin">Sign In</a>
+      <a href="/signup.html" class="btn-outline" data-i18n="cta.signup">Request Access</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ FOOTER ═══ -->
+<footer>
+  <div class="foot-row">
+    <div class="foot-brand">
+      <svg viewBox="0 0 205 48" xmlns="http://www.w3.org/2000/svg" dir="ltr" style="height:34px;width:auto;opacity:.8">
+        <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34"
+          fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
+        <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
+      </svg>
+      <div class="foot-brand-text">
+        <span class="fs">مؤسسة دبي للإسعاف · Dubai Ambulance</span>
+      </div>
+    </div>
+    <div class="foot-links">
+      <a href="/login.html" class="foot-lnk" data-i18n="footer.login">Sign In</a>
+      <a href="/signup.html" class="foot-lnk" data-i18n="footer.signup">Sign Up</a>
+    </div>
+    <div class="foot-cp" data-i18n="footer.rights">© 2026 Dubai Corporation of Ambulance. All rights reserved.</div>
+  </div>
+</footer>
+
+<script type="module">
+import { initI18n, setLanguage, getCurrentLang, onLanguageChanged, t } from './js/i18n.js';
+import { mountSprite } from './js/icons.js';
+import { getApiBase } from './js/api.js';
+mountSprite();
+initI18n();
+document.getElementById('langToggle').addEventListener('click', () => {
+  setLanguage(getCurrentLang() === 'en' ? 'ar' : 'en');
+  updateDoorLbl();
+});
+
+function animCounter(el) {
+  const tgt = +el.dataset.target, dur = 1600, t0 = performance.now();
+  (function tick(now) {
+    const p = Math.min((now-t0)/dur,1);
+    el.textContent = Math.round((1-Math.pow(1-p,3))*tgt).toLocaleString();
+    if(p<1) requestAnimationFrame(tick);
+  })(t0);
+}
+const io = new IntersectionObserver(entries => entries.forEach(e => {
+  if(e.isIntersecting) { e.target.classList.add('in'); e.target.querySelectorAll('.counter').forEach(animCounter); io.unobserve(e.target); }
+}), {threshold:.1});
+document.querySelectorAll('.rv').forEach(el => io.observe(el));
+
+// Hero counters aren't inside a .rv block — animate them once stats are in.
+// Try to replace the "24 Active Stations" demo number with the real count.
+(async () => {
+  const base = getApiBase();
+  if (!base) return;
+  try {
+    const r = await fetch(base + '/public/stations', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      const j = await r.json();
+      const d = j && j.data;
+      const arr = Array.isArray(d) ? d : ((d && d.stations) || []);
+      if (arr.length) document.querySelectorAll('.counter[data-target="24"]').forEach(el => { el.dataset.target = String(arr.length); el.textContent = '0'; });
+    }
+  } catch { /* API offline — keep demo numbers */ }
+  document.querySelectorAll('.hero-l .counter').forEach(el => animCounter(el));
+})();
+
+// ── Live patient-monitor simulator ──────────────────────────
+const mon = { rhythm:'nsr', joules:200, charged:false, charging:false, sound:false, visible:false, t:0 };
+const RDEF = {
+  nsr:      { bpm:78,  rr:14, spo2:98, et:38, bp:'118/76', label:'monitor.r.nsr' },
+  tachy:    { bpm:134, rr:26, spo2:95, et:33, bp:'104/68', label:'monitor.r.tachy' },
+  vfib:     { bpm:null, rr:null, spo2:null, et:null, bp:null, label:'monitor.r.vfib' },
+  asystole: { bpm:null, rr:null, spo2:null, et:null, bp:null, label:'monitor.r.asy' },
+};
+const isCritical = k => k === 'vfib' || k === 'asystole';
+function gauss(p,c,w){ const x=(p-c)/w; return Math.exp(-x*x); }
+function ecgAt(sec){
+  const r = mon.rhythm;
+  if (r==='vfib') return .40*Math.sin(sec*29.5)+.30*Math.sin(sec*50.2+1.1)+.20*Math.sin(sec*77+2.6)+.04*(Math.random()*2-1);
+  if (r==='asystole') return .015*(Math.random()*2-1);
+  const T=60/RDEF[r].bpm, p=(sec%T)/T;
+  return .11*gauss(p,.16,.02) - .10*gauss(p,.222,.006) + 1*gauss(p,.24,.008) - .26*gauss(p,.258,.008) + .28*gauss(p,.40,.035);
+}
+function plethAt(sec){
+  const r = mon.rhythm;
+  if (isCritical(r)) return .02*(Math.random()*2-1);
+  const T=60/RDEF[r].bpm, s=(sec%T)/T;
+  return Math.pow(Math.sin(Math.PI*s),1.7)*(.92+.12*Math.sin(2*Math.PI*s));
+}
+function capnoAt(sec){
+  const r = mon.rhythm;
+  if (r==='asystole') return 0;
+  if (r==='vfib') return .05+.05*Math.abs(Math.sin(sec*1.4));
+  const T=60/RDEF[r].rr, s=(sec%T)/T;
+  const up=Math.min(1,Math.max(0,(s-.06)/.07)), dn=Math.min(1,Math.max(0,(s-.50)/.08));
+  return up*(1-dn);
+}
+const monScreen = document.getElementById('monScreen');
+const traces = [
+  { el:document.getElementById('ecgC'), h:110, amp:36, y0:72, color:'#22D36B', fn:ecgAt, buf:[] },
+  { el:document.getElementById('plC'),  h:62,  amp:22, y0:40, color:'#4A90E2', fn:plethAt, buf:[] },
+  { el:document.getElementById('co2C'), h:58,  amp:20, y0:40, color:'#F0A500', fn:capnoAt, buf:[] },
+];
+const SPEED = 230; // px of trace drawn per second
+let MW = 600;
+const motionOK = !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+function sizeTraces(){
+  const dpr = window.devicePixelRatio||1;
+  const cw = traces[0].el.parentElement.clientWidth || 600;
+  MW = Math.max(240, cw);
+  traces.forEach(tr => {
+    tr.el.style.height = tr.h+'px';
+    tr.el.width = MW*dpr; tr.el.height = tr.h*dpr;
+    tr.ctx = tr.el.getContext('2d'); tr.ctx.setTransform(dpr,0,0,dpr,0,0);
+    while (tr.buf.length > MW) tr.buf.shift();
+  });
+}
+function drawTrace(tr){
+  const ctx=tr.ctx; if(!ctx) return;
+  ctx.clearRect(0,0,MW,tr.h);
+  ctx.strokeStyle='rgba(255,255,255,.03)'; ctx.lineWidth=1;
+  for(let x=0;x<MW;x+=22){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,tr.h); ctx.stroke(); }
+  for(let y=0;y<tr.h;y+=18){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(MW,y); ctx.stroke(); }
+  ctx.strokeStyle=tr.color; ctx.lineWidth=1.6; ctx.shadowColor=tr.color; ctx.shadowBlur=7;
+  ctx.beginPath();
+  for(let i=0;i<tr.buf.length;i++){
+    const x=MW-tr.buf.length+i, y=tr.y0-tr.buf[i]*tr.amp;
+    i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  }
+  ctx.stroke(); ctx.shadowBlur=0;
+}
+function prefillTraces(){
+  traces.forEach(tr => { tr.buf=[]; for(let i=0;i<MW;i++) tr.buf.push(tr.fn(i/SPEED - MW/SPEED)); drawTrace(tr); });
+}
+function refreshNums(){
+  const d=RDEF[mon.rhythm], crit=isCritical(mon.rhythm);
+  const set=(id,v,c)=>{ const el=document.getElementById(id); el.textContent=v; el.classList.toggle('crit',!!c); };
+  if(crit){ set('mHr','––',true); set('mSpo2','––',true); set('mEt','––',true); set('mBp','––',true); return; }
+  const j=Math.sin(mon.t*.9)*1.5+(Math.random()*2-1);
+  set('mHr',Math.round(d.bpm+j));
+  set('mSpo2',Math.max(90,Math.round(d.spo2+(Math.random()<.2?-1:0)))+'%');
+  set('mEt',Math.round(d.et+Math.sin(mon.t*.5)*1.4));
+  set('mBp',d.bp);
+}
+// ── sound (WebAudio, user-gated) ──
+let AC=null, lastBeat=-1, alarmAcc=0;
+function actx(){ try { AC = AC || new AudioContext(); return AC; } catch { return null; } }
+function beep(freq,dur=0.07,vol=0.05,type='sine'){
+  if(!mon.sound) return; const a=actx(); if(!a) return;
+  try{ const o=a.createOscillator(), g=a.createGain(); o.type=type; o.frequency.value=freq;
+    g.gain.value=vol; o.connect(g); g.connect(a.destination); o.start();
+    g.gain.setTargetAtTime(0,a.currentTime+dur*.6,.02); o.stop(a.currentTime+dur+.08); }catch{}
+}
+function zapSound(){
+  if(!mon.sound) return; const a=actx(); if(!a) return;
+  try{ const dur=.4, b=a.createBuffer(1,a.sampleRate*dur,a.sampleRate), d=b.getChannelData(0);
+    for(let i=0;i<d.length;i++){ const p=i/d.length; d[i]=((Math.random()*2-1)*.5+Math.sin(2*Math.PI*(170-130*p)*i/a.sampleRate))*(1-p)*.6; }
+    const s=a.createBufferSource(); s.buffer=b; const g=a.createGain(); g.gain.value=.16; s.connect(g); g.connect(a.destination); s.start(); }catch{}
+}
+// ── main loop ──
+let numAcc=0, lastTs=performance.now();
+function step(now){
+  requestAnimationFrame(step);
+  const dt=Math.min(.06,(now-lastTs)/1000); lastTs=now;
+  if(!mon.visible || !motionOK) return;
+  mon.t+=dt;
+  const n=Math.max(1,Math.round(dt*SPEED));
+  traces.forEach(tr => {
+    for(let i=0;i<n;i++){ tr.buf.push(tr.fn(mon.t-(n-1-i)/SPEED)); while(tr.buf.length>MW) tr.buf.shift(); }
+    drawTrace(tr);
+  });
+  const d=RDEF[mon.rhythm];
+  if(!isCritical(mon.rhythm) && d.bpm){
+    const beat=Math.floor(mon.t/(60/d.bpm));
+    if(beat!==lastBeat){ lastBeat=beat; beep(d.bpm>100?988:880,.06,.05); }
+  } else { alarmAcc+=dt; if(alarmAcc>1.6){ alarmAcc=0; [0,170,340].forEach(ms=>setTimeout(()=>beep(1320,.1,.055,'square'),ms)); } }
+  numAcc+=dt; if(numAcc>.5){ numAcc=0; refreshNums(); }
+}
+// ── UI wiring ──
+function mlog(text, cls){
+  const box=document.getElementById('monLog');
+  const div=document.createElement('div');
+  if(cls) div.className=cls;
+  div.textContent=new Date().toLocaleTimeString('en-GB',{hour12:false})+'  '+text;
+  box.prepend(div);
+  while(box.children.length>5) box.lastChild.remove();
+}
+const shockBtn=document.getElementById('monShock');
+const fillEl=document.getElementById('monFill');
+function disarm(){ mon.charged=false; mon.charging=false; shockBtn.disabled=true; fillEl.style.width='0'; updateChargeLbl(); }
+function updateChargeLbl(){ document.getElementById('monChargeLbl').textContent=t('monitor.charge',{j:mon.joules}); }
+function setRhythm(key, logIt=true){
+  if(!RDEF[key]) return;
+  mon.rhythm=key; lastBeat=-1; alarmAcc=0;
+  document.querySelectorAll('.rbtn').forEach(b=>b.classList.toggle('sel',b.dataset.rhythm===key));
+  const crit=isCritical(key);
+  monScreen.classList.toggle('alarm',crit);
+  document.getElementById('monAlarm').textContent = key==='vfib' ? t('monitor.alarm') : key==='asystole' ? t('monitor.alarm2') : '';
+  disarm();
+  if(logIt) mlog(t('monitor.log.rhythm',{ r:t(RDEF[key].label) }), crit?'badl':'');
+  refreshNums();
+  if(!motionOK) prefillTraces();
+}
+document.querySelectorAll('.rbtn').forEach(b=>b.addEventListener('click',()=>setRhythm(b.dataset.rhythm)));
+document.querySelectorAll('.jbtn').forEach(b=>b.addEventListener('click',()=>{
+  if(mon.charging) return;
+  document.querySelectorAll('.jbtn').forEach(x=>x.classList.toggle('sel',x===b));
+  mon.joules=+b.dataset.j; updateChargeLbl();
+}));
+document.getElementById('monCharge').addEventListener('click',()=>{
+  if(mon.charging) return;
+  if(mon.charged){ disarm(); mlog(t('monitor.log.disarm'),'warnl'); return; }
+  mon.charging=true; mlog(t('monitor.log.charging'),'warnl');
+  const t0=performance.now(), D=1400;
+  [600,750,900,1050,1200].forEach((f,i)=>setTimeout(()=>beep(f,.09,.05,'square'),i*260));
+  (function tick(){
+    const p=Math.min(1,(performance.now()-t0)/D);
+    fillEl.style.width=(p*100)+'%';
+    if(p<1){ requestAnimationFrame(tick); return; }
+    mon.charging=false; mon.charged=true; shockBtn.disabled=false;
+    document.getElementById('monChargeLbl').textContent=t('monitor.charge2');
+    mlog(t('monitor.log.charged',{ j:mon.joules }),'okl');
+  })();
+});
+shockBtn.addEventListener('click',()=>{
+  if(!mon.charged) return;
+  const r=mon.rhythm, j=mon.joules;
+  disarm(); zapSound();
+  monScreen.classList.remove('shocked'); void monScreen.offsetWidth; monScreen.classList.add('shocked');
+  mlog(t('monitor.log.shock',{ j }),'okl');
+  if(r==='vfib'){ setRhythm('nsr',false); setTimeout(()=>mlog(t('monitor.log.rosc'),'okl'),550); }
+  else if(r==='tachy'){ setRhythm('nsr',false); setTimeout(()=>mlog(t('monitor.log.cardio'),'okl'),550); }
+  else if(r==='asystole'){ mlog(t('monitor.log.notind'),'badl'); }
+  else { mlog(t('monitor.log.noshock'),'warnl'); }
+});
+document.getElementById('monSnd').addEventListener('click',e=>{
+  mon.sound=!mon.sound;
+  e.currentTarget.classList.toggle('on',mon.sound);
+  e.currentTarget.textContent=mon.sound?'SND ON':'SND OFF';
+  if(mon.sound) actx();
+});
+onLanguageChanged(()=>{ updateChargeLbl(); document.getElementById('monAlarm').textContent = mon.rhythm==='vfib'?t('monitor.alarm'):mon.rhythm==='asystole'?t('monitor.alarm2'):''; });
+new IntersectionObserver(es=>es.forEach(e=>{ mon.visible=e.isIntersecting; }), { threshold:.15 }).observe(document.querySelector('.mon-wrap'));
+window.addEventListener('resize',()=>{ sizeTraces(); if(!motionOK) prefillTraces(); });
+sizeTraces(); setRhythm('nsr',false); refreshNums();
+mlog(t('monitor.log.ready'));
+if(motionOK){ requestAnimationFrame(step); } else { prefillTraces(); }
+
+let doorsOpen=false;
+function updateDoorLbl() {
+  const l=document.getElementById('doorLbl');
+  l.setAttribute('data-i18n',doorsOpen?'ambu.close':'ambu.open');
+  l.textContent=t(doorsOpen?'ambu.close':'ambu.open');
+}
+window.toggleDoors=function(){
+  doorsOpen=!doorsOpen;
+  document.getElementById('ambuEl').classList.toggle('open',doorsOpen);
+  updateDoorLbl();
+  if(!doorsOpen){document.getElementById('itemDet').classList.remove('on');document.querySelectorAll('.eq').forEach(s=>s.classList.remove('sel'));}
+};
+
+const EQ={
+  lifepak:  {i:'<svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg>',nk:'ambu.equip.lifepak',  c:'Cardiac Monitor / Defibrillator',q:1,  e:'N/A',        ck:'Apr 20',l:'Upper left bay',   s:'ok', sk:'ambu.status.ready'},
+  oxygen:   {i:'<svg class="ic" aria-hidden="true"><use href="#i-droplet"/></svg>',nk:'ambu.equip.oxygen',   c:'Respiratory Support',            q:2,  e:'N/A',        ck:'Apr 22',l:'Right wall',       s:'ok', sk:'ambu.status.ready'},
+  carevent: {i:'<svg class="ic" aria-hidden="true"><use href="#i-carevent"/></svg>',nk:'ambu.equip.carevent', c:'Mechanical Ventilator',          q:1,  e:'N/A',        ck:'Apr 10',l:'Upper right bay',  s:'chk',sk:'ambu.status.check'},
+  medication:{i:'<svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg>',nk:'ambu.equip.medication',c:'Medication Bag',               q:1,  e:'Aug 2026',   ck:'Apr 21',l:'Centre shelf',     s:'ok', sk:'ambu.status.ready'},
+  suction:  {i:'<svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg>',nk:'ambu.equip.suction',  c:'Suction Device',                q:1,  e:'N/A',        ck:'Apr 18',l:'Lower shelf',      s:'warn',sk:'ambu.status.low'},
+  responder:{i:'<svg class="ic" aria-hidden="true"><use href="#i-backpack"/></svg>',nk:'ambu.equip.responder',c:'First Responder Bag',           q:1,  e:'Various',    ck:'Apr 20',l:'Lower right',      s:'ok', sk:'ambu.status.ready'},
+  stretcher:{i:'<svg class="ic" aria-hidden="true"><use href="#i-bed"/></svg>',nk:'ambu.equip.stretcher',c:'Patient Transport',             q:1,  e:'N/A',        ck:'Apr 22',l:'Floor centre',     s:'ok', sk:'ambu.status.ready'},
+};
+const bdgMap={ok:'bdg ok',warn:'bdg warn',chk:'bdg chk'};
+window.openEq=function(key){
+  if(!doorsOpen)return;
+  const d=EQ[key];if(!d)return;
+  document.querySelectorAll('.eq').forEach(s=>s.classList.remove('sel'));
+  document.getElementById('s-'+key)?.classList.add('sel');
+  const el=document.getElementById('itemDet');
+  el.innerHTML=`<div class="id-ico">${d.i}</div><div><div class="id-nm">${t(d.nk)}</div><div class="id-cat">${d.c}</div><div class="id-row"><div class="id-f"><div class="id-l">Qty</div><div class="id-v">${d.q}</div></div><div class="id-f"><div class="id-l">Expiry</div><div class="id-v">${d.e}</div></div><div class="id-f"><div class="id-l">Last Check</div><div class="id-v">${d.ck}</div></div><div class="id-f"><div class="id-l">Location</div><div class="id-v">${d.l}</div></div><div class="id-f"><div class="id-l">Status</div><div class="id-v"><span class="${bdgMap[d.s]}">${t(d.sk)}</span></div></div></div></div>`;
+  el.classList.add('on');
+};
+</script>
+</body>
+</html>

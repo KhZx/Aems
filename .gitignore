@@ -1,0 +1,50 @@
+# ═══════════════════════════════════════════════════════════════
+#  AEMS — Git ignore
+#  Source code only. Secrets and build artifacts never reach GitHub.
+# ═══════════════════════════════════════════════════════════════
+
+# ── Secrets (NEVER commit) ────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+firebase-adminsdk*.json
+
+# ── Dependencies ──────────────────────────────────────────────
+node_modules/
+
+# ── Build output ──────────────────────────────────────────────
+dist/
+build/
+*.tsbuildinfo
+
+# ── Prisma ────────────────────────────────────────────────────
+server/prisma/migrations/dev.db*
+
+# ── Logs ──────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── Testing / coverage ────────────────────────────────────────
+coverage/
+.tmp/
+
+# ── OS / editor ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# ── Stray project copies ──────────────────────────────────────
+_archive/
+pictures/New\ folder/
+temporary screenshots/
+* - Copy*
+
+# ── Deploy tooling / local overrides ──────────────────────────
+.vercel/
+*.local

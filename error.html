@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="pageTitle">AEMS — 404</title>
+  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=Outfit:wght@300;400;500;600;700&family=Cairo:wght@400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --red: #C8102E; --red2: #E52030;
+      --teal: #3CF2A8; --teal-dim: rgba(60,242,168,.55);
+      --bg: #06080F; --bg2: #0C0E18; --bg3: #111420;
+      --text: #E8EAF2; --text2: #686A80; --text3: #3A3C50;
+      --brd: rgba(255,255,255,0.055);
+      --disp: 'Barlow Condensed', sans-serif;
+      --body: 'Outfit', sans-serif;
+      --mono: 'Share Tech Mono', monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    html[dir="ltr"] { direction: ltr; }
+    html[dir="rtl"] { direction: rtl; }
+    html, body { height: 100%; }
+    body {
+      font-family: var(--body); background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      overflow: hidden; position: relative;
+    }
+
+    /* ── Ambient background ── */
+    body::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: .022;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.88' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+    .orb { position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0; }
+    .orb-1 { width: 420px; height: 420px; background: var(--red); top: -10%; right: -8%; opacity: .08; }
+    .orb-2 { width: 340px; height: 340px; background: #1E3A5F; bottom: -12%; left: -6%; opacity: .1; }
+
+    /* Red "code blue" pulse once the page flatlines */
+    .code-blue { position: fixed; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(60% 50% at 50% 50%, rgba(200,16,46,.16), transparent 70%); opacity: 0; transition: opacity 1.2s ease; }
+    body.flatline .code-blue { animation: codeBlue 1.5s ease-in-out infinite; }
+    @keyframes codeBlue { 0%,100% { opacity: .25; } 50% { opacity: .55; } }
+
+    .siren-line {
+      position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 100;
+      background: linear-gradient(90deg, transparent, var(--red), transparent);
+      animation: sirenSweep 2.5s ease-in-out infinite; opacity: .6;
+    }
+    @keyframes sirenSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+
+    .container {
+      position: relative; z-index: 1; text-align: center;
+      animation: fadeUp .6s ease forwards; max-width: 640px; padding: 1.4rem 2rem 2rem; width: 100%;
+    }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── Top bar ── */
+    .topbar {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px; font-size: .8rem;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .06em; color: var(--text2); }
+    .brand .emblem { color: var(--red); }
+    .brand b { color: var(--text); font-family: var(--disp); font-weight: 800; font-size: .95rem; letter-spacing: .02em; }
+    .lang-btn {
+      font-family: var(--body); font-size: .78rem; font-weight: 600; cursor: pointer;
+      color: var(--text2); background: rgba(255,255,255,.04);
+      border: 1px solid var(--brd); border-radius: 8px; padding: 6px 12px; transition: all .2s;
+    }
+    .lang-btn:hover { color: var(--text); background: rgba(255,255,255,.08); }
+
+    /* ── Error code ── */
+    .error-code {
+      position: relative; display: inline-block;
+      font-family: var(--disp); font-size: clamp(6rem, 20vw, 10rem); font-weight: 900;
+      line-height: 1; letter-spacing: -.04em; margin-top: 2.2rem;
+      background: linear-gradient(135deg, var(--red2), var(--red));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; filter: drop-shadow(0 10px 40px rgba(200,16,46,.30));
+    }
+    .error-code::after {
+      /* faint ECG grid behind the digits */
+      content: ''; position: absolute; inset: -14% -8%; z-index: -1; pointer-events: none; opacity: .07;
+      background-image:
+        repeating-linear-gradient(90deg, rgba(150,180,255,.5) 0 1px, transparent 1px 18px),
+        repeating-linear-gradient(0deg, rgba(150,180,255,.5) 0 1px, transparent 1px 18px);
+      background-size: 90px 36px;
+    }
+    body.flatline .error-code { animation: flatGlitch .9s steps(2) infinite; }
+    @keyframes flatGlitch {
+      0%, 100% { opacity: 1; transform: skewX(0); }
+      30% { opacity: .82; transform: skewX(-1.5deg); }
+      60% { opacity: .92; transform: skewX(1.2deg); }
+    }
+
+    /* ── Rhythm strip (telemetry) ── */
+    .strip {
+      position: relative; margin: 1.6rem auto 2rem; max-width: 620px; width: 100%;
+      background: rgba(10,16,22,.82); border: 1px solid var(--brd); border-radius: 14px;
+      overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0,0,0,.4), 0 12px 40px rgba(0,0,0,.45);
+    }
+    .strip-top {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 16px; border-bottom: 1px solid var(--brd);
+      font-family: var(--mono); font-size: .68rem; letter-spacing: .12em; color: var(--text3);
+    }
+    .strip-flag { display: flex; align-items: center; gap: 8px; }
+    .strip-flag::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--teal); animation: blink 1s ease-in-out infinite; }
+    body.flatline .strip-flag::before { animation: none; background: var(--red); }
+    .strip-hr { color: var(--text2); }
+    .strip-hr b { color: var(--teal); font-weight: 400; }
+    body.flatline .strip-hr b { color: var(--red); }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+
+    .ecg-scroll { position: relative; padding: 10px 0 4px; background: rgba(0,6,8,.55); }
+    .ecg-scroll::before {
+      content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+      background-image:
+        repeating-linear-gradient(90deg, rgba(120,160,220,.13) 0 1px, transparent 1px 20px),
+        repeating-linear-gradient(0deg, rgba(120,160,220,.14) 0 1px, transparent 1px 20px);
+    }
+    .ecg-scroll svg { display: block; width: 100%; height: 96px; position: relative; }
+    .ecg-tile path, .ecg-flat, .shock-spike {
+      fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .ecg-tile path { stroke: var(--teal); filter: drop-shadow(0 0 6px var(--teal-dim)); }
+    .ecg-tile { animation: ecgScroll 1.5s linear infinite; }
+    @keyframes ecgScroll { to { transform: translateX(-300px); } }
+
+    .ecg-flat { stroke: var(--red); opacity: 0; transition: opacity .5s ease; }
+    body.flatline .ecg-tile { animation: none; opacity: 0; transform: none; }
+    body.flatline .ecg-flat { opacity: 1; filter: drop-shadow(0 0 5px rgba(200,16,46,.7)); }
+
+    .shock-spike { stroke: #ffffff; opacity: 0; }
+
+    .flatline-tag {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-40%);
+      font-family: var(--mono); font-size: .8rem; letter-spacing: .32em; font-weight: 700;
+      color: var(--red2); opacity: 0; transition: all .45s ease; pointer-events: none;
+      text-shadow: 0 0 14px rgba(229,32,48,.8), 0 0 40px rgba(229,32,48,.4);
+    }
+    body.flatline .flatline-tag { opacity: 1; transform: translate(-50%,-50%); }
+
+    body.shock .strip { animation: shack 0.32s cubic-bezier(.36,.07,.19,.97) both; }
+    body.shock .ecg-tile, body.shock .ecg-flat { opacity: 0; animation: none; }
+    body.shock .shock-spike { animation: spikeFlash 0.34s linear; }
+    @keyframes shack {
+      0%,100% { transform: translate(0,0) rotate(0); }
+      20% { transform: translate(-8px,2px) rotate(-.6deg); }
+      40% { transform: translate(7px,-2px) rotate(.5deg); }
+      60% { transform: translate(-5px,1px) rotate(-.4deg); }
+      80% { transform: translate(4px,0) rotate(.3deg); }
+    }
+    @keyframes spikeFlash { 0% { opacity: 0; } 15% { opacity: 1; } 50% { opacity: .9; } 100% { opacity: 0; } }
+
+    /* ── Copy ── */
+    .error-title {
+      font-family: var(--disp); font-size: 1.7rem; font-weight: 700; letter-spacing: -.01em;
+    }
+    .error-msg {
+      color: var(--text2); font-size: .92rem; line-height: 1.6; margin-top: .5rem;
+    }
+    .afterlife {
+      min-height: 1.4em; margin-top: .9rem; font-size: .82rem; color: var(--text3); font-family: var(--mono);
+    }
+    .error-detail {
+      font-family: var(--mono); font-size: .72rem; color: var(--text3);
+      background: rgba(255,255,255,.03); border: 1px solid var(--brd);
+      border-radius: 8px; padding: 10px 14px; margin-top: 1rem;
+      word-break: break-word; max-height: 80px; overflow-y: auto; display: none; text-align: start;
+    }
+    .error-detail.visible { display: block; }
+
+    /* ── Actions ── */
+    .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 1.4rem; }
+    .btn {
+      padding: 11px 26px; border-radius: 10px; font-family: var(--body);
+      font-size: .88rem; font-weight: 600; cursor: pointer;
+      border: none; text-decoration: none; display: inline-flex;
+      align-items: center; gap: 7px; transition: all .2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--red2), var(--red));
+      color: #fff; box-shadow: 0 4px 16px rgba(200,16,46,.35);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(200,16,46,.5); }
+    .btn-ghost { background: rgba(255,255,255,.04); color: var(--text2); border: 1px solid var(--brd); }
+    .btn-ghost:hover { background: rgba(255,255,255,.08); color: var(--text); }
+    .btn-defib {
+      background: linear-gradient(135deg, #2563EB, #1D4ED8); color: #fff;
+      box-shadow: 0 4px 16px rgba(37,99,235,.35); display: none;
+    }
+    .btn-defib:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(37,99,235,.55); }
+    .btn-defib::before { content: '⚡'; margin-inline-end: 6px; }
+
+    .footer-note {
+      margin-top: 2.2rem; font-size: .7rem; color: var(--text3);
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .pulse-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--red);
+      display: inline-block; animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: .4; } 50% { opacity: 1; } }
+    body.flatline .pulse-dot { animation: none; background: var(--text3); }
+
+    * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) rgba(255,255,255,0.03); }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ecg-tile, .siren-line, body.flatline .error-code, body.shock .strip { animation: none !important; }
+      .ecg-tile { position: absolute; opacity: 0; }
+      body:not(.flatline) .ecg-tile { opacity: 1; position: static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="siren-line"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="code-blue"></div>
+
+  <div class="topbar">
+    <div class="brand">
+      <svg class="emblem" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M9 2h6v7h7v6h-7v7H9v-7H2V9h7z"/>
+      </svg>
+      <b>DCA · AEMS</b>
+    </div>
+    <button class="lang-btn" id="langBtn" onclick="toggleLang()">عربي</button>
+  </div>
+
+  <div class="container">
+    <div class="error-code" id="errorCode">404</div>
+
+    <div class="strip">
+      <div class="strip-top">
+        <span class="strip-flag" id="stripFlag">RHYTHM</span>
+        <span class="strip-hr" id="stripHr">HR <b id="hrVal">72</b></span>
+      </div>
+      <div class="ecg-scroll">
+        <svg viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true">
+          <g class="ecg-tile">
+            <path d="M0 60 L34 60 L41 53 L49 60 L64 60 L70 68 L77 58 L83 60 L89 6 L95 63 L101 70 L107 60 L122 60 L130 47 L138 60 L300 60"/>
+            <path d="M0 60 L34 60 L41 53 L49 60 L64 60 L70 68 L77 58 L83 60 L89 6 L95 63 L101 70 L107 60 L122 60 L130 47 L138 60 L300 60" transform="translate(300,0)"/>
+          </g>
+          <path class="ecg-flat" d="M0 60 H600"/>
+          <path class="shock-spike" d="M0 60 H220 L232 6 H244 L256 60 H600" stroke-width="3"/>
+        </svg>
+        <div class="flatline-tag" id="flatlineTag">FLATLINE</div>
+      </div>
+    </div>
+
+    <div class="error-title" id="errorTitle">Page Not Found</div>
+    <div class="error-msg" id="errorMsg">The page you're looking for doesn't exist or has been moved.</div>
+    <div class="afterlife" id="afterlife"></div>
+    <div class="error-detail" id="errorDetail"></div>
+
+    <div class="actions">
+      <a href="/" class="btn btn-primary" id="btnHome">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span id="btnHomeTxt">Return Home</span>
+      </a>
+      <button class="btn btn-ghost" id="btnBack" onclick="history.back()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        <span id="btnBackTxt">Go Back</span>
+      </button>
+      <button class="btn btn-defib" id="btnDefib" onclick="defib()"><span id="btnDefibTxt">Shock&nbsp;200J</span></button>
+    </div>
+
+    <div class="footer-note">
+      <span class="pulse-dot" id="pulseDot"></span>
+      <span id="footTxt">AEMS — Ambulance Equipment Management System</span>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var flatTimer = null, reviveTimer = null, hrInt = null;
+
+      // ── Code / copy maps (bilingual) ────────────────────────────
+      var TITLE = {
+        en: { 400:'Bad Request', 401:'Unauthorized', 403:'Forbidden', 404:'Page Not Found', 408:'Request Timeout', 429:'Too Many Requests', 500:'Internal Server Error', 502:'Bad Gateway', 503:'Service Unavailable', 504:'Gateway Timeout' },
+        ar: { 400:'طلب غير صالح', 401:'غير مصرّح', 403:'وصول مرفوض', 404:'الصفحة غير موجودة', 408:'انتهت مهلة الطلب', 429:'طلبات كثيرة جداً', 500:'خطأ داخلي في الخادم', 502:'بوابة غير صالحة', 503:'الخدمة غير متوفرة', 504:'انتهت مهلة البوابة' }
+      };
+      var MSG = {
+        en: {
+          400:'The server could not understand your request. Please check your input and try again.',
+          401:'You need to sign in to access this resource. Please log in and try again.',
+          403:"You don't have permission to access this resource. Contact your administrator.",
+          404:"Signal lost — the page you're looking for doesn't exist or has been moved.",
+          408:'The request timed out. Check your network connection and try again.',
+          429:'Too many requests. Please wait a moment before trying again.',
+          500:'Something went wrong on our end. The system administrator has been notified.',
+          502:'The server received an invalid response from an upstream server. Please try again.',
+          503:'The service is temporarily unavailable. Please try again in a few minutes.',
+          504:'The server took too long to respond. Please try again.'
+        },
+        ar: {
+          400:'لا يستطيع الخادم فهم طلبك. يرجى التحقق من المدخلات والمحاولة مجدداً.',
+          401:'يجب تسجيل الدخول للوصول إلى هذا المورد. يرجى تسجيل الدخول والمحاولة مجدداً.',
+          403:'ليس لديك صلاحية للوصول إلى هذا المورد. تواصل مع المسؤول.',
+          404:'فُقدت الإشارة — الصفحة التي تبحث عنها غير موجودة أو تم نقلها.',
+          408:'انتهت مهلة الطلب. تحقق من اتصال الشبكة وحاول مجدداً.',
+          429:'طلبات كثيرة جداً. انتظر قليلاً ثم حاول مجدداً.',
+          500:'حدث خطأ غير متوقع من جهة الخادم. تم إشعار مسؤول النظام.',
+          502:'تلقى الخادم استجابة غير صالحة من خادم آخر. حاول مجدداً.',
+          503:'الخدمة غير متوفرة حالياً. حاول مجدداً بعد بضع دقائق.',
+          504:'استغرق الخادم وقتاً طويلاً في الاستجابة. حاول مجدداً.'
+        }
+      };
+      var UI = {
+        en: { rhythm:'RHYTHM', hr:'HR', flat:'FLATLINE', home:'Return Home', back:'Go Back', defib:'Shock 200J', foot:'AEMS — Ambulance Equipment Management System', dead:'> CODE 404 — THIS PATIENT IS DOA. STILL UNREACHABLE.', revived:'> SINUS RHYTHM RESUMED — BUT ONLY FOR A MOMENT…' },
+        ar: { rhythm:'الإيقاع', hr:'نبض', flat:'توقف القلب', home:'العودة للرئيسية', back:'رجوع', defib:'صدمة 200 جول', foot:'نظام إدارة معدات الإسعاف — AEMS', dead:'> الرمز 404 — هذه الصفحة في حالة موت قلبي مؤكد. لا تزال غير قابلة للوصول.', revived:'> عاد نبض القلب مؤقتاً — لكن للحظة واحدة فقط…' }
+      };
+
+      var lang = (localStorage.getItem('aems_lang') === 'ar') ? 'ar' : 'en';
+      var code = parseInt(params.get('code')) || 404;
+
+      function applyText() {
+        var L = lang;
+        var textL = L === 'ar' ? 'ar' : 'en';
+        var t = UI[textL];
+        document.documentElement.lang = L;
+        document.documentElement.dir = L === 'ar' ? 'rtl' : 'ltr';
+        document.title = 'AEMS — ' + (TITLE[textL][code] || (valueUI('title') || 'Error'));
+        document.getElementById('errorTitle').textContent = TITLE[textL][code] || (textL === 'ar' ? 'خطأ غير متوقع' : 'Unexpected Error');
+        document.getElementById('errorMsg').textContent = MSG[textL][code] || (textL === 'ar' ? 'حدث خطأ غير متوقع.' : 'An unexpected error occurred.');
+        document.getElementById('stripFlag').textContent = t.rhythm;
+        document.getElementById('flatlineTag').textContent = t.flat;
+        document.getElementById('stripHr').childNodes[0].textContent = t.hr + ' ';
+        document.getElementById('btnHomeTxt').textContent = t.home;
+        document.getElementById('btnBackTxt').textContent = t.back;
+        document.getElementById('btnDefibTxt').textContent = t.defib;
+        document.getElementById('footTxt').textContent = t.foot;
+        var lb = document.getElementById('langBtn');
+        lb.textContent = lang === 'en' ? 'عربي' : 'English';
+        if (redirected) {
+          var addNote = textL === 'ar' ? ' سيتم توجيهك إلى صفحة تسجيل الدخول قريباً.' : " You'll be redirected to the login page shortly.";
+          document.getElementById('errorMsg').textContent += addNote;
+        }
+      }
+      function valueUI(k) { return k; }
+
+      window.toggleLang = function () {
+        lang = (lang === 'en') ? 'ar' : 'en';
+        localStorage.setItem('aems_lang', lang);
+        applyText();
+        return false;
+      };
+
+      // ── Technical detail (if provided) ───────────────────────────
+      var detail = params.get('detail');
+      if (detail) {
+        document.getElementById('errorDetail').textContent = decodeURIComponent(detail);
+        document.getElementById('errorDetail').classList.add('visible');
+      }
+
+      // ── Session-timeout redirect ─────────────────────────────────
+      var redirected = params.get('redirect') === 'login';
+      if (redirected) {
+        flatTimer = setTimeout(function () { window.location.href = '/login.html'; }, 5000);
+      }
+
+      // ── Heartbeat that sadly flatlines ───────────────────────────
+      function setHr(val) { document.getElementById('hrVal').textContent = val; }
+
+      function goFlatline() {
+        document.body.classList.add('flatline');
+        document.getElementById('btnDefib').style.display = 'inline-flex';
+        var L = lang === 'ar' ? 'ar' : 'en';
+        setHr('–––');
+        document.getElementById('afterlife').textContent = UI[L].dead;
+      }
+
+      function defib() {
+        if (document.body.classList.contains('shock')) return;
+        clearTimeout(flatTimer);
+        document.body.classList.remove('flatline');
+        document.body.classList.add('shock');
+        document.getElementById('afterlife').textContent = UI[lang === 'ar' ? 'ar' : 'en'].revived;
+        document.getElementById('btnDefib').style.display = 'none';
+        setHr(150);
+        setTimeout(function () { document.body.classList.remove('shock'); }, 380);
+
+        // HR quickly returns to normal (150 → 72)
+        var hr = 150;
+        clearInterval(hrInt);
+        hrInt = setInterval(function () {
+          hr -= 2;
+          if (hr <= 72) { hr = 72; clearInterval(hrInt); }
+          setHr(hr);
+        }, 80);
+
+        // …then it flatlines again. Hope is lost.
+        reviveTimer = setTimeout(function () { goFlatline(); }, 5200);
+      }
+
+      window.defib = defib;
+
+      // The page always ends flatlined, 4 seconds in.
+      flatTimer = setTimeout(function () { goFlatline(); }, 4000);
+    })();
+  </script>
+</body>
+</html>

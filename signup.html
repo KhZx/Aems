@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEMS — Request Access</title>
+  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Outfit:wght@400;500;600;700&family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/error-handler.js"></script>
+  <style>
+    .ic { width:1.15em; height:1.15em; vertical-align:-0.2em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; pointer-events:none; }
+    :root {
+      --font-display: 'Barlow Condensed', sans-serif;
+      --font-body: 'Outfit', sans-serif;
+      --red: #C8102E; --red-bright: #E8152F; --blue: #003DA5;
+      --bg: #080B10; --bg2: #0F1318; --bg3: #161B22;
+      --border: rgba(255,255,255,0.07);
+      --text: #F1F5F9; --text2: #94A3B8; --text3: #475569;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-body); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    .page-bg {
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse at 90% 10%, rgba(200,16,46,.15) 0%, transparent 50%),
+        radial-gradient(ellipse at 10% 90%, rgba(124,58,237,.08) 0%, transparent 50%),
+        linear-gradient(160deg, #080B10 0%, #0C0F18 100%);
+    }
+    .page-bg::after {
+      content:''; position:fixed; inset:0; pointer-events:none;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+    .orb { position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:0; opacity:.12; }
+
+    .top-bar { position:relative; z-index:10; padding:1.2rem 2rem; display:flex; justify-content:space-between; align-items:center; }
+    .logo { display:flex; align-items:center; gap:9px; text-decoration:none; }
+    .cross { width:28px; height:28px; position:relative; flex-shrink:0; }
+    .cross::before,.cross::after { content:''; position:absolute; background:var(--red); border-radius:2px; }
+    .cross::before { width:9px; height:28px; left:50%; transform:translateX(-50%); }
+    .cross::after  { width:28px; height:9px; top:50%;  transform:translateY(-50%); }
+    .logo-text { font-family:var(--font-display); font-size:1.25rem; font-weight:800; color:var(--text); letter-spacing:-0.02em; }
+    .logo-sub  { font-size:0.55rem; color:var(--text3); letter-spacing:0.12em; text-transform:uppercase; }
+    .lang-toggle { padding:6px 13px; background:rgba(255,255,255,0.05); color:var(--text3); border:1px solid var(--border); border-radius:6px; font-family:var(--font-body); font-size:0.75rem; font-weight:700; cursor:pointer; letter-spacing:0.04em; transition:all .2s; }
+    .lang-toggle:hover { background:rgba(255,255,255,.09); color:var(--text); }
+
+    .card-wrap { flex:1; display:flex; align-items:center; justify-content:center; padding:2rem; position:relative; z-index:1; }
+    .card { width:100%; max-width:520px; background:rgba(15,19,24,0.96); border:1px solid rgba(255,255,255,0.08); border-radius:24px; padding:2.5rem; box-shadow:0 2px 8px rgba(0,0,0,.15),0 20px 60px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.05); animation:cardIn .5s ease forwards; }
+    @keyframes cardIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:1.5rem; padding-bottom:1.5rem; border-bottom:1px solid var(--border); }
+    .brand-cross { width:38px; height:38px; position:relative; flex-shrink:0; }
+    .brand-cross::before,.brand-cross::after { content:''; position:absolute; background:var(--red); border-radius:2px; }
+    .brand-cross::before { width:12px; height:38px; left:50%; transform:translateX(-50%); }
+    .brand-cross::after  { width:38px; height:12px; top:50%;  transform:translateY(-50%); }
+    .brand-name { font-family:var(--font-display); font-size:1.5rem; font-weight:900; color:var(--text); letter-spacing:-0.03em; line-height:1; }
+    .brand-sub  { font-size:0.6rem; color:var(--text3); letter-spacing:0.12em; text-transform:uppercase; }
+
+    .form-title { font-family:var(--font-display); font-size:1.5rem; font-weight:800; color:var(--text); margin-bottom:4px; letter-spacing:-0.01em; }
+    .form-sub   { font-size:0.82rem; color:var(--text3); margin-bottom:1.5rem; }
+
+    .form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media(max-width:500px) { .form-row { grid-template-columns:1fr; } }
+
+    .field { margin-bottom:.9rem; }
+    .field label { display:block; font-size:0.7rem; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:5px; }
+    .field input, .field select {
+      width:100%; padding:10px 14px;
+      background:rgba(255,255,255,.04); border:1.5px solid rgba(255,255,255,.1);
+      border-radius:9px; font-family:var(--font-body); font-size:0.9rem; color:var(--text);
+      outline:none; transition:border-color .2s,box-shadow .2s,background .2s;
+      appearance:none;
+    }
+    .field select { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' stroke-width='1.5' fill='none'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; padding-right:32px; }
+    [dir="rtl"] .field select { background-position:left 12px center; padding-right:14px; padding-left:32px; }
+    .field input::placeholder { color:var(--text3); }
+    .field select option { background:var(--bg3); color:var(--text); }
+    .field input:focus, .field select:focus { border-color:var(--red); background:rgba(200,16,46,.04); box-shadow:0 0 0 3px rgba(200,16,46,.12); }
+    .field-hint { font-size:0.68rem; color:var(--text3); margin-top:4px; }
+    .empid-badge {
+      display:inline-flex; align-items:center; gap:5px;
+      padding:2px 9px; border-radius:4px; font-size:0.65rem; font-weight:700;
+      background:rgba(200,16,46,.12); color:#FDA4AF; margin-bottom:6px;
+    }
+
+    .btn-submit { width:100%; padding:13px; margin-top:.75rem; background:linear-gradient(135deg,#E8152F,#C8102E); color:white; border:none; border-radius:10px; font-family:var(--font-body); font-size:0.95rem; font-weight:700; cursor:pointer; box-shadow:0 4px 16px rgba(200,16,46,.38); transition:transform .15s,box-shadow .15s,opacity .2s; }
+    .btn-submit:hover  { transform:translateY(-1px); box-shadow:0 6px 22px rgba(200,16,46,.5); }
+    .btn-submit:disabled { opacity:.55; cursor:not-allowed; transform:none; }
+
+    .err-box { background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.25); color:#FCA5A5; border-radius:9px; padding:10px 14px; font-size:0.82rem; line-height:1.5; margin-bottom:1rem; display:none; }
+    .divider { margin:1.25rem 0; border:none; border-top:1px solid var(--border); }
+    .login-row { text-align:center; font-size:0.82rem; color:var(--text3); display:flex; align-items:center; justify-content:center; gap:6px; }
+    .login-row a { color:#FDA4AF; font-weight:600; text-decoration:none; transition:color .2s; }
+    .login-row a:hover { color:var(--red-bright); }
+
+    /* Success state */
+    .success-state { display:none; text-align:center; padding:1rem 0; }
+    .success-icon { width:72px; height:72px; background:rgba(16,185,129,.12); border:2px solid rgba(16,185,129,.3); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 20px; font-size:2rem; }
+    .success-title { font-family:var(--font-display); font-size:1.6rem; font-weight:900; color:var(--text); margin-bottom:8px; letter-spacing:-0.01em; }
+    .success-desc { font-size:0.85rem; color:var(--text3); line-height:1.65; max-width:360px; margin:0 auto 20px; }
+    .success-empid { display:inline-block; padding:8px 20px; background:rgba(200,16,46,.1); border:1px solid rgba(200,16,46,.25); border-radius:8px; font-family:var(--font-display); font-size:1.1rem; font-weight:700; color:#FDA4AF; letter-spacing:0.05em; margin-bottom:20px; }
+    .btn-back { padding:11px 24px; background:rgba(255,255,255,.05); color:var(--text2); border:1px solid var(--border); border-radius:9px; font-family:var(--font-body); font-size:0.88rem; font-weight:600; cursor:pointer; text-decoration:none; display:inline-block; transition:all .2s; }
+    .btn-back:hover { background:rgba(255,255,255,.09); color:var(--text); }
+
+    [dir="rtl"] .field input[type="email"], [dir="rtl"] .field input[type="password"] { direction:ltr; text-align:right; }
+    [dir="rtl"] .field input[type="number"] { direction:ltr; text-align:right; }
+
+    /* Station autocomplete */
+    .station-ac-wrap { position: relative; }
+    .station-dropdown {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 200;
+      background: #0F1318; border: 1.5px solid rgba(200,16,46,.35);
+      border-radius: 10px; overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,.55);
+      max-height: 220px; overflow-y: auto;
+    }
+    .station-dropdown:empty { display: none; }
+    .ac-item {
+      padding: 10px 14px; cursor: pointer; font-size: .88rem; color: #F1F5F9;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      transition: background .13s;
+    }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item:hover, .ac-item.ac-active { background: rgba(200,16,46,.18); }
+    .ac-item .ac-code {
+      font-size: .7rem; font-weight: 700; color: #FDA4AF;
+      background: rgba(200,16,46,.12); padding: 1px 7px; border-radius: 4px;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .ac-item.ac-create { color: #6EE7B7; font-style: italic; }
+    .ac-item.ac-create .ac-badge {
+      font-size: .7rem; font-weight: 700; color: #6EE7B7;
+      background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.25);
+      padding: 1px 7px; border-radius: 4px; white-space: nowrap; flex-shrink: 0;
+    }
+
+    /* Managed-units multi-select */
+    .managed-picker {
+      max-height: 180px; overflow-y: auto;
+      border: 1.5px solid rgba(255,255,255,.1); border-radius: 9px;
+      background: rgba(0,0,0,.2); margin-top: 8px;
+    }
+    .managed-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 13px; cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,.05);
+      font-size: .85rem; color: var(--text); transition: background .13s;
+    }
+    .managed-item:last-child { border-bottom: none; }
+    .managed-item:hover { background: rgba(200,16,46,.08); }
+    .managed-item.selected { background: rgba(200,16,46,.12); }
+    .managed-item .m-check {
+      width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+      border: 1.5px solid rgba(255,255,255,.25); background: transparent;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .7rem; color: transparent; transition: all .15s;
+    }
+    .managed-item.selected .m-check { background: #C8102E; border-color: #C8102E; color: #fff; }
+    .managed-item .m-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .managed-item .m-code {
+      font-size: .7rem; font-weight: 700; color: #FDA4AF;
+      background: rgba(200,16,46,.12); padding: 1px 7px; border-radius: 4px; white-space: nowrap; flex-shrink: 0;
+    }
+    .managed-empty { padding: 12px 14px; font-size: .78rem; color: var(--text3); text-align: center; }
+    .managed-count {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: .65rem; font-weight: 700; color: #FDA4AF;
+      background: rgba(200,16,46,.12); padding: 2px 9px; border-radius: 4px; margin-left: 6px;
+    }
+  
+/* Dark scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) rgba(255,255,255,0.03); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.14);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+</style>
+</head>
+<body>
+  <div class="page-bg"></div>
+  <div class="orb" style="width:400px;height:400px;background:#C8102E;top:0%;right:-5%;"></div>
+  <div class="orb" style="width:300px;height:300px;background:#7C3AED;bottom:5%;left:-5%;"></div>
+
+  <div class="top-bar">
+    <a href="/" style="display:flex;align-items:center;text-decoration:none;">
+      <svg viewBox="0 0 205 48" style="height:40px;width:auto;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
+        <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
+        <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
+      </svg>
+    </a>
+    <button class="lang-toggle" id="langToggle">عربي</button>
+  </div>
+
+  <div class="card-wrap">
+    <div class="card">
+      <div class="brand" style="text-align:center;margin-bottom:1.5rem;">
+        <svg viewBox="0 0 205 48" style="height:52px;width:auto;display:block;margin:0 auto 10px;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
+          <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
+        </svg>
+        <div class="brand-sub" data-i18n="footer.org" style="margin-top:4px;">Dubai Corporation of Ambulance</div>
+      </div>
+
+      <!-- Form state -->
+      <div id="formState">
+        <div class="form-title" data-i18n="signup.title">Request Access</div>
+        <div class="form-sub" data-i18n="signup.subtitle">Create your AEMS account — admin approval required</div>
+
+        <div class="err-box" id="errBox"></div>
+
+        <form id="signupForm">
+          <div class="form-row">
+            <div class="field">
+              <label data-i18n="signup.fullname">Full Name</label>
+              <div class="empid-badge" style="visibility:hidden;">—</div>
+              <input type="text" id="nameIn" autocomplete="name" required data-i18n-placeholder="signup.form.name_ph">
+            </div>
+            <div class="field">
+              <label data-i18n="signup.empid">DCA Employee ID</label>
+              <div class="empid-badge"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg> DCA ID</div>
+              <input type="text" id="empIdIn" inputmode="numeric" pattern="[0-9]{1,5}" maxlength="5" required data-i18n-placeholder="signup.form.empid_ph">
+              <div class="field-hint" data-i18n="signup.empid.hint">1–5 digit employee number (e.g. 10234)</div>
+            </div>
+          </div>
+          <div class="field">
+            <label data-i18n="signup.email">Work Email</label>
+            <input type="email" id="emailIn" dir="ltr" autocomplete="email" required data-i18n-placeholder="signup.form.email_ph">
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label data-i18n="signup.role">Role</label>
+              <select id="roleIn" required>
+                <option value="" disabled selected data-i18n="signup.form.role_sel">Select role</option>
+                <option value="paramedic" data-i18n="signup.role.paramedic">Paramedic</option>
+                <option value="emt" data-i18n="signup.role.emt">EMT</option>
+                <option value="technician" data-i18n="signup.role.technician">Technician</option>
+                <option value="doctor" data-i18n="signup.role.doctor">Doctor</option>
+                <option value="supervisor" data-i18n="signup.role.supervisor">Supervisor</option>
+              </select>
+            </div>
+            <div class="field">
+              <label data-i18n="signup.station_label">Station Name</label>
+              <div class="station-ac-wrap">
+                <input type="text" id="stationNameIn" required autocomplete="off"
+                  data-i18n-placeholder="signup.form.station_ph">
+                <div id="stationDropdown" class="station-dropdown"></div>
+              </div>
+              <div class="field-hint" id="stationHint" data-i18n="signup.form.station_hint">Search existing stations or type a new name to create one.</div>
+            </div>
+          </div>
+
+          <!-- Supervisor-only extra fields (hidden by default) -->
+          <div id="supFields" style="display:none; border:1px solid rgba(200,16,46,.2); border-radius:12px; padding:14px 16px; margin-bottom:.9rem; background:rgba(200,16,46,.04);">
+            <div style="font-size:0.72rem;font-weight:700;color:#FDA4AF;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;" data-i18n="signup.sup.header"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Supervisor Details</div>
+            <div class="form-row">
+              <div class="field" style="margin-bottom:0;">
+                <label data-i18n="signup.sup.zone_label">Supervisor Zone / Area</label>
+                <input type="text" id="zoneIn" data-i18n-placeholder="signup.sup.zone_ph">
+              </div>
+              <div class="field" style="margin-bottom:0;">
+                <label data-i18n="signup.sup.badge_label">Badge / Staff Number</label>
+                <input type="text" id="badgeIn" data-i18n-placeholder="signup.sup.badge_ph">
+              </div>
+            </div>
+            <div style="margin-top:10px;" class="field">
+              <label data-i18n="signup.sup.stations_label">Units You Manage <span class="managed-count" id="managedCount" style="display:none;"></span></label>
+              <input type="text" id="managedSearch" data-i18n-placeholder="signup.sup.stations_search_ph" placeholder="Search units..." autocomplete="off">
+              <div class="managed-picker" id="managedList"></div>
+              <div class="field-hint" data-i18n="signup.sup.stations_hint">Select the units you oversee. Admin will confirm after approval.</div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label data-i18n="signup.password">Password</label>
+              <input type="password" id="passIn" dir="ltr" autocomplete="new-password" required data-i18n-placeholder="signup.form.pass_ph">
+            </div>
+            <div class="field">
+              <label data-i18n="signup.confirm">Confirm Password</label>
+              <input type="password" id="confirmIn" dir="ltr" autocomplete="new-password" required data-i18n-placeholder="signup.form.confirm_ph">
+            </div>
+          </div>
+          <button type="submit" class="btn-submit" id="submitBtn">
+            <span id="btnLabel" data-i18n="signup.btn">Submit Request</span>
+          </button>
+        </form>
+
+        <hr class="divider">
+        <div class="login-row">
+          <span data-i18n="signup.have_account">Already have access?</span>
+          <a href="/login.html" data-i18n="signup.login_link">Sign In</a>
+        </div>
+      </div>
+
+      <!-- Success state -->
+      <div class="success-state" id="successState">
+        <div class="success-icon">✓</div>
+        <div class="success-title" data-i18n="signup.success.title">Request Submitted!</div>
+        <p class="success-desc" data-i18n="signup.success.desc">Your access request has been sent to the administrator. You will receive an email once your account is approved.</p>
+        <div>
+          <div style="font-size:0.7rem;color:var(--text3);margin-bottom:6px;" data-i18n="signup.success.empid">Employee ID</div>
+          <div class="success-empid" id="successEmpId">—</div>
+        </div>
+        <a href="/login.html" class="btn-back" data-i18n="signup.login_link">Sign In</a>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+import { initI18n, setLanguage, getCurrentLang, t } from './js/i18n.js';
+import { mountSprite } from './js/icons.js';
+import { FIREBASE_CONFIG } from './js/config.js';
+    import { initFirebase, signUpWithEmail, firebaseSignOut } from './js/services/firebase.js';
+    import { registerWithBackend, clearSession } from './js/auth.js';
+    import { api, ApiError } from './js/api.js';
+
+    initFirebase(FIREBASE_CONFIG);
+    mountSprite();
+
+    initI18n();
+    document.getElementById('langToggle').addEventListener('click', () => {
+      setLanguage(getCurrentLang() === 'en' ? 'ar' : 'en');
+    });
+
+    // ── Station autocomplete (from backend station directory) ───
+    let _stations = [];
+    let _stationCode = '';
+    api.publicStations().then(list => { _stations = list || []; }).catch(() => { _stations = []; });
+
+    // ── Managed-units picker (supervisor) ───────────────────
+    const managedSel = new Set();
+    const managedSearchIn = document.getElementById('managedSearch');
+    const managedListEl  = document.getElementById('managedList');
+    const managedCountEl = document.getElementById('managedCount');
+
+    function renderManagedPicker() {
+      const q = (managedSearchIn.value || '').toLowerCase();
+      const seen = new Set();
+      const list = _stations.filter(s => {
+        if (seen.has(s.code)) return false;
+        seen.add(s.code);
+        return !q || s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q);
+      });
+
+      managedCountEl.style.display = managedSel.size ? 'inline-flex' : 'none';
+      managedCountEl.textContent = `✓ ${t('signup.sup.selected_count', { count: managedSel.size })}`;
+
+      if (!list.length) {
+        managedListEl.innerHTML = `<div class="managed-empty">${t('signup.sup.no_units')}</div>`;
+        return;
+      }
+      managedListEl.innerHTML = list.map(s => {
+        const sel = managedSel.has(s.code);
+        return `<div class="managed-item ${sel ? 'selected' : ''}" data-code="${esc(s.code)}">
+          <span class="m-check">${sel ? '✓' : ''}</span>
+          <span class="m-name">${esc(s.name)}</span>
+          <span class="m-code">${esc(s.code)}</span>
+        </div>`;
+      }).join('');
+      managedListEl.querySelectorAll('.managed-item').forEach(el => {
+        el.addEventListener('click', () => toggleManaged(el.dataset.code));
+      });
+    }
+
+    function toggleManaged(code) {
+      if (managedSel.has(code)) managedSel.delete(code); else managedSel.add(code);
+      renderManagedPicker();
+    }
+
+    managedSearchIn.addEventListener('input', renderManagedPicker);
+
+    const stationInput = document.getElementById('stationNameIn');
+    const stationDrop  = document.getElementById('stationDropdown');
+    const stationHint  = document.getElementById('stationHint');
+    let _acIndex = -1;
+
+    function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    function renderDropdown(val) {
+      const q = val.toLowerCase();
+      const matches = _stations.filter(s =>
+        s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q)
+      );
+      _acIndex = -1;
+
+      if (!val) { stationDrop.innerHTML = ''; return; }
+
+      stationDrop.innerHTML = matches.map(s =>
+        `<div class="ac-item" data-code="${esc(s.code)}" data-name="${esc(s.name)}" onclick="pickStation('${esc(s.code)}','${esc(s.name)}')">
+          <span>${esc(s.name)}</span>
+          <span class="ac-code">${esc(s.code)}</span>
+        </div>`
+      ).join('');
+    }
+
+    window.pickStation = function(code, name) {
+      stationInput.value = name;
+      _stationCode = code;
+      stationDrop.innerHTML = '';
+      stationHint.textContent = `✓ Station: ${name} (${code})`;
+      stationHint.style.color = '#FDA4AF';
+    };
+
+    stationInput.addEventListener('input', () => { _stationCode = ''; renderDropdown(stationInput.value.trim()); });
+    stationInput.addEventListener('focus', () => { if (stationInput.value.trim()) renderDropdown(stationInput.value.trim()); });
+
+    // Keyboard navigation
+    stationInput.addEventListener('keydown', e => {
+      const items = stationDrop.querySelectorAll('.ac-item');
+      if (!items.length) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _acIndex = Math.min(_acIndex + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('ac-active', i === _acIndex));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _acIndex = Math.max(_acIndex - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('ac-active', i === _acIndex));
+      } else if (e.key === 'Enter' && _acIndex >= 0) {
+        e.preventDefault();
+        const name = items[_acIndex].dataset.name;
+        const code = items[_acIndex].dataset.code;
+        if (name && code) pickStation(code, name);
+      } else if (e.key === 'Escape') {
+        stationDrop.innerHTML = '';
+      }
+    });
+
+    // Close on outside click
+    document.addEventListener('click', e => {
+      if (!stationInput.contains(e.target) && !stationDrop.contains(e.target)) {
+        stationDrop.innerHTML = '';
+      }
+    });
+
+    // Show/hide supervisor fields on role change
+    document.getElementById('roleIn').addEventListener('change', function() {
+      const isSup = this.value === 'supervisor';
+      document.getElementById('supFields').style.display = isSup ? 'block' : 'none';
+      document.getElementById('zoneIn').required  = isSup;
+      document.getElementById('badgeIn').required = isSup;
+      if (isSup) renderManagedPicker();
+    });
+
+    const form      = document.getElementById('signupForm');
+    const errBox    = document.getElementById('errBox');
+    const submitBtn = document.getElementById('submitBtn');
+    const btnLbl    = document.getElementById('btnLabel');
+
+    function showErr(msg) { errBox.textContent = msg; errBox.style.display = 'block'; errBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    function hideErr()    { errBox.style.display = 'none'; }
+
+    function showSuccess(empId) {
+      document.getElementById('formState').style.display = 'none';
+      document.getElementById('successState').style.display = 'block';
+      document.getElementById('successEmpId').textContent = empId;
+    }
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      hideErr();
+
+      const name          = document.getElementById('nameIn').value.trim();
+      const empId         = document.getElementById('empIdIn').value.trim();
+      const email         = document.getElementById('emailIn').value.trim();
+      const role          = document.getElementById('roleIn').value;
+      const pass          = document.getElementById('passIn').value;
+      const confirm       = document.getElementById('confirmIn').value;
+
+      // Supervisor extras
+      const supervisorZone = document.getElementById('zoneIn').value.trim();
+      const badgeNumber    = document.getElementById('badgeIn').value.trim();
+      const managedStations = managedSel.size ? [...managedSel] : undefined;
+
+      if (!role)                    { showErr('Please select a role.'); return; }
+      if (!_stationCode)            { showErr('Please select your station from the list.'); return; }
+      if (!/^\d{1,5}$/.test(empId)) { showErr(t('signup.err.empid')); return; }
+      if (pass.length < 8)          { showErr(t('signup.err.weak'));   return; }
+      if (pass !== confirm)          { showErr(t('signup.err.mismatch')); return; }
+      if (role === 'supervisor' && !supervisorZone) { showErr('Please enter your supervisor zone.'); return; }
+      if (role === 'supervisor' && !managedStations?.length) { showErr(t('signup.err.managed_required')); return; }
+
+      submitBtn.disabled = true;
+      btnLbl.textContent = t('signup.loading');
+
+      // Create Firebase Auth account
+      try {
+        await signUpWithEmail(email, pass);
+      } catch (err) {
+        const code = err.code || '';
+        if (code === 'auth/email-already-in-use') {
+          showErr(t('signup.err.exists'));
+        } else if (code === 'auth/weak-password') {
+          showErr(t('signup.err.weak'));
+        } else {
+          showErr('Registration failed. Please try again.');
+        }
+        submitBtn.disabled = false;
+        btnLbl.textContent = t('signup.btn');
+        return;
+      }
+
+      // Create the pending user record in the backend
+      try {
+        await registerWithBackend({
+          displayName: name,
+          empId,
+          requestedRole: role.toUpperCase(),
+          stationCode: _stationCode,
+          badgeNumber: badgeNumber || undefined,
+          supervisorZone: supervisorZone || undefined,
+          managedStationCodes: managedStations,
+        });
+      } catch (err) {
+        if (err instanceof ApiError && err.code === 'CONFLICT') {
+          showErr('An account with this email already exists. Please sign in instead.');
+        } else {
+          showErr('Failed to save your request: ' + (err.message || 'Please try again.'));
+        }
+        submitBtn.disabled = false;
+        btnLbl.textContent = t('signup.btn');
+        return;
+      }
+
+      // Sign out so pending user stays pending until admin approves
+      await firebaseSignOut();
+      clearSession();
+
+      showSuccess(empId);
+    });
+  </script>
+</body>
+</html>

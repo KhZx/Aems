@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEMS — Sign In</title>
+  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Outfit:wght@400;500;600;700&family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/error-handler.js"></script>
+  <style>
+    :root {
+      --font-display: 'Barlow Condensed', sans-serif;
+      --font-body: 'Outfit', sans-serif;
+      --red: #C8102E; --red-bright: #E8152F; --blue: #003DA5;
+      --bg: #080B10; --bg2: #0F1318; --bg3: #161B22;
+      --border: rgba(255,255,255,0.07);
+      --text: #F1F5F9; --text2: #94A3B8; --text3: #475569;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-body); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+    .page-bg {
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse at 10% 30%, rgba(200,16,46,.18) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 80%, rgba(30,37,50,.6) 0%, transparent 50%),
+        linear-gradient(160deg, #080B10 0%, #0C0F18 100%);
+    }
+    .page-bg::after {
+      content:''; position:fixed; inset:0; pointer-events:none;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+    .orb { position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:0; opacity:.14; }
+
+    /* Header bar */
+    .top-bar {
+      position: relative; z-index: 10;
+      padding: 1.2rem 2rem; display: flex; justify-content: space-between; align-items: center;
+    }
+    .logo { display:flex; align-items:center; gap:9px; text-decoration:none; }
+    .cross { width:28px; height:28px; position:relative; flex-shrink:0; }
+    .cross::before,.cross::after { content:''; position:absolute; background:var(--red); border-radius:2px; }
+    .cross::before { width:9px; height:28px; left:50%; transform:translateX(-50%); }
+    .cross::after  { width:28px; height:9px; top:50%;  transform:translateY(-50%); }
+    .logo-text { font-family:var(--font-display); font-size:1.25rem; font-weight:800; color:var(--text); letter-spacing:-0.02em; }
+    .logo-sub  { font-size:0.55rem; color:var(--text3); letter-spacing:0.12em; text-transform:uppercase; }
+    .logo-pill{background:rgba(255,255,255,.92);border-radius:6px;padding:4px 12px;display:flex;align-items:center;height:38px;box-shadow:0 2px 10px rgba(0,0,0,.3);text-decoration:none;}
+    .logo-pill img{height:24px;width:auto;}
+    .lang-toggle {
+      padding:6px 13px; background:rgba(255,255,255,0.05); color:var(--text3);
+      border:1px solid var(--border); border-radius:6px; font-family:var(--font-body);
+      font-size:0.75rem; font-weight:700; cursor:pointer; letter-spacing:0.04em; transition:all .2s;
+    }
+    .lang-toggle:hover { background:rgba(255,255,255,.09); color:var(--text); }
+
+    /* Card */
+    .card-wrap {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: 2rem; position: relative; z-index: 1;
+    }
+    .card {
+      width: 100%; max-width: 440px;
+      background: rgba(15,19,24,0.96);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px; padding: 2.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15), 0 20px 60px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
+      animation: cardIn .5s ease forwards;
+    }
+    @keyframes cardIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+
+    /* Brand */
+    .brand { text-align:center; margin-bottom:2rem; }
+    .brand-cross { width:52px; height:52px; position:relative; display:inline-block; margin-bottom:14px; }
+    .brand-cross::before,.brand-cross::after { content:''; position:absolute; background:var(--red); border-radius:3px; }
+    .brand-cross::before { width:17px; height:52px; left:50%; transform:translateX(-50%); }
+    .brand-cross::after  { width:52px; height:17px; top:50%;  transform:translateY(-50%); }
+    .brand-name { font-family:var(--font-display); font-size:2rem; font-weight:900; color:var(--text); letter-spacing:-0.04em; line-height:1; }
+    .brand-sub  { font-size:0.62rem; color:var(--text3); letter-spacing:0.14em; text-transform:uppercase; margin-top:2px; }
+
+    /* Form */
+    .form-title { font-family:var(--font-display); font-size:1.35rem; font-weight:800; color:var(--text); text-align:center; margin-bottom:4px; letter-spacing:-0.01em; }
+    .form-sub   { font-size:0.82rem; color:var(--text3); text-align:center; margin-bottom:1.75rem; }
+
+    .field { margin-bottom:1rem; }
+    .field label { display:block; font-size:0.72rem; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px; }
+    .field input {
+      width:100%; padding:11px 14px;
+      background:rgba(255,255,255,.04); border:1.5px solid rgba(255,255,255,.1);
+      border-radius:10px; font-family:var(--font-body); font-size:0.92rem; color:var(--text);
+      outline:none; transition:border-color .2s,box-shadow .2s,background .2s;
+    }
+    .field input::placeholder { color:var(--text3); }
+    .field input:focus { border-color:var(--red); background:rgba(200,16,46,.04); box-shadow:0 0 0 3px rgba(200,16,46,.12); }
+
+    .btn-submit {
+      width:100%; padding:13px; margin-top:.5rem;
+      background:linear-gradient(135deg,#E8152F,#C8102E); color:white;
+      border:none; border-radius:10px; font-family:var(--font-body);
+      font-size:0.95rem; font-weight:700; cursor:pointer;
+      box-shadow:0 4px 16px rgba(200,16,46,.38);
+      transition:transform .15s,box-shadow .15s,opacity .2s;
+    }
+    .btn-submit:hover  { transform:translateY(-1px); box-shadow:0 6px 22px rgba(200,16,46,.5); }
+    .btn-submit:active { transform:translateY(0); }
+    .btn-submit:disabled { opacity:.55; cursor:not-allowed; transform:none; }
+
+    .err-box {
+      background:rgba(239,68,68,.1); border:1px solid rgba(239,68,68,.25);
+      color:#FCA5A5; border-radius:9px; padding:10px 14px;
+      font-size:0.82rem; line-height:1.5; margin-bottom:1rem; display:none;
+    }
+    .demo-box {
+      background:rgba(217,119,6,.08); border:1px solid rgba(217,119,6,.2);
+      color:#FDE68A; border-radius:9px; padding:10px 14px;
+      font-size:0.8rem; line-height:1.5; margin-bottom:1.2rem; display:none;
+    }
+
+    .divider { margin:1.25rem 0; border:none; border-top:1px solid var(--border); }
+
+    .signup-row {
+      text-align:center; font-size:0.82rem; color:var(--text3);
+      display:flex; align-items:center; justify-content:center; gap:6px;
+    }
+    .signup-row a { color:#FDA4AF; font-weight:600; text-decoration:none; transition:color .2s; }
+    .signup-row a:hover { color:var(--red-bright); }
+
+    .footer-note {
+      margin-top:1.5rem; padding-top:1.2rem; border-top:1px solid var(--border);
+      text-align:center;
+    }
+    .footer-note p { font-size:0.7rem; color:var(--text3); }
+    .pulse-dot { width:7px; height:7px; border-radius:50%; background:var(--red); display:inline-block; animation:pulse 2s ease-in-out infinite; margin-inline-end:5px; vertical-align:middle; }
+    @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+
+    /* RTL */
+    [dir="rtl"] .field input { direction:rtl; }
+    [dir="rtl"] .field input[type="email"],
+    [dir="rtl"] .field input[type="password"] { direction:ltr; text-align:right; }
+  
+/* Dark scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) rgba(255,255,255,0.03); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.14);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+</style>
+</head>
+<body>
+  <div class="page-bg"></div>
+  <div class="orb" style="width:350px;height:350px;background:#C8102E;top:5%;right:3%;"></div>
+  <div class="orb" style="width:250px;height:250px;background:#7C3AED;bottom:8%;left:5%;animation-delay:2s;"></div>
+
+  <div class="top-bar">
+    <a href="/" style="display:flex;align-items:center;text-decoration:none;">
+      <svg viewBox="0 0 205 48" style="height:40px;width:auto;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
+        <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
+        <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
+      </svg>
+    </a>
+    <button class="lang-toggle" id="langToggle">عربي</button>
+  </div>
+
+  <div class="card-wrap">
+    <div class="card">
+      <div class="brand">
+        <svg viewBox="0 0 205 48" style="height:56px;width:auto;display:block;margin:0 auto 10px;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end">إسعاف</text>
+          <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF">Ambulance</text>
+        </svg>
+        <div class="brand-sub" data-i18n="login.brand_sub" style="margin-top:4px;">Equipment Management System</div>
+      </div>
+
+      <div class="form-title" data-i18n="login.title">Welcome back</div>
+      <div class="form-sub" data-i18n="login.subtitle">Sign in to your AEMS account</div>
+
+      <div class="err-box" id="errBox"></div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label data-i18n="login.email">Email Address</label>
+          <input type="email" id="emailIn" dir="ltr" autocomplete="email" required
+                 data-i18n-placeholder="login.email" placeholder="your@email.com">
+        </div>
+        <div class="field">
+          <label data-i18n="login.password">Password</label>
+          <input type="password" id="passIn" dir="ltr" autocomplete="current-password" required
+                 placeholder="••••••••">
+        </div>
+        <button type="submit" class="btn-submit" id="loginBtn">
+          <span id="btnLabel" data-i18n="login.btn">Sign In</span>
+        </button>
+      </form>
+
+      <hr class="divider">
+      <div class="signup-row">
+        <span data-i18n="login.no_account">Don't have access?</span>
+        <a href="/signup.html" data-i18n="login.signup_link">Request Access</a>
+      </div>
+
+      <div class="footer-note">
+        <p style="margin-bottom:6px;" data-i18n="footer.org">Dubai Corporation of Ambulance</p>
+        <p><span class="pulse-dot"></span><span data-i18n="login.version" style="font-size:0.65rem;color:var(--text3);">AEMS v2.0 — Requires admin-activated account</span></p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initI18n, setLanguage, getCurrentLang, t } from './js/i18n.js';
+    import { FIREBASE_CONFIG } from './js/config.js';
+    import { initFirebase, signInWithEmail, watchAuth } from './js/services/firebase.js';
+    import { loginWithBackend, clearSession, roleRedirectPath } from './js/auth.js';
+    import { ApiError } from './js/api.js';
+
+    initI18n();
+    initFirebase(FIREBASE_CONFIG);
+
+    document.getElementById('langToggle').addEventListener('click', () => {
+      setLanguage(getCurrentLang() === 'en' ? 'ar' : 'en');
+    });
+
+    let _handlingSubmit = false;
+
+    function friendlyLoginError(err) {
+      if (err instanceof ApiError) {
+        if (err.code === 'UNAUTHORIZED') return 'Account not found in the system. Contact your administrator.';
+        if (err.code === 'FORBIDDEN') {
+          const m = (err.message || '').toLowerCase();
+          if (m.includes('pending')) return t('login.err.pending');
+          if (m.includes('rejected')) return 'Your account has been rejected. Contact your administrator.';
+          if (m.includes('disabled')) return 'Your account has been deactivated. Contact your administrator.';
+          return err.message;
+        }
+        if (err.code === 'NETWORK_ERROR') return 'Cannot reach the AEMS server. Is it running?';
+        return err.message;
+      }
+      return null;
+    }
+
+    // If already authenticated via Firebase, re-validate the backend session
+    watchAuth(async (fbUser) => {
+      if (!fbUser || _handlingSubmit) return;
+      try {
+        const session = await loginWithBackend();
+        if (session) window.location.href = roleRedirectPath(session);
+      } catch (err) {
+        clearSession();
+        const msg = friendlyLoginError(err);
+        if (msg) showErr(msg);
+      }
+    });
+
+    // Show session expired message if redirected from error/idle timeout
+    const expParam = new URLSearchParams(location.search).get('expired');
+    if (expParam) {
+      const errBox = document.getElementById('errBox');
+      if (errBox) {
+        errBox.textContent = t('login.expired');
+        errBox.style.display = 'block';
+      }
+    }
+
+    const form   = document.getElementById('loginForm');
+    const errBox = document.getElementById('errBox');
+    const btn    = document.getElementById('loginBtn');
+    const btnLbl = document.getElementById('btnLabel');
+
+    function showErr(msg) {
+      errBox.textContent = msg;
+      errBox.style.display = 'block';
+      btn.disabled = false;
+      btnLbl.textContent = t('login.btn');
+    }
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      errBox.style.display = 'none';
+      const email = document.getElementById('emailIn').value.trim();
+      const pass  = document.getElementById('passIn').value;
+
+      btn.disabled = true;
+      btnLbl.textContent = t('login.loading');
+      _handlingSubmit = true;
+
+      try {
+        await signInWithEmail(email, pass);
+      } catch (err) {
+        _handlingSubmit = false;
+        const code = err.code || '';
+        if (code === 'auth/user-not-found' || code === 'auth/invalid-credential' || code === 'auth/invalid-email') {
+          showErr(t('login.err.not_found'));
+        } else if (code === 'auth/wrong-password') {
+          showErr(t('login.err.invalid'));
+        } else if (code === 'auth/too-many-requests') {
+          showErr('Too many failed attempts. Please wait and try again.');
+        } else {
+          showErr(t('login.err.invalid'));
+        }
+        return;
+      }
+
+      try {
+        const session = await loginWithBackend();
+        _handlingSubmit = false;
+        if (session) {
+          window.location.href = roleRedirectPath(session);
+        } else {
+          showErr('Failed to create a session. Please try again.');
+        }
+      } catch (err) {
+        _handlingSubmit = false;
+        clearSession();
+        showErr(friendlyLoginError(err) || t('login.err.invalid'));
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEMS — Ambulance Equipment Management</title>
+  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Outfit:wght@400;500;600;700&family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="js/error-handler.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { cairo: ['Cairo', 'sans-serif'] },
+          colors: {
+            brand: { DEFAULT:'#C8102E', dark:'#A00E24', light:'#FDA4AF', 50:'rgba(200,16,46,0.12)' },
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="css/main.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div id="pageLoader"><div class="loader-cross"><div class="loader-ring"></div></div><div class="loader-text" data-i18n="common.loading">Loading...</div></div>
+
+<!-- Mobile sidebar overlay -->
+<div id="sidebarOverlay"></div>
+
+<div id="app">
+
+  <!-- ═══════════════════ SIDEBAR ══════════════════════════ -->
+  <aside id="sidebar">
+
+    <!-- Logo -->
+    <div class="sidebar-logo">
+      <a href="/" style="display:flex;align-items:center;text-decoration:none;margin-bottom:2px;">
+        <svg viewBox="0 0 205 48" style="height:34px;width:auto;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
+          <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
+        </svg>
+      </a>
+    </div>
+
+    <!-- Station badge -->
+    <div class="sidebar-station">
+      <div class="station-label" data-i18n="app.station">Station</div>
+      <div class="station-name" id="sidebarStationName">—</div>
+      <div class="station-sign" id="sidebarCallSign"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="sidebar-nav">
+      <div class="nav-group-label" data-i18n="app.nav.group.home">Main</div>
+      <button class="nav-item active" data-page="dashboard" onclick="App.navigateTo('dashboard')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg></span> <span data-i18n="app.nav.dashboard">Dashboard</span>
+      </button>
+
+      <div class="nav-group-label" style="margin-top:8px;" data-i18n="app.nav.group.equipment">Equipment</div>
+      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','medication')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg></span> <span data-i18n="app.nav.medication">Medication Bag</span>
+      </button>
+      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','lifepak')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span> Lifepak
+      </button>
+      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','responder')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-backpack"/></svg></span> Responder
+      </button>
+      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','suction')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg></span> Suction
+      </button>
+      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','carevent')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-carevent"/></svg></span> CAREVENT
+      </button>
+      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','station_store')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg></span> <span data-i18n="app.nav.store">Station Store</span>
+      </button>
+      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','car_contents')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg></span> <span data-i18n="app.nav.car">Car Contents</span>
+      </button>
+      <button class="nav-item" data-page="all" onclick="App.navigateTo('all')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span> <span data-i18n="app.nav.all">All Equipment</span>
+      </button>
+
+      <div class="nav-group-label" style="margin-top:8px;" data-i18n="app.nav.group.admin">Management</div>
+      <button class="nav-item" data-page="handover" onclick="App.navigateTo('handover')" style="position:relative;">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg></span> <span data-i18n="handover.nav">Shift Handover</span>
+        <span id="handover-nav-badge" style="display:none;margin-right:auto;background:#D97706;color:white;border-radius:10px;font-size:.65rem;font-weight:800;padding:2px 6px;line-height:1;">1</span>
+      </button>
+      <button class="nav-item" data-page="history" onclick="App.navigateTo('history')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span> <span data-i18n="app.nav.history">Inspection Log</span>
+      </button>
+      <button class="nav-item" data-page="supply" onclick="App.navigateTo('supply')" id="supply-nav" style="position:relative;display:none;">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></span> <span data-i18n="app.nav.supply">Supply Requests</span>
+        <span id="supply-nav-badge" style="display:none;margin-right:auto;background:#D97706;color:white;border-radius:10px;font-size:.65rem;font-weight:800;padding:2px 6px;line-height:1;">0</span>
+      </button>
+      <button class="nav-item" data-page="settings" onclick="App.navigateTo('settings')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span> <span data-i18n="app.nav.settings">Station Settings</span>
+      </button>
+    </nav>
+
+    <!-- User -->
+    <div class="sidebar-user" id="userInfo">
+      <div class="user-name" data-i18n="app.loading">Loading...</div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════ MAIN ════════════════════════════ -->
+  <div id="main">
+
+    <!-- Top Bar -->
+    <header id="topbar">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button id="sidebarToggle" style="display:none;background:none;border:none;cursor:pointer;font-size:1.3rem;color:var(--text-muted);" data-i18n="common.menu" data-i18n-attr="title">☰</button>
+        <div class="topbar-title" id="pageTitle" data-i18n="app.nav.dashboard">Dashboard</div>
+      </div>
+      <div class="topbar-right">
+        <div class="health-ind" id="healthInd" title="Server &amp; database live status">
+          <span class="health-chip checking" data-health="server"><span class="health-dot"></span><span data-i18n="app.health.server">Server</span></span>
+          <span class="health-chip checking" data-health="db"><span class="health-dot"></span><span data-i18n="app.health.db">DB</span></span>
+        </div>
+        <span class="conn-status connecting" id="connectionStatus">
+          <span class="conn-dot"></span>
+          <span class="conn-label" id="connLabel">Connecting...</span>
+          <span class="conn-sublabel" id="connDetail"></span>
+        </span>
+        <button class="btn btn-primary btn-sm" onclick="App.startInspection()" data-i18n="app.topbar.start_insp">▶ Start Inspection</button>
+        <button class="btn btn-ghost btn-sm" onclick="App.openReportModal()" data-i18n="app.topbar.report"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg> Send Report</button>
+        <button class="btn btn-ghost btn-sm lang-toggle" id="appLangToggle" style="min-width:60px;">عربي</button>
+      </div>
+    </header>
+
+    <!-- Pages -->
+    <div id="content">
+
+      <!-- ═══ DASHBOARD ══════════════════════════════════ -->
+      <div id="page-dashboard" class="page active">
+
+        <!-- Pending Handover Banner -->
+        <div id="handover-dashboard-banner" style="display:none;background:linear-gradient(135deg,rgba(120,53,15,0.28),rgba(69,26,3,0.1));border:1.5px solid #F59E0B;border-radius:14px;padding:14px 18px;margin-bottom:16px;box-shadow:0 2px 12px rgba(245,158,11,.15);"></div>
+
+        <!-- Inspection Box -->
+        <div class="inspection-box">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+            <div>
+              <div style="font-size:1rem;font-weight:700;margin-bottom:2px;" data-i18n="app.insp.title">▶ Start New Inspection Session</div>
+              <div style="font-size:0.78rem;color:rgba(255,255,255,0.5);" data-i18n="app.insp.subtitle">A snapshot of current quantities will be taken for comparison</div>
+            </div>
+            <button class="btn btn-success" onclick="App.startInspection()" data-i18n="app.insp.btn">Start Inspection & Log Changes</button>
+          </div>
+          <div class="insp-grid">
+            <div>
+              <div class="insp-label" data-i18n="app.insp.date"><svg class="ic" aria-hidden="true"><use href="#i-calendar"/></svg> Inspection Date</div>
+              <input type="datetime-local" class="insp-control" id="inspDateTime">
+            </div>
+            <div>
+              <div class="insp-label" data-i18n="app.insp.type"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg> Inspection Type</div>
+              <select class="insp-control" id="inspType">
+                <option value="daily" data-i18n="app.insp.type.daily">Daily</option>
+                <option value="weekly" data-i18n="app.insp.type.weekly">Weekly</option>
+                <option value="shift" data-i18n="app.insp.type.shift">Shift Handover</option>
+                <option value="emergency" data-i18n="app.insp.type.emergency">Emergency</option>
+              </select>
+            </div>
+            <div>
+              <div class="insp-label" data-i18n="app.insp.notes"><svg class="ic" aria-hidden="true"><use href="#i-fileText"/></svg> Notes</div>
+              <input type="text" class="insp-control" id="inspNotes" data-i18n-placeholder="app.insp.notes.placeholder" placeholder="Optional note...">
+            </div>
+          </div>
+        </div>
+
+        <!-- Changes Panel -->
+        <div class="card changes-panel">
+          <div class="card-body" style="padding-bottom:0;">
+            <div class="section-header" style="margin-bottom:12px;">
+              <div class="section-title">↕ <span id="changesPanelTitle" data-i18n="app.changes.title">Changes Since Last Inspection</span></div>
+            </div>
+          </div>
+          <div id="changesList"></div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-grid">
+          <div class="stat-card danger" onclick="App.filterByExpiry('expired')">
+            <span class="stat-icon"><svg class="ic" aria-hidden="true"><use href="#i-xCircle"/></svg></span>
+            <div class="stat-label" data-i18n="app.stat.expired">Expired</div>
+            <div class="stat-num" id="stat-expired">0</div>
+            <div class="stat-sub" data-i18n="app.filter.click">Click to filter</div>
+          </div>
+          <div class="stat-card warning" onclick="App.filterByExpiry('warning')">
+            <span class="stat-icon"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span>
+            <div class="stat-label" data-i18n="app.stat.warning">Expiring Soon</div>
+            <div class="stat-num" id="stat-warning">0</div>
+            <div class="stat-sub" data-i18n="app.filter.click">Click to filter</div>
+          </div>
+          <div class="stat-card success" onclick="App.filterByExpiry('ok')">
+            <span class="stat-icon"><svg class="ic" aria-hidden="true"><use href="#i-checkCircle"/></svg></span>
+            <div class="stat-label" data-i18n="app.stat.ok">Valid</div>
+            <div class="stat-num" id="stat-ok">0</div>
+            <div class="stat-sub" data-i18n="app.filter.click">Click to filter</div>
+          </div>
+          <div class="stat-card info">
+            <span class="stat-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></span>
+            <div class="stat-label" data-i18n="app.stat.total">Total Equipment</div>
+            <div class="stat-num" id="stat-total">0</div>
+            <div class="stat-sub" data-i18n="app.nav.group.equipment">Equipment</div>
+          </div>
+        </div>
+
+        <!-- Visual Analytics -->
+        <div class="charts-section">
+          <!-- Donut: Status Overview -->
+          <div class="chart-card donut-card">
+            <div class="chart-card-title">Status Overview</div>
+            <div class="donut-wrap" style="position:relative;height:170px;">
+              <canvas id="statusDonut"></canvas>
+              <div class="donut-center">
+                <span id="donut-total">0</span>
+                <span>items</span>
+              </div>
+            </div>
+            <div class="donut-legend" id="donutLegend"></div>
+          </div>
+
+          <!-- Horizontal Bar: By Category -->
+          <div class="chart-card">
+            <div class="chart-card-title">By Category</div>
+            <div style="flex:1;position:relative;min-height:160px;">
+              <canvas id="catBarsChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Expiry Timeline -->
+          <div class="chart-card">
+            <div class="chart-card-title">Expiry Timeline — Next 6 Months</div>
+            <div style="flex:1;position:relative;min-height:160px;">
+              <canvas id="expiryTimelineChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Stock Levels -->
+          <div class="chart-card" id="stockLevelsCard" style="grid-column:1/-1;">
+            <div class="chart-card-title">Stock Levels vs Minimum — At-Risk Items</div>
+            <div style="position:relative;min-height:130px;">
+              <canvas id="stockLevelsChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alerts -->
+        <div class="card">
+          <div class="card-body">
+            <div class="section-header" style="margin-bottom:14px;">
+              <div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-siren"/></svg> <span data-i18n="app.alerts.title">Urgent Alerts</span></div>
+            </div>
+            <div id="alertsList" style="display:flex;flex-direction:column;gap:8px;"></div>
+          </div>
+        </div>
+
+        <!-- Shift Notes -->
+        <div class="card">
+          <div class="card-body">
+            <div class="section-header" style="margin-bottom:14px;">
+              <div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-fileText"/></svg> <span data-i18n="app.notes.title">Shift Notes</span></div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-primary btn-sm" onclick="App.openNoteModal()" data-i18n="app.notes.add">+ Add Note</button>
+                <button class="btn btn-ghost btn-sm" onclick="App.openReportModal()" data-i18n="app.topbar.report"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg> Send Report</button>
+              </div>
+            </div>
+            <div id="shiftNotesList" style="display:flex;flex-direction:column;gap:10px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ EQUIPMENT ══════════════════════════════════ -->
+      <div id="page-equipment" class="page">
+        <div id="catTabs" class="cat-tabs"></div>
+        <div class="search-bar">
+          <div class="search-field">
+            <span class="search-ico"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
+            <input type="text" class="search-input" id="searchEquip" data-i18n-placeholder="app.search" placeholder="Search by name, code or serial…" autocomplete="off">
+            <button type="button" class="search-clear" data-clear="searchEquip" aria-label="Clear search"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
+          </div>
+          <div class="toolbar-actions">
+            <button class="btn btn-primary" onclick="App.openAddModal()" data-i18n="app.btn.add">+ Add Equipment</button>
+            <button class="btn btn-ghost" onclick="App.exportCurrentCat()" data-i18n="app.btn.export">⬇ Export CSV</button>
+          </div>
+        </div>
+        <div id="equipmentList" class="items-grid"></div>
+      </div>
+
+      <!-- ═══ ALL ════════════════════════════════════════ -->
+      <div id="page-all" class="page">
+        <div class="search-bar">
+          <div class="search-field">
+            <span class="search-ico"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></span>
+            <input type="text" class="search-input" id="searchAll" data-i18n-placeholder="app.search.all" placeholder="Search all items — name, code, serial…" autocomplete="off">
+            <button type="button" class="search-clear" data-clear="searchAll" aria-label="Clear search"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
+          </div>
+          <select class="form-control search-select" id="filterCat">
+            <option value="" data-i18n="app.filter.all">All Categories</option>
+            <option value="medication" data-i18n="app.nav.medication">Medication Bag</option>
+            <option value="lifepak">Lifepak</option>
+            <option value="responder">Responder</option>
+            <option value="suction">Suction</option>
+            <option value="carevent">CAREVENT</option>
+            <option value="station_store" data-i18n="app.nav.store">Station Store</option>
+            <option value="car_contents" data-i18n="app.nav.car">Car Contents</option>
+          </select>
+          <select class="form-control search-select" id="filterExpiry">
+            <option value="" data-i18n="app.filter.expiry">All Expiry States</option>
+            <option value="expired" data-i18n="app.filter.expired">Expired</option>
+            <option value="warning" data-i18n="app.filter.warning">Warning</option>
+            <option value="ok" data-i18n="app.filter.ok">Valid</option>
+          </select>
+          <div class="toolbar-actions">
+            <button class="btn btn-ghost" onclick="App.exportCSV('all')" data-i18n="app.btn.export_all">⬇ Export All</button>
+          </div>
+        </div>
+        <div id="allList" class="items-grid"></div>
+      </div>
+
+      <!-- ═══ HISTORY ════════════════════════════════════ -->
+      <div id="page-history" class="page">
+        <div class="card">
+          <div class="card-body">
+            <div class="section-title" style="margin-bottom:16px;" data-i18n="app.history.title"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Inspection & Change Log</div>
+            <div id="historyList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SUPPLY REQUESTS ═══════════════════════════════ -->
+      <div id="page-supply" class="page">
+        <div class="card">
+          <div class="card-body">
+            <div class="section-title" style="margin-bottom:16px;" data-i18n="app.supply.title"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Supply Requests</div>
+            <div id="supplyList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ SETTINGS ══════════════════════════════════ -->
+      <div id="page-settings" class="page">
+        <div class="card">
+          <div class="card-body">
+            <div class="section-title" style="margin-bottom:20px;" data-i18n="app.settings.title"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg> Station & Paramedic Settings</div>
+
+            <!-- Station Info (read-only, from session) -->
+            <div style="padding:14px 16px;background:var(--bg);border-radius:12px;border:1px solid var(--border);margin-bottom:20px;">
+              <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:10px;"><svg class="ic" aria-hidden="true"><use href="#i-antenna"/></svg> Station Assignment — Set by Admin</div>
+              <div class="form-row">
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label" data-i18n="app.settings.station"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg> Station Name</label>
+                  <input type="text" class="form-control" id="settingsStationName" readonly
+                    style="background:rgba(255,255,255,0.04);color:var(--text-muted);cursor:default;" placeholder="—">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                  <label class="form-label"><svg class="ic" aria-hidden="true"><use href="#i-antenna"/></svg> Station Code</label>
+                  <input type="text" class="form-control" id="s-callsign" readonly
+                    style="background:rgba(255,255,255,0.04);color:var(--text-muted);cursor:default;font-weight:700;letter-spacing:.05em;" placeholder="—">
+                  <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px;">To change station, contact your administrator.</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Editable fields -->
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" data-i18n="app.settings.paramedic"><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg> Paramedic Name</label>
+                <input type="text" class="form-control" id="settingsParamedicName" placeholder="Full name">
+              </div>
+              <div class="form-group">
+                <label class="form-label" data-i18n="app.settings.pid"><svg class="ic" aria-hidden="true"><use href="#i-idCard"/></svg> Staff ID</label>
+                <input type="text" class="form-control" id="settingsParamedicId" placeholder="Employee ID">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="max-width:160px;">
+                <label class="form-label" data-i18n="app.settings.shift"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg> Shift</label>
+                <select class="form-control" id="s-shift">
+                  <option value="">—</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                  <option value="D">D</option>
+                </select>
+              </div>
+              <div class="form-group" style="max-width:180px;">
+                <label class="form-label" data-i18n="app.settings.shift_period"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg> Shift Period</label>
+                <select class="form-control" id="s-period">
+                  <option value="">—</option>
+                  <option value="Morning" data-i18n="app.settings.period_morning">Morning</option>
+                  <option value="Night" data-i18n="app.settings.period_night">Night</option>
+                </select>
+              </div>
+              <div class="form-group" style="max-width:220px;">
+                <label class="form-label" data-i18n="app.settings.lang"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg> Language</label>
+                <button class="btn btn-ghost btn-sm lang-toggle" id="settingsLangToggle" style="width:100%;margin-top:4px;">عربي</button>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px;margin-top:16px;">
+              <button class="btn btn-primary" onclick="App.saveStationInfoAction()" data-i18n="app.settings.save"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg> Save Settings</button>
+              <span id="settingsSaveStatus" style="font-size:.8rem;color:var(--success);opacity:0;transition:opacity .3s;"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ HANDOVER ══════════════════════════════════ -->
+      <div id="page-handover" class="page">
+        <!-- Rendered dynamically by renderHandoverPage() -->
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ═══════════════════ MODALS ══════════════════════════════ -->
+
+<!-- Add/Edit Item Modal -->
+<div id="modal-item" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-item')">
+  <div class="modal-box" style="max-width:700px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-item-title">Add New Equipment</div>
+      <button class="modal-close" onclick="closeModal('modal-item')">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="f-form" onsubmit="App.onSaveItem(event)" novalidate>
+        <div class="seg-control" id="addModeToggle">
+          <button type="button" id="mode-new" class="seg-btn active" onclick="App.setAddMode('new')">➕ <span data-i18n="modal.mode.new">New Item</span></button>
+          <button type="button" id="mode-restock" class="seg-btn" onclick="App.setAddMode('restock')">↩ <span data-i18n="modal.mode.restock">Restock Existing</span></button>
+        </div>
+
+        <!-- New item: full details (old-style EMS form) -->
+        <div id="newFields">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.name">Equipment / Drug Name *</label>
+              <input type="text" class="form-control" id="f-name" required data-i18n-placeholder="modal.item.name.ph" placeholder="Type the medicine name...">
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.cat">Category *</label>
+              <select class="form-control" id="f-cat" required>
+                <option value="" data-i18n="modal.item.cat.select">Select category</option>
+                <option value="MEDICATION" data-i18n="modal.item.cat.medication"><svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg> Medication Bag</option>
+                <option value="LIFEPAK" data-i18n="modal.item.cat.lifepak">Lifepak</option>
+                <option value="RESPONDER" data-i18n="modal.item.cat.responder"><svg class="ic" aria-hidden="true"><use href="#i-backpack"/></svg> Responder Bag</option>
+                <option value="SUCTION" data-i18n="modal.item.cat.suction"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg> Suction Bag</option>
+                <option value="CAREVENT" data-i18n="modal.item.cat.carevent"><svg class="ic" aria-hidden="true"><use href="#i-carevent"/></svg> CAREVENT Bag</option>
+                <option value="STATION_STORE" data-i18n="modal.item.cat.store"><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg> Station Store</option>
+                <option value="CAR_CONTENTS" data-i18n="modal.item.cat.car"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg> Car Contents</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.location">Location</label>
+              <input type="text" class="form-control" id="f-location" data-i18n-placeholder="modal.item.location.ph" placeholder="e.g. Upper cabinet">
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.serial">Serial Number</label>
+              <input type="text" class="form-control" id="f-serial" placeholder="SN-XXXXX" dir="ltr">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.min">Min Quantity</label>
+              <input type="number" class="form-control" id="f-min" min="0" placeholder="—">
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.max">Max Quantity</label>
+              <input type="number" class="form-control" id="f-max" min="0" placeholder="—">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.storecode">Store Code</label>
+              <input type="text" class="form-control" id="f-storecode" placeholder="520-XXXXX" dir="ltr">
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="modal.item.notes">General Notes</label>
+              <input type="text" class="form-control" id="f-notes" data-i18n-placeholder="modal.item.notes.ph" placeholder="Additional notes...">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="modal.item.technotes">Technical Notes / Warnings</label>
+            <textarea class="form-control" id="f-technotes" rows="2" data-i18n-placeholder="modal.item.technotes.ph" placeholder="Technical notes, usage instructions..."></textarea>
+          </div>
+
+          <!-- Batches -->
+          <div class="batch-box">
+            <div style="font-size:0.88rem;font-weight:700;color:var(--text);margin-bottom:12px;" data-i18n="modal.item.batches"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Multiple Batches (different expiry dates)</div>
+            <div class="batch-row">
+              <div>
+                <div class="form-label" data-i18n="modal.item.batchexpiry">Expiry Date</div>
+                <input type="date" class="form-control" id="b-expiry">
+              </div>
+              <div>
+                <div class="form-label" data-i18n="modal.item.batchno">Batch No. (optional)</div>
+                <input type="text" class="form-control" id="b-lot" placeholder="LOT-2024-001" dir="ltr">
+              </div>
+              <div>
+                <div class="form-label" data-i18n="modal.item.batchqty">Quantity</div>
+                <input type="number" class="form-control" id="b-qty" min="1" value="1">
+              </div>
+              <div>
+                <div class="form-label">&nbsp;</div>
+                <button type="button" class="btn btn-success" onclick="App.addBatch()">+ Add</button>
+              </div>
+            </div>
+            <div id="batchesList"></div>
+          </div>
+        </div>
+
+        <!-- Restock existing medicine -->
+        <div id="restockFields" style="display:none;">
+          <div class="form-group">
+            <label class="form-label"><svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg> Medicine *</label>
+            <select class="form-control" id="f-medicine" required>
+              <option value="">Select medicine</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Batch *</label>
+            <select class="form-control" id="f-batch" required>
+              <option value="">Select batch</option>
+            </select>
+            <div style="font-size:.72rem;color:var(--text-muted);margin-top:4px;" id="batchInfo"></div>
+          </div>
+        </div>
+
+        <div id="adjustFields" style="display:none;">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Medicine</label>
+              <input type="text" class="form-control" id="f-medname" readonly>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Current Quantity</label>
+              <input type="number" class="form-control" id="f-current" readonly>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="app.expiry.new_date">New Expiry Date *</label>
+              <input type="date" class="form-control" id="f-expiry">
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="app.expiry.current">Current Expiry</label>
+              <input type="text" class="form-control" id="f-expirycurrent" readonly>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" id="qtyGroup">
+          <label class="form-label" id="qtyLabel">Quantity *</label>
+          <input type="number" class="form-control" id="f-qty" required min="0" placeholder="0">
+        </div>
+        <div class="form-group" id="reasonGroup">
+          <label class="form-label" id="reasonLabel">Reason / Note *</label>
+          <input type="text" class="form-control" id="f-reason" placeholder="Required for the audit log">
+        </div>
+        <div class="modal-footer" style="padding-inline:0;margin-top:20px;">
+          <button type="button" class="btn btn-danger btn-sm" id="btn-delete-med" style="display:none;margin-right:auto;" onclick="App.openDeleteModal()" data-i18n="ui.btn.delete"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg> Delete</button>
+          <button type="button" class="btn btn-ghost" onclick="closeModal('modal-item')" data-i18n="modal.cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-lg" data-i18n="modal.save"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg> Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Medicine Confirmation -->
+<div id="modal-delete" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-delete')">
+  <div class="modal-box" style="max-width:460px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" style="color:#F87171;" data-i18n="modal.delete.title"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg> Delete Medicine</div>
+      <button class="modal-close" onclick="closeModal('modal-delete')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="delItemInfo"></div>
+      <div style="background:var(--bg);border:1px solid rgba(248,113,113,.35);border-radius:10px;padding:12px 14px;font-size:.82rem;color:var(--text2);margin-top:12px;" data-i18n="modal.delete.warning">This permanently removes the medicine, its batches and all stock. It cannot be undone — re-entering creates a fresh record.</div>
+      <div class="modal-footer" style="padding-inline:0;margin-top:16px;">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('modal-delete')" data-i18n="modal.cancel">Cancel</button>
+        <button type="button" class="btn btn-danger btn-lg" id="btn-delete-confirm" onclick="App.confirmDelete()" data-i18n="modal.delete.btn"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg> Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Use Item Modal -->
+<div id="modal-use" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-use')">
+  <div class="modal-box" style="max-width:480px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" data-i18n="modal.use.title"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Log Equipment Usage</div>
+      <button class="modal-close" onclick="closeModal('modal-use')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="useItemInfo" style="margin-bottom:16px;"></div>
+      <div class="form-group">
+        <label class="form-label" data-i18n="modal.use.qty">Quantity Used *</label>
+        <input type="number" class="form-control" id="use-qty" min="1" value="1">
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-i18n="modal.use.reason">Reason for Use</label>
+        <input type="text" class="form-control" id="use-reason" data-i18n-placeholder="modal.use.reason.ph" placeholder="e.g. Emergency — trauma">
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-i18n="modal.use.notes">Additional Notes</label>
+        <textarea class="form-control" id="use-notes" rows="2" data-i18n-placeholder="modal.use.notes.ph" placeholder="Any extra details..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modal-use')" data-i18n="modal.cancel">Cancel</button>
+      <button type="button" class="btn btn-warning btn-lg" onclick="App.confirmUse()" data-i18n="modal.use.confirm">✓ Confirm Usage</button>
+    </div>
+  </div>
+</div>
+
+<!-- Request Supply Modal -->
+<div id="modal-supply" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-supply')">
+  <div class="modal-box" style="max-width:480px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" data-i18n="modal.supply.title"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Request Stock</div>
+      <button class="modal-close" onclick="closeModal('modal-supply')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="supplyItemInfo" style="margin-bottom:16px;"></div>
+      <div class="form-group">
+        <label class="form-label" data-i18n="modal.supply.qty">Quantity Needed *</label>
+        <input type="number" class="form-control" id="supply-qty" min="1" value="1">
+      </div>
+      <div class="form-group">
+        <label class="form-label" data-i18n="modal.supply.reason">Reason</label>
+        <input type="text" class="form-control" id="supply-reason" data-i18n-placeholder="modal.supply.reason_ph" placeholder="e.g. Below minimum stock" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modal-supply')" data-i18n="modal.cancel">Cancel</button>
+      <button type="button" class="btn btn-primary btn-lg" onclick="App.confirmSupply()" data-i18n="modal.supply.confirm">✓ Send Request</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shift Note Modal -->
+<div id="modal-note" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-note')">
+  <div class="modal-box" style="max-width:500px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" data-i18n="modal.note.title"><svg class="ic" aria-hidden="true"><use href="#i-fileText"/></svg> Add Shift Note</div>
+      <button class="modal-close" onclick="closeModal('modal-note')">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="note-form" onsubmit="App.saveNote(event)">
+        <div class="form-group">
+          <label class="form-label" data-i18n="modal.note.title_lbl">Note Title *</label>
+          <input type="text" class="form-control" id="note-title" required data-i18n-placeholder="modal.note.title_ph" placeholder="e.g. Low oxygen supply">
+        </div>
+        <div class="form-group">
+          <label class="form-label" data-i18n="modal.note.priority">Priority *</label>
+          <select class="form-control" id="note-prio" required>
+            <option value="high" data-i18n="modal.note.prio.high"> High</option>
+            <option value="medium" selected data-i18n="modal.note.prio.med"> Medium</option>
+            <option value="low" data-i18n="modal.note.prio.low"> Low</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" data-i18n="modal.note.details">Details *</label>
+          <textarea class="form-control" id="note-content" required rows="4" data-i18n-placeholder="modal.note.details_ph" placeholder="Write note details here..."></textarea>
+        </div>
+        <div class="modal-footer" style="padding-inline:0;margin-top:8px;">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('modal-note')" data-i18n="modal.cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-lg" data-i18n="modal.note.save"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg> Save Note</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Report Modal -->
+<div id="modal-report" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-report')">
+  <div class="modal-box" style="max-width:640px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" data-i18n="modal.report.title"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg> Preview & Send Report</div>
+      <button class="modal-close" onclick="closeModal('modal-report')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="report-preview" id="reportPreview"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modal-report')" data-i18n="modal.close">Close</button>
+      <button type="button" class="btn btn-ghost" onclick="App.copyReport()" data-i18n="modal.report.copy"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Copy</button>
+      <button type="button" class="btn btn-primary btn-lg" onclick="App.sendReport()" data-i18n="modal.report.send"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg> Send via Email</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toastContainer"></div>
+
+<!-- Close modal helper (used by inline onclicks) -->
+<script>function closeModal(id){const el=document.getElementById(id);if(!el)return;el.classList.remove('active');document.body.style.overflow='';}</script>
+
+<!-- Mobile: show sidebar toggle on small screens -->
+<script>
+  if (window.innerWidth <= 768) {
+    document.getElementById('sidebarToggle').style.display = 'block';
+  }
+  window.addEventListener('resize', () => {
+    document.getElementById('sidebarToggle').style.display =
+      window.innerWidth <= 768 ? 'block' : 'none';
+  });
+  // Set inspection datetime to now
+  const inp = document.getElementById('inspDateTime');
+  if (inp) {
+    const now = new Date();
+    const pad = v => String(v).padStart(2, '0');
+    inp.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  }
+</script>
+
+<!-- Auth, session + i18n are handled inside js/app.js -->
+<!-- Main app -->
+<script type="module" src="js/app.js"></script>
+
+<!-- Idle auto sign-out (5 min) -->
+<script>
+window.AEMS_HAS_IDLE_TIMER = true;
+(function() {
+  const IDLE_LIMIT = 5 * 60 * 1000;   // 5 minutes before logout
+  const WARN_BEFORE = 30 * 1000;       // show warning 30s before
+  let idleTimer, warnTimer, banner;
+
+  function removeBanner() {
+    if (banner) { banner.remove(); banner = null; }
+  }
+
+  function doLogout() {
+    removeBanner();
+    if (window.App?.logout) window.App.logout();
+    else window.location.href = '/login.html';
+  }
+
+  function showWarning() {
+    removeBanner();
+    banner = document.createElement('div');
+    banner.id = 'idleWarningBanner';
+    banner.style.cssText = [
+      'position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:9999;',
+      'background:linear-gradient(135deg,rgba(146,64,14,0.35),rgba(69,26,3,0.1));color:#FDE68A;',
+      'padding:14px 22px;border-radius:12px;font-family:Outfit,sans-serif;font-size:.88rem;font-weight:600;',
+      'box-shadow:0 8px 32px rgba(0,0,0,.5);display:flex;align-items:center;gap:14px;',
+      'border:1px solid rgba(245,158,11,.4);',
+    ].join('');
+    banner.innerHTML = `
+      <span><svg class="ic" aria-hidden="true"><use href="#i-timer"/></svg> Signing out due to inactivity in <strong id="_idleCount">30</strong>s</span>
+      <button onclick="window._idleStay()" style="padding:6px 16px;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.25);border-radius:7px;font-family:Outfit,sans-serif;font-size:.82rem;font-weight:700;cursor:pointer;">Stay</button>
+    `;
+    document.body.appendChild(banner);
+
+    // Countdown
+    let count = 30;
+    const tick = setInterval(() => {
+      count--;
+      const el = document.getElementById('_idleCount');
+      if (el) el.textContent = count;
+      if (count <= 0) clearInterval(tick);
+    }, 1000);
+    banner._tick = tick;
+
+    warnTimer = setTimeout(doLogout, WARN_BEFORE);
+  }
+
+  function resetIdle() {
+    clearTimeout(idleTimer);
+    clearTimeout(warnTimer);
+    if (banner) {
+      if (banner._tick) clearInterval(banner._tick);
+      removeBanner();
+    }
+    idleTimer = setTimeout(showWarning, IDLE_LIMIT - WARN_BEFORE);
+  }
+
+  window._idleStay = resetIdle;
+
+  ['mousemove','keydown','mousedown','touchstart','scroll','click'].forEach(ev =>
+    document.addEventListener(ev, resetIdle, { passive: true })
+  );
+
+  resetIdle(); // start timer on page load
+})();
+</script>
+</body>
+</html>

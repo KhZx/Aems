@@ -1,0 +1,464 @@
+// ═══════════════════════════════════════════════════════════════
+//  AEMS — Prisma Schema (PostgreSQL)
+//  Source of truth for the inventory management system.
+// ═══════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ──────────────────────────────────────────────────────
+
+enum Role {
+  PARAMEDIC
+  EMT
+  TECHNICIAN
+  DOCTOR
+  SUPERVISOR
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
+  DISABLED
+}
+
+enum StationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AmbulanceStatus {
+  ACTIVE
+  MAINTENANCE
+  OUT_OF_SERVICE
+  DECOMMISSIONED
+}
+
+enum MedicineCategory {
+  MEDICATION
+  LIFEPAK
+  RESPONDER
+  SUCTION
+  CAREVENT
+  STATION_STORE
+  CAR_CONTENTS
+}
+
+enum TransactionType {
+  USE
+  RESTOCK
+  TRANSFER_OUT
+  TRANSFER_IN
+  ADJUSTMENT
+  EXPIRED
+  DAMAGED
+  RETURN
+  INSPECTION_CORRECTION
+  INITIAL_STOCK
+}
+
+enum TransferStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum InspectionStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum NotePriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum HandoverStatus {
+  SUBMITTED
+  ACKNOWLEDGED
+}
+
+enum SupplyRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FULFILLED
+  CANCELLED
+}
+
+// ── Users ──────────────────────────────────────────────────────
+
+model User {
+  id             String     @id @default(uuid())
+  firebaseUid    String     @unique
+  email          String     @unique
+  displayName    String
+  role           Role       @default(PARAMEDIC)
+  status         UserStatus @default(PENDING)
+  requestedRole  Role?
+  stationId      String?
+  station        Station?   @relation(fields: [stationId], references: [id])
+  empId          String?
+  badgeNumber    String?
+  supervisorZone String?
+  approvedAt     DateTime?
+  approvedBy     String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  lastLoginAt    DateTime?
+
+  managedStations       ManagedStation[]
+  performedTransactions InventoryTransaction[] @relation("TransactionPerformer")
+  performedInspections  Inspection[]           @relation("InspectionPerformer")
+  performedTransfers    Transfer[]             @relation("TransferPerformer")
+  auditLogs             AuditLog[]
+  shiftNotes            ShiftNote[]            @relation("ShiftNoteAuthor")
+  handovers             Handover[]             @relation("HandoverAuthor")
+  reports               Report[]               @relation("ReportAuthor")
+  supplyRequests        SupplyRequest[]        @relation("SupplyRequestAuthor")
+  reviewedSupplyRequests SupplyRequest[]       @relation("SupplyRequestReviewer")
+
+  @@index([stationId])
+  @@index([role])
+  @@index([status])
+  @@index([email])
+}
+
+model ManagedStation {
+  userId    String
+  stationId String
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  station Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, stationId])
+  @@index([stationId])
+}
+
+// ── Stations & Ambulances ──────────────────────────────────────
+
+model Station {
+  id        String        @id @default(uuid())
+  code      String        @unique
+  name      String
+  location  String?
+  status    StationStatus @default(ACTIVE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  users      User[]
+  ambulances Ambulance[]
+  managedBy  ManagedStation[]
+  auditLogs  AuditLog[]
+  shiftNotes ShiftNote[]
+  handovers  Handover[]
+  reports    Report[]
+
+  @@index([code])
+}
+
+model Ambulance {
+  id            String          @id @default(uuid())
+  stationId     String
+  vehicleNumber String          @unique
+  status        AmbulanceStatus @default(ACTIVE)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  station                  Station      @relation(fields: [stationId], references: [id])
+  inventory                Inventory[]
+  inspections              Inspection[]
+  transfers                Transfer[]   @relation("SourceAmbulance")
+  transfersFromDestination Transfer[]   @relation("DestinationAmbulance")
+  auditLogs                AuditLog[]
+  supplyRequests           SupplyRequest[]
+
+  @@index([stationId])
+}
+
+// ── Medicines & Batches ────────────────────────────────────────
+
+model Medicine {
+  id           String           @id @default(uuid())
+  name         String
+  genericName  String?
+  category     MedicineCategory @default(MEDICATION)
+  strength     String?
+  dosageForm   String?
+  unit         String?
+  barcode      String?          @unique
+  minimumStock Int              @default(0)
+  maximumStock Int?
+  location     String?
+  serialNumber String?
+  notes        String?
+  technicalNotes String?
+  isActive     Boolean          @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  batches MedicineBatch[]
+  supplyRequests SupplyRequest[]
+
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+model MedicineBatch {
+  id           String    @id @default(uuid())
+  medicineId   String
+  batchNumber  String
+  expiryDate   DateTime
+  receivedDate DateTime?
+  supplier     String?
+  isActive     Boolean   @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  medicine  Medicine    @relation(fields: [medicineId], references: [id])
+  inventory Inventory[]
+
+  @@unique([medicineId, batchNumber])
+  @@index([expiryDate])
+  @@index([medicineId, expiryDate])
+  @@index([isActive])
+  @@index([deletedAt])
+}
+
+// ── Inventory ──────────────────────────────────────────────────
+
+model Inventory {
+  id          String   @id @default(uuid())
+  ambulanceId String
+  batchId     String
+  quantity    Int      @default(0)
+  notes       String?
+  deletedAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ambulance       Ambulance              @relation(fields: [ambulanceId], references: [id])
+  batch           MedicineBatch          @relation(fields: [batchId], references: [id])
+  transactions    InventoryTransaction[]
+  inspectionItems InspectionItem[]
+  transfers       Transfer[]
+
+  @@unique([ambulanceId, batchId])
+  @@index([batchId])
+  @@index([ambulanceId])
+  @@index([deletedAt])
+}
+
+model InventoryTransaction {
+  id              String          @id @default(uuid())
+  inventoryId     String
+  transactionType TransactionType
+  quantityChange  Int
+  quantityBefore  Int
+  quantityAfter   Int
+  reason          String?
+  referenceId     String?
+  performedById   String?
+  createdAt       DateTime        @default(now())
+
+  inventory   Inventory @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+  performedBy User?     @relation("TransactionPerformer", fields: [performedById], references: [id])
+
+  @@index([inventoryId])
+  @@index([transactionType])
+  @@index([referenceId])
+  @@index([performedById])
+  @@index([createdAt])
+}
+
+// ── Transfers ──────────────────────────────────────────────────
+
+model Transfer {
+  id                     String         @id @default(uuid())
+  sourceAmbulanceId      String
+  destinationAmbulanceId String
+  inventoryId            String
+  quantity               Int
+  status                 TransferStatus @default(COMPLETED)
+  performedById          String
+  notes                  String?
+  createdAt              DateTime       @default(now())
+
+  sourceAmbulance      Ambulance @relation("SourceAmbulance", fields: [sourceAmbulanceId], references: [id])
+  destinationAmbulance Ambulance @relation("DestinationAmbulance", fields: [destinationAmbulanceId], references: [id])
+  inventory            Inventory @relation(fields: [inventoryId], references: [id])
+  performedBy          User      @relation("TransferPerformer", fields: [performedById], references: [id])
+
+  @@index([sourceAmbulanceId])
+  @@index([destinationAmbulanceId])
+  @@index([createdAt])
+}
+
+// ── Inspections ────────────────────────────────────────────────
+
+model Inspection {
+  id            String           @id @default(uuid())
+  ambulanceId   String
+  performedById String
+  performedAt   DateTime         @default(now())
+  status        InspectionStatus @default(COMPLETED)
+  notes         String?
+  createdAt     DateTime         @default(now())
+
+  ambulance   Ambulance        @relation(fields: [ambulanceId], references: [id])
+  performedBy User             @relation("InspectionPerformer", fields: [performedById], references: [id])
+  items       InspectionItem[]
+
+  @@index([ambulanceId])
+  @@index([performedById])
+  @@index([performedAt])
+}
+
+model InspectionItem {
+  id               String  @id @default(uuid())
+  inspectionId     String
+  inventoryId      String
+  expectedQuantity Int
+  actualQuantity   Int
+  difference       Int
+  notes            String?
+
+  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inventory  Inventory  @relation(fields: [inventoryId], references: [id])
+
+  @@index([inspectionId])
+}
+
+// ── Supply Requests (PAR-level reorder) ─────────────────────────
+
+model SupplyRequest {
+  id            String              @id @default(uuid())
+  ambulanceId   String
+  medicineId    String
+  quantity      Int
+  reason        String?
+  status        SupplyRequestStatus @default(PENDING)
+  createdById   String
+  reviewedById  String?
+  reviewedAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  ambulance  Ambulance @relation(fields: [ambulanceId], references: [id])
+  medicine   Medicine  @relation(fields: [medicineId], references: [id])
+  createdBy  User      @relation("SupplyRequestAuthor", fields: [createdById], references: [id])
+  reviewedBy User?     @relation("SupplyRequestReviewer", fields: [reviewedById], references: [id])
+
+  @@index([status])
+  @@index([ambulanceId])
+  @@index([medicineId])
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+// ── Audit (append-only) ────────────────────────────────────────
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  action      String
+  entityType  String?
+  entityId    String?
+  ambulanceId String?
+  stationId   String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user      User?      @relation(fields: [userId], references: [id])
+  ambulance Ambulance? @relation(fields: [ambulanceId], references: [id])
+  station   Station?   @relation(fields: [stationId], references: [id])
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([userId])
+  @@index([stationId])
+  @@index([ambulanceId])
+}
+
+// ── Shift Notes ─────────────────────────────────────────────────
+
+model ShiftNote {
+  id          String       @id @default(uuid())
+  stationId   String
+  title       String
+  content     String
+  priority    NotePriority @default(MEDIUM)
+  author      String?
+  createdById String?
+  createdAt   DateTime     @default(now())
+
+  station   Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("ShiftNoteAuthor", fields: [createdById], references: [id])
+
+  @@index([stationId])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+// ── Shift Handovers ─────────────────────────────────────────────
+
+model Handover {
+  id              String         @id @default(uuid())
+  stationId       String
+  status          HandoverStatus @default(SUBMITTED)
+  outgoingName    String
+  outgoingEmpId   String?
+  outgoingShift   String?
+  patientsCount   Int            @default(0)
+  equipStatus     String?
+  pendingIssues   String?
+  medicationsUsed String?
+  notes           String?
+  incomingName    String?
+  incomingEmpId   String?
+  incomingNotes   String?
+  acknowledgedAt  DateTime?
+  createdById     String?
+  createdAt       DateTime       @default(now())
+
+  station   Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation("HandoverAuthor", fields: [createdById], references: [id])
+
+  @@index([stationId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ── Reports ─────────────────────────────────────────────────────
+
+model Report {
+  id          String   @id @default(uuid())
+  stationId   String?
+  title       String?
+  reportText  String
+  data        Json?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  station   Station? @relation(fields: [stationId], references: [id])
+  createdBy User?    @relation("ReportAuthor", fields: [createdById], references: [id])
+
+  @@index([stationId])
+  @@index([createdAt])
+}

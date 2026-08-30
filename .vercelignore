@@ -1,0 +1,10 @@
+# Deployed to Railway from the repo instead — never ship the backend through Vercel.
+server/
+node_modules/
+SESSION_STATE.md
+README.md
+.gitignore
+.gitattributes
+firebase.json
+railway.json
+*.log
