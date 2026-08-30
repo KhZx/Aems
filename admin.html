@@ -418,10 +418,11 @@
           <div style="display:grid;grid-template-columns:160px 1fr auto;gap:12px;align-items:end;max-width:680px;">
             <div>
               <label style="display:block;font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;" data-i18n="admin.station.code_label">Station Code</label>
-              <input type="text" id="newStationCode" placeholder="ST-001"
-                style="width:100%;padding:9px 12px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);border-radius:8px;font-family:var(--font-body);font-size:.9rem;color:var(--text);outline:none;text-transform:uppercase;letter-spacing:.06em;"
-                oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9-]/g,'')">
-              <div style="font-size:.65rem;color:var(--text3);margin-top:4px;">Unique code, no spaces (e.g. ST-001)</div>
+              <input type="text" id="newStationCode" placeholder="05"
+                style="width:100%;padding:9px 12px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);border-radius:8px;font-family:var(--font-body);font-size:.9rem;color:var(--text);outline:none;letter-spacing:.06em;"
+                oninput="this.value=this.value.replace(/\D/g,'').slice(0,6)" maxlength="6"
+                inputmode="numeric" pattern="[0-9]{1,6}">
+              <div style="font-size:.65rem;color:var(--text3);margin-top:4px;" data-i18n="admin.station.code_hint"></div>
             </div>
             <div>
               <label style="display:block;font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;" data-i18n="admin.station.name_label">Station Full Name</label>
@@ -467,11 +468,8 @@
 
       <!-- Info box -->
       <div style="background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.18);border-radius:12px;padding:14px 18px;font-size:.82rem;color:#93C5FD;line-height:1.65;">
-        <strong data-i18n="admin.station.info_title">How station codes work:</strong> <span data-i18n="admin.station.info_text">Create each station here. Paramedics enter the code during sign-up and are automatically assigned to that station. All inventory for the same code is shared in real time.</span>
-        <br><span data-i18n="admin.station.info_rules">Also update your Firebase security rules to allow</span> <code style="background:rgba(255,255,255,.06);padding:1px 6px;border-radius:4px;">stations_directory</code> public read:
-        <code style="display:block;margin-top:8px;background:rgba(0,0,0,.3);padding:8px 12px;border-radius:8px;font-size:.75rem;color:#E2E8F0;">
-          "stations_directory": &#123; ".read": true, ".write": true &#125;
-        </code>
+        <strong data-i18n="admin.station.info_title">How station codes work:</strong> <span data-i18n="admin.station.info_text">Create each station here. Paramedics select their unit during sign-up and are automatically assigned to that station. All inventory for the same code is shared in real time.</span>
+        <br><span data-i18n="admin.station.info_rules">Codes are the unit/car numbers — digits only, max 6 (e.g. 05). Each unit automatically gets one ambulance with the same number. Stations are stored in the Postgres database; the signup page reads them from the live API.</span>
       </div>
     </div>
 
@@ -623,8 +621,8 @@
     <div id="approveSupFields" style="display:none;">
       <div style="margin-bottom:.9rem;">
         <label style="display:block;font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;">Stations This Supervisor Manages</label>
-        <textarea id="approveStations" rows="3" placeholder="ST-001, ST-002, ST-007" style="width:100%;padding:10px 13px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);border-radius:9px;font-family:var(--font-body);font-size:0.88rem;color:var(--text);outline:none;resize:vertical;text-transform:uppercase;letter-spacing:.04em;" oninput="this.value=this.value.toUpperCase()"></textarea>
-        <div style="font-size:.68rem;color:var(--text3);margin-top:4px;">Comma-separated station codes (e.g. ST-001, ST-002). Supervisor can only view these stations.</div>
+        <textarea id="approveStations" rows="3" placeholder="01, 02, 03" style="width:100%;padding:10px 13px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);border-radius:9px;font-family:var(--font-body);font-size:0.88rem;color:var(--text);outline:none;resize:vertical;"></textarea>
+        <div style="font-size:.68rem;color:var(--text3);margin-top:4px;" data-i18n="admin.user.supervisor_stations_hint"></div>
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:1rem;">
@@ -1299,7 +1297,7 @@ window.exportUsersCSV = function() {
     const name = document.getElementById('newStationName').value.trim();
     if (!code) { toast(t('admin.station.enter_code'), 'error'); return; }
     if (!name) { toast(t('admin.station.enter_name'), 'error'); return; }
-    if (!/^[A-Z0-9][A-Z0-9-]{0,19}$/.test(code)) { toast(t('admin.station.invalid_code'), 'error'); return; }
+    if (!/^\d{1,6}$/.test(code)) { toast(t('admin.station.invalid_code'), 'error'); return; }
     if (_stations.find(s => s.code === code)) { toast(t('admin.station.exists'), 'error'); return; }
     try {
       await api.createStation({ code, name });

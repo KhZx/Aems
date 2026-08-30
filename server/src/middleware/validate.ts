@@ -18,7 +18,11 @@ export function validate(schema: ZodTypeAny, source: Source = 'body') {
         path: issue.path.join('.'),
         message: issue.message,
       }));
-      next(AppError.badRequest('Request validation failed', issues));
+      const message =
+        issues.length === 1
+          ? `Invalid ${issues[0].path || 'value'}: ${issues[0].message}`
+          : `${issues.map((i) => `${i.path || 'value'}: ${i.message}`).join('; ')}`;
+      next(AppError.badRequest(message, issues));
       return;
     }
 
