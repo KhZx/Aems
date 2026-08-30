@@ -1,6 +1,7 @@
 // Bootstrap: seeds reference data + users into an EMPTY database on deploy.
-// Guarded by station count — a no-op on any database that already has data.
-// A failure here is logged but never blocks the API from starting.
+// Guarded by user count; every row is an upsert so partially-seeded databases
+// are reconciled instead of skipped. A failure here is logged but never
+// blocks the API from starting.
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'node:fs';
 
@@ -9,28 +10,48 @@ const prisma = new PrismaClient();
 const d = (v) => (v == null ? null : new Date(v));
 
 async function main() {
-  const stationCount = await prisma.station.count();
-  if (stationCount > 0) {
-    console.log(`bootstrap: ${stationCount} stations already present — skipping`);
+  const userCount = await prisma.user.count();
+  if (userCount > 0) {
+    console.log(`bootstrap: ${userCount} users already present — skipping`);
     return;
   }
 
   const raw = JSON.parse(readFileSync(new URL('../prisma/seed-data.json', import.meta.url), 'utf8'));
+  let created = 0;
+  const note = (n) => { created += n; };
 
+  // Order respects foreign keys: users before the transactions that reference them.
   for (const s of raw.stations) {
-    await prisma.station.create({ data: { ...s, createdAt: d(s.createdAt), updatedAt: d(s.updatedAt) } });
-  }
-  for (const a of raw.ambulances) {
-    await prisma.ambulance.create({ data: { ...a, createdAt: d(a.createdAt), updatedAt: d(a.updatedAt) } });
-  }
-  for (const m of raw.medicines) {
-    await prisma.medicine.create({
-      data: { ...m, deletedAt: d(m.deletedAt), createdAt: d(m.createdAt), updatedAt: d(m.updatedAt) },
+    await prisma.station.upsert({
+      where: { id: s.id },
+      create: { ...s, createdAt: d(s.createdAt), updatedAt: d(s.updatedAt) },
+      update: {},
     });
   }
+  note(raw.stations.length);
+
+  for (const a of raw.ambulances) {
+    await prisma.ambulance.upsert({
+      where: { id: a.id },
+      create: { ...a, createdAt: d(a.createdAt), updatedAt: d(a.updatedAt) },
+      update: {},
+    });
+  }
+  note(raw.ambulances.length);
+
+  for (const m of raw.medicines) {
+    await prisma.medicine.upsert({
+      where: { id: m.id },
+      create: { ...m, deletedAt: d(m.deletedAt), createdAt: d(m.createdAt), updatedAt: d(m.updatedAt) },
+      update: {},
+    });
+  }
+  note(raw.medicines.length);
+
   for (const b of raw.batches) {
-    await prisma.medicineBatch.create({
-      data: {
+    await prisma.medicineBatch.upsert({
+      where: { id: b.id },
+      create: {
         ...b,
         expiryDate: d(b.expiryDate),
         receivedDate: d(b.receivedDate),
@@ -38,36 +59,54 @@ async function main() {
         createdAt: d(b.createdAt),
         updatedAt: d(b.updatedAt),
       },
+      update: {},
     });
   }
+  note(raw.batches.length);
+
   for (const i of raw.inventory) {
-    await prisma.inventory.create({
-      data: { ...i, deletedAt: d(i.deletedAt), createdAt: d(i.createdAt), updatedAt: d(i.updatedAt) },
+    await prisma.inventory.upsert({
+      where: { id: i.id },
+      create: { ...i, deletedAt: d(i.deletedAt), createdAt: d(i.createdAt), updatedAt: d(i.updatedAt) },
+      update: {},
     });
   }
-  for (const t of raw.inventoryTransactions) {
-    await prisma.inventoryTransaction.create({ data: { ...t, createdAt: d(t.createdAt) } });
-  }
+  note(raw.inventory.length);
+
   for (const u of raw.users) {
-    await prisma.user.create({
-      data: {
+    await prisma.user.upsert({
+      where: { id: u.id },
+      create: {
         ...u,
         approvedAt: d(u.approvedAt),
         createdAt: d(u.createdAt),
         updatedAt: d(u.updatedAt),
         lastLoginAt: d(u.lastLoginAt),
       },
+      update: {},
     });
   }
-  for (const m of raw.managedStations) {
-    await prisma.managedStation.create({ data: { ...m } });
-  }
+  note(raw.users.length);
 
-  console.log(
-    `bootstrap: seeded ${raw.stations.length} stations, ${raw.ambulances.length} ambulances, ` +
-      `${raw.medicines.length} medicines, ${raw.batches.length} batches, ${raw.inventory.length} inventory rows, ` +
-      `${raw.users.length} users`,
-  );
+  for (const t of raw.inventoryTransactions) {
+    await prisma.inventoryTransaction.upsert({
+      where: { id: t.id },
+      create: { ...t, createdAt: d(t.createdAt) },
+      update: {},
+    });
+  }
+  note(raw.inventoryTransactions.length);
+
+  for (const m of raw.managedStations) {
+    await prisma.managedStation.upsert({
+      where: { userId_stationId: { userId: m.userId, stationId: m.stationId } },
+      create: { ...m },
+      update: {},
+    });
+  }
+  note(raw.managedStations.length);
+
+  console.log(`bootstrap: database now holds ${created} seeded rows (upserts, idempotent)`);
 }
 
 main()
