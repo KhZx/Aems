@@ -137,40 +137,6 @@
       padding: 1px 7px; border-radius: 4px; white-space: nowrap; flex-shrink: 0;
     }
 
-    /* Managed-units multi-select */
-    .managed-picker {
-      max-height: 180px; overflow-y: auto;
-      border: 1.5px solid rgba(255,255,255,.1); border-radius: 9px;
-      background: rgba(0,0,0,.2); margin-top: 8px;
-    }
-    .managed-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 9px 13px; cursor: pointer;
-      border-bottom: 1px solid rgba(255,255,255,.05);
-      font-size: .85rem; color: var(--text); transition: background .13s;
-    }
-    .managed-item:last-child { border-bottom: none; }
-    .managed-item:hover { background: rgba(200,16,46,.08); }
-    .managed-item.selected { background: rgba(200,16,46,.12); }
-    .managed-item .m-check {
-      width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
-      border: 1.5px solid rgba(255,255,255,.25); background: transparent;
-      display: flex; align-items: center; justify-content: center;
-      font-size: .7rem; color: transparent; transition: all .15s;
-    }
-    .managed-item.selected .m-check { background: #C8102E; border-color: #C8102E; color: #fff; }
-    .managed-item .m-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .managed-item .m-code {
-      font-size: .7rem; font-weight: 700; color: #FDA4AF;
-      background: rgba(200,16,46,.12); padding: 1px 7px; border-radius: 4px; white-space: nowrap; flex-shrink: 0;
-    }
-    .managed-empty { padding: 12px 14px; font-size: .78rem; color: var(--text3); text-align: center; }
-    .managed-count {
-      display: inline-flex; align-items: center; gap: 5px;
-      font-size: .65rem; font-weight: 700; color: #FDA4AF;
-      background: rgba(200,16,46,.12); padding: 2px 9px; border-radius: 4px; margin-left: 6px;
-    }
-  
 /* Dark scrollbars */
 * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.14) rgba(255,255,255,0.03); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -274,12 +240,6 @@
                 <input type="text" id="badgeIn" data-i18n-placeholder="signup.sup.badge_ph">
               </div>
             </div>
-            <div style="margin-top:10px;" class="field">
-              <label data-i18n="signup.sup.stations_label">Units You Manage <span class="managed-count" id="managedCount" style="display:none;"></span></label>
-              <input type="text" id="managedSearch" data-i18n-placeholder="signup.sup.stations_search_ph" placeholder="Search units..." autocomplete="off">
-              <div class="managed-picker" id="managedList"></div>
-              <div class="field-hint" data-i18n="signup.sup.stations_hint">Select the units you oversee. Admin will confirm after approval.</div>
-            </div>
           </div>
 
           <div class="form-row">
@@ -338,48 +298,6 @@ import { FIREBASE_CONFIG } from './js/config.js';
     let _stations = [];
     let _stationCode = '';
     api.publicStations().then(list => { _stations = list || []; }).catch(() => { _stations = []; });
-
-    // ── Managed-units picker (supervisor) ───────────────────
-    const managedSel = new Set();
-    const managedSearchIn = document.getElementById('managedSearch');
-    const managedListEl  = document.getElementById('managedList');
-    const managedCountEl = document.getElementById('managedCount');
-
-    function renderManagedPicker() {
-      const q = (managedSearchIn.value || '').toLowerCase();
-      const seen = new Set();
-      const list = _stations.filter(s => {
-        if (seen.has(s.code)) return false;
-        seen.add(s.code);
-        return !q || s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q);
-      });
-
-      managedCountEl.style.display = managedSel.size ? 'inline-flex' : 'none';
-      managedCountEl.textContent = `✓ ${t('signup.sup.selected_count', { count: managedSel.size })}`;
-
-      if (!list.length) {
-        managedListEl.innerHTML = `<div class="managed-empty">${t('signup.sup.no_units')}</div>`;
-        return;
-      }
-      managedListEl.innerHTML = list.map(s => {
-        const sel = managedSel.has(s.code);
-        return `<div class="managed-item ${sel ? 'selected' : ''}" data-code="${esc(s.code)}">
-          <span class="m-check">${sel ? '✓' : ''}</span>
-          <span class="m-name">${esc(s.name)}</span>
-          <span class="m-code">${esc(s.code)}</span>
-        </div>`;
-      }).join('');
-      managedListEl.querySelectorAll('.managed-item').forEach(el => {
-        el.addEventListener('click', () => toggleManaged(el.dataset.code));
-      });
-    }
-
-    function toggleManaged(code) {
-      if (managedSel.has(code)) managedSel.delete(code); else managedSel.add(code);
-      renderManagedPicker();
-    }
-
-    managedSearchIn.addEventListener('input', renderManagedPicker);
 
     const stationInput = document.getElementById('stationNameIn');
     const stationDrop  = document.getElementById('stationDropdown');
@@ -451,7 +369,6 @@ import { FIREBASE_CONFIG } from './js/config.js';
       document.getElementById('supFields').style.display = isSup ? 'block' : 'none';
       document.getElementById('zoneIn').required  = isSup;
       document.getElementById('badgeIn').required = isSup;
-      if (isSup) renderManagedPicker();
     });
 
     const form      = document.getElementById('signupForm');
@@ -482,7 +399,6 @@ import { FIREBASE_CONFIG } from './js/config.js';
       // Supervisor extras
       const supervisorZone = document.getElementById('zoneIn').value.trim();
       const badgeNumber    = document.getElementById('badgeIn').value.trim();
-      const managedStations = managedSel.size ? [...managedSel] : undefined;
 
       if (!role)                    { showErr('Please select a role.'); return; }
       if (!_stationCode)            { showErr('Please select your station from the list.'); return; }
@@ -490,7 +406,6 @@ import { FIREBASE_CONFIG } from './js/config.js';
       if (pass.length < 8)          { showErr(t('signup.err.weak'));   return; }
       if (pass !== confirm)          { showErr(t('signup.err.mismatch')); return; }
       if (role === 'supervisor' && !supervisorZone) { showErr('Please enter your supervisor zone.'); return; }
-      if (role === 'supervisor' && !managedStations?.length) { showErr(t('signup.err.managed_required')); return; }
 
       submitBtn.disabled = true;
       btnLbl.textContent = t('signup.loading');
@@ -521,7 +436,6 @@ import { FIREBASE_CONFIG } from './js/config.js';
           stationCode: _stationCode,
           badgeNumber: badgeNumber || undefined,
           supervisorZone: supervisorZone || undefined,
-          managedStationCodes: managedStations,
         });
       } catch (err) {
         if (err instanceof ApiError && err.code === 'CONFLICT') {

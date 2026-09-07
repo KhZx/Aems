@@ -1,7 +1,9 @@
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { prisma } from '../config/prisma.js';
-import { classifyExpiry } from '../utils/fefo.js';
+
+// Days before expiry a batch is considered "critical" (amber) / "warning" (yellow).
+const WARNING_DAYS = 90;
 
 /** GET /api/dashboard/overview — aggregate stats (admin/supervisor). */
 export const overview = asyncHandler(async (_req: Request, res: Response) => {
@@ -14,8 +16,13 @@ export const overview = asyncHandler(async (_req: Request, res: Response) => {
     totalAmbulances,
     totalMedicines,
     totalBatches,
-    inventoryRows,
     recentLogs,
+    // ── Inventory aggregates computed in the database (avoids shipping every
+    // row to Node just to sum it). ─────────────────────────────────────
+    totalUnits,
+    expiredUnits,
+    warningUnits,
+    lowStockUnits,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { status: 'PENDING' } }),
@@ -25,32 +32,47 @@ export const overview = asyncHandler(async (_req: Request, res: Response) => {
     prisma.ambulance.count(),
     prisma.medicine.count({ where: { isActive: true, deletedAt: null } }),
     prisma.medicineBatch.count({ where: { isActive: true, deletedAt: null } }),
-    prisma.inventory.findMany({
-      where: { quantity: { gt: 0 }, batch: { deletedAt: null, medicine: { deletedAt: null } } },
-      select: {
-        quantity: true,
-        batch: { select: { medicineId: true, expiryDate: true, medicine: { select: { minimumStock: true, maximumStock: true } } } },
-      },
-    }),
     prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 10 }),
+    prisma.inventory.aggregate({
+      where: { quantity: { gt: 0 }, batch: { deletedAt: null, medicine: { deletedAt: null } } },
+      _sum: { quantity: true },
+    }).then((r) => r._sum.quantity ?? 0),
+    prisma.inventory.aggregate({
+      where: {
+        quantity: { gt: 0 },
+        batch: { deletedAt: null, medicine: { deletedAt: null }, expiryDate: { lt: new Date() } },
+      },
+      _sum: { quantity: true },
+    }).then((r) => r._sum.quantity ?? 0),
+    prisma.inventory.aggregate({
+      where: {
+        quantity: { gt: 0 },
+        batch: {
+          deletedAt: null,
+          medicine: { deletedAt: null },
+          expiryDate: {
+            gte: new Date(),
+            lt: new Date(Date.now() + WARNING_DAYS * 24 * 60 * 60 * 1000),
+          },
+        },
+      },
+      _sum: { quantity: true },
+    }).then((r) => r._sum.quantity ?? 0),
+    prisma.$queryRaw<{ total: bigint }[]>`
+      SELECT COALESCE(SUM(i."quantity"), 0) AS total
+      FROM "Inventory" i
+      JOIN "MedicineBatch" b ON b."id" = i."batchId"
+      JOIN "Medicine" m ON m."id" = b."medicineId"
+      WHERE i."quantity" > 0
+        AND i."deletedAt" IS NULL
+        AND b."deletedAt" IS NULL
+        AND b."isActive" = true
+        AND m."deletedAt" IS NULL
+        AND m."isActive" = true
+        AND m."minimumStock" > 0
+        AND i."quantity" < m."minimumStock"
+    `.then(([r]) => Number(r?.total ?? 0)),
   ]);
-
-  const totalUnits = inventoryRows.reduce((s, r) => s + r.quantity, 0);
-  const expiredUnits = inventoryRows
-    .filter((r) => classifyExpiry(r.batch.expiryDate) === 'EXPIRED')
-    .reduce((s, r) => s + r.quantity, 0);
-  const warningUnits = inventoryRows
-    .filter((r) => {
-      const s = classifyExpiry(r.batch.expiryDate);
-      return s === 'CRITICAL' || s === 'WARNING';
-    })
-    .reduce((s, r) => s + r.quantity, 0);
-
-  // Low-stock rows: quantity below the medicine's minimum.
-  const lowStockRows = inventoryRows.filter(
-    (r) => r.batch.medicine.minimumStock > 0 && r.quantity < r.batch.medicine.minimumStock,
-  );
-  const lowStockUnits = lowStockRows.reduce((s, r) => s + r.quantity, 0);
 
   res.json({
     success: true,

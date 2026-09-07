@@ -52,8 +52,8 @@ export function createApp(): Express {
   app.use(express.json({ limit: '1mb' }));
 
   // API routes behind the global rate limiter.
+  // API routes behind the global rate limiter.
   app.use('/api', apiRateLimiter, routes);
-
   // 404 for unknown API routes, then the central error handler.
   app.use('/api', notFound);
   app.use(errorHandler);

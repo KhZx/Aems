@@ -20,18 +20,18 @@ async function sessionPayload(userId: string) {
   }
 
   const ambulances = await prisma.ambulance.findMany({
-    where:
-      user.role === 'ADMIN' || user.role === 'SUPERVISOR'
-        ? { stationId: { in: accessibleStationIds } }
-        : { stationId: user.stationId ?? '__none__' },
-    select: {
-      id: true,
-      vehicleNumber: true,
-      status: true,
-      station: { select: { id: true, code: true, name: true } },
-    },
-    orderBy: { vehicleNumber: 'asc' },
-  });
+      where:
+        user.role === 'ADMIN' || user.role === 'SUPERVISOR'
+          ? { stationId: { in: accessibleStationIds } }
+          : { stationId: user.stationId ?? '__none__' },
+      select: {
+        id: true,
+        vehicleNumber: true,
+        status: true,
+        station: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { vehicleNumber: 'asc' },
+    });
 
   return {
     user,

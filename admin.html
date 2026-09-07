@@ -71,13 +71,34 @@
     .lang-toggle:hover { background:rgba(255,255,255,.08); color:var(--text); }
 
     /* ── MAIN ── */
+    .sidebar-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.55);
+      z-index: 45;
+    }
+    .sidebar-overlay.show { display: block; }
     .main { margin-inline-start: var(--sidebar-w); flex:1; display:flex; flex-direction:column; min-height:100vh; }
 
     /* ── TOPBAR ── */
     .topbar { background:var(--bg2); border-bottom:1px solid var(--border); padding:0 1.5rem; height:60px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:40; }
     .topbar-title { font-family:var(--font-display); font-size:1.2rem; font-weight:800; color:var(--text); letter-spacing:-0.01em; }
     .demo-pill { padding:4px 12px; background:rgba(217,119,6,.1); border:1px solid rgba(217,119,6,.25); border-radius:100px; font-size:0.7rem; font-weight:600; color:#FDE68A; }
-    .mobile-menu-btn { display:none; background:none; border:none; color:var(--text2); font-size:1.3rem; cursor:pointer; padding:4px; }
+    .mobile-menu-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 38px; height: 38px;
+      flex-shrink: 0;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--text2);
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .mobile-menu-btn:hover { background: rgba(255,255,255,.09); color: var(--text); }
+    .mobile-menu-btn svg { width: 20px; height: 20px; }
 
     /* ── CONTENT ── */
     .content { padding:1.5rem; flex:1; }
@@ -167,7 +188,8 @@
       [dir="rtl"] .sidebar { transform:translateX(100%); }
       .sidebar.open { transform:translateX(0); }
       .main { margin-inline-start:0; }
-      .mobile-menu-btn { display:block; }
+      .mobile-menu-btn { display:inline-flex; }
+      .topbar { flex-wrap:wrap; height:auto; min-height:56px; padding:8px 12px; gap:8px; }
       .stat-row { grid-template-columns:repeat(2,1fr); }
     }
     @media(max-width:600px) {
@@ -274,12 +296,15 @@
   </div>
 </aside>
 
+<!-- Mobile sidebar backdrop -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
 <!-- Main -->
 <div class="main">
   <!-- Topbar -->
   <header class="topbar">
     <div style="display:flex;align-items:center;gap:12px;">
-      <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
+      <button class="mobile-menu-btn" id="mobileMenuBtn" data-i18n="common.menu" data-i18n-attr="title" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
       <div class="topbar-title" id="pageTitle" data-i18n="admin.nav.dashboard">Dashboard</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
@@ -711,8 +736,20 @@
   });
 
   // Mobile sidebar
+  const _sidebar = document.getElementById('sidebar');
+  const _overlay = document.getElementById('sidebarOverlay');
+  const closeSidebar = () => {
+    _sidebar?.classList.remove('open');
+    _overlay?.classList.remove('show');
+  };
   document.getElementById('mobileMenuBtn').addEventListener('click', () => {
-    document.getElementById('sidebar').classList.toggle('open');
+    const open = _sidebar?.classList.toggle('open');
+    _overlay?.classList.toggle('show', !!open);
+  });
+  _overlay?.addEventListener('click', closeSidebar);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSidebar(); });
+  _sidebar?.addEventListener('click', (e) => {
+    if (e.target.closest('.nav-item, .btn-logout, .lang-toggle')) closeSidebar();
   });
 
   function esc(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

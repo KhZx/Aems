@@ -121,19 +121,6 @@ export async function registerUser(input: RegisterInput): Promise<PublicUser> {
     select: USER_SELECT,
   });
 
-  // For SUPERVISOR requests, persist the stations the applicant selected so
-  // the admin sees them pre-filled at approval time. approveUser/changeRole
-  // always rebuild this set, so nothing here survives beyond the request.
-  if (input.requestedRole === 'SUPERVISOR' && input.managedStationCodes?.length) {
-    const managed: Prisma.ManagedStationCreateManyInput[] = [];
-    for (const code of [...new Set(input.managedStationCodes)]) {
-      if (!code.trim()) continue;
-      const station = await prisma.station.findUnique({ where: { code: code.trim() } });
-      if (station) managed.push({ userId: user.id, stationId: station.id });
-    }
-    if (managed.length) await prisma.managedStation.createMany({ data: managed });
-  }
-
   await createAudit(prisma, {
     userId: user.id,
     action: 'CREATE_USER',
@@ -233,11 +220,9 @@ export async function approveUser(
   }
 
   const user = await prisma.$transaction(async (tx) => {
+    await tx.managedStation.deleteMany({ where: { userId: target.id } });
     if (managed.length) {
-      await tx.managedStation.deleteMany({ where: { userId: target.id } });
-      await tx.managedStation.createMany({ data: managed });
-    } else {
-      await tx.managedStation.deleteMany({ where: { userId: target.id } });
+      await tx.managedStation.createMany({ data: managed, skipDuplicates: true });
     }
 
     return tx.user.update({
@@ -351,7 +336,7 @@ export async function changeRole(
 
   const user = await prisma.$transaction(async (tx) => {
     await tx.managedStation.deleteMany({ where: { userId: target.id } });
-    if (managed.length) await tx.managedStation.createMany({ data: managed });
+    if (managed.length) await tx.managedStation.createMany({ data: managed, skipDuplicates: true });
     return tx.user.update({
       where: { id: target.id },
       data: { role: input.role, stationId, status: target.status === 'PENDING' ? 'ACTIVE' : target.status },
@@ -383,10 +368,14 @@ export async function deleteUser(actorId: string, targetId: string, meta: AuditE
   const target = await prisma.user.findUnique({ where: { id: targetId } });
   if (!target) throw AppError.notFound('User not found');
 
-  await prisma.$transaction([
-    prisma.managedStation.deleteMany({ where: { userId: target.id } }),
-    prisma.user.delete({ where: { id: target.id } }),
-  ]);
+  try {
+    await prisma.$transaction([
+      prisma.managedStation.deleteMany({ where: { userId: target.id } }),
+      prisma.user.delete({ where: { id: target.id } }),
+    ]);
+  } catch {
+    throw AppError.conflict('User is referenced by historical records (inspections, reports, etc.); disable the account instead');
+  }
 
   await createAudit(prisma, {
     userId: actorId,
@@ -421,6 +410,7 @@ export async function setMyManagedStations(actorId: string, codes: string[]): Pr
     prisma.managedStation.deleteMany({ where: { userId: actorId } }),
     prisma.managedStation.createMany({
       data: found.map((s) => ({ userId: actorId, stationId: s.id })),
+      skipDuplicates: true,
     }),
   ]);
 

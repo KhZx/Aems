@@ -116,7 +116,7 @@
     <!-- Top Bar -->
     <header id="topbar">
       <div style="display:flex;align-items:center;gap:12px;">
-        <button id="sidebarToggle" style="display:none;background:none;border:none;cursor:pointer;font-size:1.3rem;color:var(--text-muted);" data-i18n="common.menu" data-i18n-attr="title">☰</button>
+        <button id="sidebarToggle" class="sidebar-menu-btn" style="display:none;" data-i18n="common.menu" data-i18n-attr="title" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
         <div class="topbar-title" id="pageTitle" data-i18n="app.nav.dashboard">Dashboard</div>
       </div>
       <div class="topbar-right">
@@ -709,13 +709,12 @@
 
 <!-- Mobile: show sidebar toggle on small screens -->
 <script>
-  if (window.innerWidth <= 768) {
-    document.getElementById('sidebarToggle').style.display = 'block';
-  }
-  window.addEventListener('resize', () => {
-    document.getElementById('sidebarToggle').style.display =
-      window.innerWidth <= 768 ? 'block' : 'none';
-  });
+  (function () {
+    const el = document.getElementById('sidebarToggle');
+    function update() { if (el) el.style.display = window.innerWidth <= 768 ? 'inline-flex' : 'none'; }
+    update();
+    window.addEventListener('resize', update);
+  })();
   // Set inspection datetime to now
   const inp = document.getElementById('inspDateTime');
   if (inp) {

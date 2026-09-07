@@ -257,8 +257,26 @@ function toast(msg, type = '') {
 window.toast = toast;
 
 // ── Page routing ───────────────────────────────────────────
+function closeSidebar() {
+  document.querySelector('.sidebar')?.classList.remove('open');
+  document.getElementById('sidebarOverlay')?.classList.remove('show');
+}
+function toggleSidebar(force) {
+  const sb = document.querySelector('.sidebar');
+  const open = typeof force === 'boolean' ? force : !sb?.classList.contains('open');
+  sb?.classList.toggle('open', open);
+  document.getElementById('sidebarOverlay')?.classList.toggle('show', open);
+}
+document.getElementById('supMenuBtn')?.addEventListener('click', () => toggleSidebar());
+document.getElementById('sidebarOverlay')?.addEventListener('click', () => toggleSidebar(false));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggleSidebar(false); });
+document.querySelector('.sidebar')?.addEventListener('click', (e) => {
+  if (e.target.closest('.nav-item, .st-item, .btn-logout')) toggleSidebar(false);
+});
+
 window.showPage = function (id) {
   _currentPage = id;
+  closeSidebar();
   document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
   $('page-' + id)?.classList.add('active');

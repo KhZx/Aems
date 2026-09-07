@@ -214,6 +214,56 @@
     [dir="rtl"] .main { margin-left: 0; margin-right: var(--sidebar-w); }
     [dir="rtl"] .sidebar { left: auto; right: 0; border-right: none; border-left: 1px solid var(--border); }
 
+    /* ── MOBILE / RESPONSIVE ───────────────────────────────── */
+    .mobile-menu-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 38px; height: 38px;
+      flex-shrink: 0;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      color: var(--text2);
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+    .mobile-menu-btn:hover { background: rgba(255,255,255,.09); color: var(--text); }
+    .mobile-menu-btn svg { width: 20px; height: 20px; }
+    #sidebarOverlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.55);
+      z-index: 49;
+    }
+    #sidebarOverlay.show { display: block; }
+
+    @media(max-width:900px) {
+      .mobile-menu-btn { display: inline-flex; }
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform .25s ease;
+      }
+      .sidebar.open { transform: translateX(0); box-shadow: 8px 0 32px rgba(0,0,0,.4); }
+      [dir="rtl"] .sidebar { transform: translateX(100%); }
+      [dir="rtl"] .sidebar.open { transform: translateX(0); box-shadow: -8px 0 32px rgba(0,0,0,.4); }
+      .main { margin-left: 0; }
+      [dir="rtl"] .main { margin-right: 0; }
+      .topbar {
+        flex-wrap: wrap;
+        gap: 8px;
+        height: auto;
+        padding: 8px 12px;
+      }
+      .topbar-right { flex-wrap: wrap; }
+      .content { padding: 1rem; }
+    }
+    @media(max-width:480px) {
+      .topbar-title { font-size: .92rem; }
+      .topbar-right { gap: 6px; }
+      .topbar-right .conn-status { font-size: .6rem; padding: 4px 9px 4px 8px; }
+    }
+
     /* ── CHARTS ─────────────────────────────────────────────── */
     .sup-charts-row { display: grid; grid-template-columns: 260px 1fr; gap: 1rem; margin-bottom: 1.2rem; }
     @media(max-width:760px) { .sup-charts-row { grid-template-columns: 1fr; } }
@@ -320,9 +370,13 @@
   </div>
 </aside>
 
+<!-- Mobile sidebar backdrop -->
+<div id="sidebarOverlay"></div>
+
 <!-- ═══════════════════ MAIN ═══════════════════════════════ -->
 <div class="main">
   <div class="topbar">
+    <button class="mobile-menu-btn" id="supMenuBtn" data-i18n="common.menu" data-i18n-attr="title" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
     <div class="topbar-title" id="pageTitle">Overview</div>
     <div class="topbar-right">
       <span class="pill red" id="topbarPill"></span>

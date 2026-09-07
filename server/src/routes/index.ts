@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import { authenticate, verifyFirebaseToken } from '../middleware/authenticate.js';
 import { requirePermission } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
@@ -67,6 +67,14 @@ import {
 
 const router = Router();
 
+/** Marks a handler's response cacheable for a short interval (helped GETs). */
+function cacheable(seconds: number) {
+  return (_req: Request, res: Response, next: NextFunction) => {
+    res.set('Cache-Control', `public, max-age=${seconds}, stale-while-revalidate=${seconds * 10}`);
+    next();
+  };
+}
+
 // ── Auth ────────────────────────────────────────────────────────
 router.post('/auth/register', authRateLimiter, verifyFirebaseToken, validate(registerSchema), auth.register);
 router.post('/auth/login', authRateLimiter, authenticate, auth.login);
@@ -84,7 +92,7 @@ router.delete('/users/:id', authenticate, requirePermission('user:update'), vali
 
 // ── Public (no auth — minimal directory for the signup form) ───
 router.get('/health', health.health);
-router.get('/public/stations', stations.publicList);
+router.get('/public/stations', cacheable(300), stations.publicList);
 
 // ── Stations ────────────────────────────────────────────────────
 router.get('/stations', authenticate, requirePermission('station:read'), validate(listStationsQuerySchema, 'query'), stations.list);
@@ -101,7 +109,7 @@ router.patch('/ambulances/:id', authenticate, requirePermission('ambulance:updat
 router.delete('/ambulances/:id', authenticate, requirePermission('ambulance:update'), validate(idParamSchema, 'params'), ambulances.remove);
 
 // ── Medicines ───────────────────────────────────────────────────
-router.get('/medicines', authenticate, requirePermission('medicine:read'), validate(listMedicinesQuerySchema, 'query'), medicines.list);
+router.get('/medicines', authenticate, requirePermission('medicine:read'), validate(listMedicinesQuerySchema, 'query'), cacheable(30), medicines.list);
 router.get('/medicines/:id', authenticate, requirePermission('medicine:read'), validate(idParamSchema, 'params'), medicines.getById);
 router.post('/medicines', authenticate, requirePermission('medicine:create'), validate(createMedicineSchema), medicines.create);
 router.patch('/medicines/:id', authenticate, requirePermission('medicine:update'), validate(idParamSchema, 'params'), validate(updateMedicineSchema), medicines.update);

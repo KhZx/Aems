@@ -237,6 +237,7 @@ model MedicineBatch {
   @@index([medicineId, expiryDate])
   @@index([isActive])
   @@index([deletedAt])
+  @@index([expiryDate, isActive, deletedAt])
 }
 
 // ── Inventory ──────────────────────────────────────────────────
@@ -261,6 +262,7 @@ model Inventory {
   @@index([batchId])
   @@index([ambulanceId])
   @@index([deletedAt])
+  @@index([ambulanceId, deletedAt, quantity])
 }
 
 model InventoryTransaction {

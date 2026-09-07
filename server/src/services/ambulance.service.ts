@@ -90,7 +90,20 @@ export async function deleteAmbulance(actorId: string, id: string, meta: AuditEn
     throw AppError.conflict('Ambulance still has inventory; clear it before deleting');
   }
 
-  await prisma.ambulance.delete({ where: { id } });
+  const [inspectionCount, transferCount, supplyCount] = await Promise.all([
+    prisma.inspection.count({ where: { ambulanceId: id } }),
+    prisma.transfer.count({ where: { OR: [{ sourceAmbulanceId: id }, { destinationAmbulanceId: id }] } }),
+    prisma.supplyRequest.count({ where: { ambulanceId: id } }),
+  ]);
+  if (inspectionCount > 0 || transferCount > 0 || supplyCount > 0) {
+    throw AppError.conflict('Ambulance is referenced by historical records; mark it INACTIVE instead');
+  }
+
+  try {
+    await prisma.ambulance.delete({ where: { id } });
+  } catch {
+    throw AppError.conflict('Ambulance is referenced by other records; mark it INACTIVE instead');
+  }
 
   await createAudit(prisma, {
     userId: actorId,
