@@ -67,10 +67,15 @@ import {
 
 const router = Router();
 
-/** Marks a handler's response cacheable for a short interval (helped GETs). */
-function cacheable(seconds: number) {
+/**
+ * Marks a handler's response cacheable for a short interval (helped GETs).
+ * Authenticated responses use `private` so sensitive data is never stored in a
+ * shared cache; pass `public: true` only for genuinely public endpoints.
+ */
+function cacheable(seconds: number, opts: { public?: boolean } = {}) {
+  const visibility = opts.public ? 'public' : 'private';
   return (_req: Request, res: Response, next: NextFunction) => {
-    res.set('Cache-Control', `public, max-age=${seconds}, stale-while-revalidate=${seconds * 10}`);
+    res.set('Cache-Control', `${visibility}, max-age=${seconds}, stale-while-revalidate=${seconds * 10}`);
     next();
   };
 }
@@ -92,7 +97,7 @@ router.delete('/users/:id', authenticate, requirePermission('user:update'), vali
 
 // ── Public (no auth — minimal directory for the signup form) ───
 router.get('/health', health.health);
-router.get('/public/stations', cacheable(300), stations.publicList);
+router.get('/public/stations', cacheable(300, { public: true }), stations.publicList);
 
 // ── Stations ────────────────────────────────────────────────────
 router.get('/stations', authenticate, requirePermission('station:read'), validate(listStationsQuerySchema, 'query'), stations.list);
