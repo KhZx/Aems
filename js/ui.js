@@ -218,14 +218,19 @@ export function renderBatchItem(batch, idx) {
 }
 
 // ── Toast ─────────────────────────────────────────────────────
+const TOAST_ICONS = { success: 'check', error: 'xCircle', warning: 'alert', info: 'info' };
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 export function toast(message, type = 'success') {
   const container = document.getElementById('toastContainer');
   if (!container) return;
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  el.textContent = message;
+  el.innerHTML = `${icon(TOAST_ICONS[type] || 'info')}<span>${esc(message)}</span>`;
   container.appendChild(el);
-  setTimeout(() => el.remove(), 3500);
+  setTimeout(() => {
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 200);
+  }, 3500);
 }
 
 // ── Modal ─────────────────────────────────────────────────────

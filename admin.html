@@ -161,7 +161,7 @@
     .empty-text { font-size:0.85rem; color:var(--text3); }
 
     /* ── TOAST ── */
-    #toastContainer { position:fixed; bottom:1.5rem; inset-inline-end:1.5rem; z-index:999; display:flex; flex-direction:column; gap:8px; }
+    #toastContainer { position:fixed; top:1rem; inset-inline-end:1rem; z-index:999; display:flex; flex-direction:column-reverse; align-items:flex-end; gap:8px; max-width:min(380px, calc(100vw - 24px)); }
     .toast { padding:10px 16px; border-radius:9px; font-size:0.82rem; font-weight:600; color:white; box-shadow:0 4px 16px rgba(0,0,0,.3); animation:toastIn .25s ease forwards; }
     .toast.success { background:linear-gradient(135deg,#059669,#10B981); }
     .toast.error   { background:linear-gradient(135deg,#DC2626,#EF4444); }
