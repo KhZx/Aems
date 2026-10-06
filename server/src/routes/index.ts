@@ -2,8 +2,9 @@ import { Router, type Request, type Response, type NextFunction } from 'express'
 import { authenticate, verifyFirebaseToken } from '../middleware/authenticate.js';
 import { requirePermission } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
-import { authRateLimiter } from '../middleware/rateLimiter.js';
+import { authRateLimiter, destructiveRateLimiter } from '../middleware/rateLimiter.js';
 import * as auth from '../controllers/auth.controller.js';
+import * as duty from '../controllers/duty.controller.js';
 import * as health from '../controllers/health.controller.js';
 import * as users from '../controllers/user.controller.js';
 import * as stations from '../controllers/station.controller.js';
@@ -19,13 +20,14 @@ import * as shiftNotes from '../controllers/shiftNote.controller.js';
 import * as handovers from '../controllers/handover.controller.js';
 import * as reports from '../controllers/report.controller.js';
 import * as supplyRequests from '../controllers/supplyRequest.controller.js';
+import * as distributions from '../controllers/distribution.controller.js';
 import {
   registerSchema,
   listUsersQuerySchema,
   approveUserSchema,
   changeRoleSchema,
   setUserStatusSchema,
-  updateMyManagedStationsSchema,
+  setManagedStationsSchema,
   idParamSchema,
   createStationSchema,
   updateStationSchema,
@@ -47,6 +49,7 @@ import {
   updateInventoryExpirySchema,
   returnSchema,
   initialStockSchema,
+  importInventorySchema,
   listInventoryQuerySchema,
   inventoryIdParamSchema,
   transferSchema,
@@ -63,6 +66,12 @@ import {
   createSupplyRequestSchema,
   reviewSupplyRequestSchema,
   listSupplyRequestsQuerySchema,
+  createDistributionTemplateSchema,
+  updateDistributionTemplateSchema,
+  distributionIdParamSchema,
+  applyDistributionSchema,
+  switchDutySchema,
+  setUserUnitsSchema,
 } from '../validators/index.js';
 
 const router = Router();
@@ -84,16 +93,27 @@ function cacheable(seconds: number, opts: { public?: boolean } = {}) {
 router.post('/auth/register', authRateLimiter, verifyFirebaseToken, validate(registerSchema), auth.register);
 router.post('/auth/login', authRateLimiter, authenticate, auth.login);
 router.get('/auth/me', authenticate, auth.me);
-router.put('/auth/me/managed-stations', authenticate, requirePermission('station:read'), validate(updateMyManagedStationsSchema), users.updateMyManagedStations);
+
+// 🗺️ Duty unit (crew switching — unlimited, reason required, audited)
+router.get('/me/duty', authenticate, duty.state);
+router.post('/me/duty/switch', authenticate, validate(switchDutySchema), duty.switchUnit);
+/**
+ * Supervisor station assignments are an ADMIN decision: a supervisor used to be
+ * able to set this list for themselves and hand themselves any unit in the
+ * fleet, which defeated the whole station-scoping model. The assignment now
+ * lives with the users routes (PUT /users/:id/managed-stations).
+ */
 
 // ── Users ───────────────────────────────────────────────────────
 router.get('/users', authenticate, requirePermission('user:read'), validate(listUsersQuerySchema, 'query'), users.list);
 router.get('/users/:id', authenticate, requirePermission('user:read'), validate(idParamSchema, 'params'), users.getById);
+router.put('/users/:id/managed-stations', authenticate, requirePermission('station:assign'), validate(idParamSchema, 'params'), validate(setManagedStationsSchema), users.setManagedStations);
+router.put('/users/:id/units', authenticate, requirePermission('user:update'), validate(idParamSchema, 'params'), validate(setUserUnitsSchema), users.setUnits);
 router.post('/users/:id/approve', authenticate, requirePermission('user:approve'), validate(idParamSchema, 'params'), validate(approveUserSchema), users.approve);
 router.post('/users/:id/reject', authenticate, requirePermission('user:approve'), validate(idParamSchema, 'params'), users.reject);
 router.patch('/users/:id/status', authenticate, requirePermission('user:disable'), validate(idParamSchema, 'params'), validate(setUserStatusSchema), users.setStatus);
 router.patch('/users/:id/role', authenticate, requirePermission('user:changeRole'), validate(idParamSchema, 'params'), validate(changeRoleSchema), users.changeRole);
-router.delete('/users/:id', authenticate, requirePermission('user:update'), validate(idParamSchema, 'params'), users.remove);
+router.delete('/users/:id', authenticate, requirePermission('user:update'), destructiveRateLimiter, validate(idParamSchema, 'params'), users.remove);
 
 // ── Public (no auth — minimal directory for the signup form) ───
 router.get('/health', health.health);
@@ -104,21 +124,21 @@ router.get('/stations', authenticate, requirePermission('station:read'), validat
 router.get('/stations/code/:code', authenticate, requirePermission('station:read'), validate(stationCodeParamSchema, 'params'), stations.getByCode);
 router.post('/stations', authenticate, requirePermission('station:create'), validate(createStationSchema), stations.create);
 router.patch('/stations/:id', authenticate, requirePermission('station:update'), validate(idParamSchema, 'params'), validate(updateStationSchema), stations.update);
-router.delete('/stations/:id', authenticate, requirePermission('station:delete'), validate(idParamSchema, 'params'), stations.remove);
+router.delete('/stations/:id', authenticate, requirePermission('station:delete'), destructiveRateLimiter, validate(idParamSchema, 'params'), stations.remove);
 
 // ── Ambulances ──────────────────────────────────────────────────
 router.get('/ambulances', authenticate, requirePermission('ambulance:read'), validate(listAmbulancesQuerySchema, 'query'), ambulances.list);
 router.get('/ambulances/:id', authenticate, requirePermission('ambulance:read'), validate(idParamSchema, 'params'), ambulances.getById);
 router.post('/ambulances', authenticate, requirePermission('ambulance:create'), validate(createAmbulanceSchema), ambulances.create);
 router.patch('/ambulances/:id', authenticate, requirePermission('ambulance:update'), validate(idParamSchema, 'params'), validate(updateAmbulanceSchema), ambulances.update);
-router.delete('/ambulances/:id', authenticate, requirePermission('ambulance:update'), validate(idParamSchema, 'params'), ambulances.remove);
+router.delete('/ambulances/:id', authenticate, requirePermission('ambulance:update'), destructiveRateLimiter, validate(idParamSchema, 'params'), ambulances.remove);
 
 // ── Medicines ───────────────────────────────────────────────────
 router.get('/medicines', authenticate, requirePermission('medicine:read'), validate(listMedicinesQuerySchema, 'query'), cacheable(30), medicines.list);
 router.get('/medicines/:id', authenticate, requirePermission('medicine:read'), validate(idParamSchema, 'params'), medicines.getById);
 router.post('/medicines', authenticate, requirePermission('medicine:create'), validate(createMedicineSchema), medicines.create);
 router.patch('/medicines/:id', authenticate, requirePermission('medicine:update'), validate(idParamSchema, 'params'), validate(updateMedicineSchema), medicines.update);
-router.delete('/medicines/:id', authenticate, requirePermission('medicine:delete'), validate(idParamSchema, 'params'), medicines.remove);
+router.delete('/medicines/:id', authenticate, requirePermission('medicine:delete'), destructiveRateLimiter, validate(idParamSchema, 'params'), medicines.remove);
 
 // ── Batches ─────────────────────────────────────────────────────
 router.get('/batches', authenticate, requirePermission('batch:read'), validate(listBatchesQuerySchema, 'query'), batches.list);
@@ -136,7 +156,10 @@ router.post('/inventory/damaged', authenticate, requirePermission('inventory:adj
 router.post('/inventory/expired', authenticate, requirePermission('inventory:adjust'), validate(removeStockSchema), inventory.expired);
 router.post('/inventory/return', authenticate, requirePermission('inventory:restock'), validate(returnSchema), inventory.returnStock);
 router.post('/inventory/initial-stock', authenticate, requirePermission('inventory:adjust'), validate(initialStockSchema), inventory.initialStock);
+router.post('/inventory/import', authenticate, requirePermission('inventory:adjust'), validate(importInventorySchema), inventory.importInventory);
 router.post('/inventory/transfer', authenticate, requirePermission('inventory:transfer'), validate(transferSchema), transfers.create);
+// Delete a single stock line (one lot on one car) — never cascades to the medicine.
+router.delete('/inventory/:id', authenticate, requirePermission('inventory:adjust'), destructiveRateLimiter, validate(inventoryIdParamSchema, 'params'), inventory.remove);
 
 // ── Transfers ───────────────────────────────────────────────────
 router.get('/transfers', authenticate, requirePermission('transfer:read'), validate(listTransfersQuerySchema, 'query'), transfers.list);
@@ -155,7 +178,8 @@ router.get('/dashboard/overview', authenticate, requirePermission('dashboard:rea
 // ── Shift Notes ─────────────────────────────────────────────────
 router.get('/shift-notes', authenticate, requirePermission('shiftnote:read'), validate(listShiftNotesQuerySchema, 'query'), shiftNotes.list);
 router.post('/shift-notes', authenticate, requirePermission('shiftnote:create'), validate(createShiftNoteSchema), shiftNotes.create);
-router.delete('/shift-notes/:id', authenticate, requirePermission('shiftnote:delete'), validate(idParamSchema, 'params'), shiftNotes.remove);
+router.delete('/shift-notes/:id', authenticate, requirePermission('shiftnote:delete'), destructiveRateLimiter, validate(idParamSchema, 'params'), shiftNotes.remove);
+router.post('/shift-notes/:id/restore', authenticate, requirePermission('shiftnote:restore'), validate(idParamSchema, 'params'), shiftNotes.restore);
 
 // ── Handovers ───────────────────────────────────────────────────
 router.get('/handovers', authenticate, requirePermission('handover:read'), validate(listHandoversQuerySchema, 'query'), handovers.list);
@@ -171,5 +195,13 @@ router.get('/supply-requests', authenticate, requirePermission('supply:read'), v
 router.post('/supply-requests', authenticate, requirePermission('supply:request'), validate(createSupplyRequestSchema), supplyRequests.create);
 router.patch('/supply-requests/:id/status', authenticate, requirePermission('supply:review'), validate(idParamSchema, 'params'), validate(reviewSupplyRequestSchema), supplyRequests.review);
 router.post('/supply-requests/:id/cancel', authenticate, requirePermission('supply:request'), validate(idParamSchema, 'params'), supplyRequests.cancel);
+
+// ── Inventory Distribution (admin) ──────────────────────────────
+router.get('/distributions/templates', authenticate, requirePermission('distribution:manage'), distributions.templates);
+router.post('/distributions/templates', authenticate, requirePermission('distribution:manage'), validate(createDistributionTemplateSchema), distributions.create);
+router.patch('/distributions/templates/:id', authenticate, requirePermission('distribution:manage'), validate(distributionIdParamSchema, 'params'), validate(updateDistributionTemplateSchema), distributions.update);
+router.delete('/distributions/templates/:id', authenticate, requirePermission('distribution:manage'), destructiveRateLimiter, validate(distributionIdParamSchema, 'params'), distributions.remove);
+router.post('/distributions/apply', authenticate, requirePermission('distribution:manage'), validate(applyDistributionSchema), distributions.apply);
+router.get('/distributions', authenticate, requirePermission('distribution:manage'), distributions.list);
 
 export default router;

@@ -4,7 +4,7 @@ export {
   approveUserSchema,
   changeRoleSchema,
   setUserStatusSchema,
-  updateMyManagedStationsSchema,
+  setManagedStationsSchema,
   idParamSchema,
 } from './user.schema.js';
 export {
@@ -36,6 +36,13 @@ export {
   listInventoryQuerySchema,
   inventoryIdParamSchema,
 } from './inventory.schema.js';
+export { importInventorySchema } from './import.schema.js';
+export {
+  createDistributionTemplateSchema,
+  updateDistributionTemplateSchema,
+  distributionIdParamSchema,
+  applyDistributionSchema,
+} from './distribution.schema.js';
 export { transferSchema, listTransfersQuerySchema } from './transfer.schema.js';
 export {
   inspectionItemSchema,
@@ -54,3 +61,4 @@ export {
   reviewSupplyRequestSchema,
   listSupplyRequestsQuerySchema,
 } from './supplyRequest.schema.js';
+export { switchDutySchema, setUserUnitsSchema } from './duty.schema.js';

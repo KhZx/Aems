@@ -13,6 +13,7 @@ const INVENTORY_DETAIL = {
   ambulanceId: true,
   quantity: true,
   notes: true,
+  deletedAt: true,
   updatedAt: true,
   batch: {
     select: {
@@ -28,9 +29,8 @@ const INVENTORY_DETAIL = {
           category: true,
           strength: true,
           dosageForm: true,
+          size: true,
           unit: true,
-          minimumStock: true,
-          maximumStock: true,
           location: true,
           serialNumber: true,
           notes: true,
@@ -58,7 +58,10 @@ async function lockInventoryRows(tx: Tx, ids: string[]): Promise<void> {
 
 async function lockInventory(tx: Tx, id: string): Promise<InventoryDetail> {
   await lockInventoryRows(tx, [id]);
-  const row = await tx.inventory.findUnique({ where: { id }, select: INVENTORY_DETAIL });
+  const row = await tx.inventory.findFirst({
+    where: { id, deletedAt: null },
+    select: INVENTORY_DETAIL,
+  });
   if (!row) throw AppError.notFound('Inventory record not found');
   return row;
 }
@@ -138,6 +141,7 @@ export async function listInventory(input: ListInventoryInput = {}) {
   const where: Prisma.InventoryWhereInput = {
     ...(input.ambulanceId ? { ambulanceId: input.ambulanceId } : {}),
     ...(input.stationIds ? { ambulance: { stationId: { in: input.stationIds } } } : {}),
+    deletedAt: null,
     batch: { AND: batchFilters },
     ...(input.includeEmpty ? {} : { quantity: { gt: 0 } }),
   };
@@ -151,8 +155,6 @@ export async function listInventory(input: ListInventoryInput = {}) {
   return rows.map((row) => ({
     ...row,
     expiryStatus: classifyExpiry(row.batch.expiryDate),
-    lowStock: row.batch.medicine.minimumStock > 0 && row.quantity < row.batch.medicine.minimumStock,
-    overStock: row.batch.medicine.maximumStock != null && row.quantity > row.batch.medicine.maximumStock,
   }));
 }
 
@@ -188,6 +190,7 @@ export async function useMedicine(input: UseMedicineInput) {
     const candidates = await tx.inventory.findMany({
       where: {
         ambulanceId: input.ambulanceId,
+        deletedAt: null,
         batch: { medicineId: input.medicineId, isActive: true, deletedAt: null },
         quantity: { gt: 0 },
       },
@@ -280,7 +283,7 @@ export async function restock(input: RestockInput) {
     const inventory = await tx.inventory.upsert({
       where: { ambulanceId_batchId: { ambulanceId: input.ambulanceId, batchId: input.batchId } },
       create: { ambulanceId: input.ambulanceId, batchId: input.batchId, quantity: input.quantity },
-      update: { quantity: { increment: input.quantity } },
+      update: { quantity: { increment: input.quantity }, deletedAt: null },
       select: INVENTORY_DETAIL,
     });
 
@@ -534,6 +537,56 @@ export function processExpired(input: Omit<RemoveStockInput, 'type'>) {
   return removeStock({ ...input, type: 'EXPIRED' });
 }
 
+// ── REMOVE STOCK LINE (single lot on a single car) ─────────────
+
+export interface RemoveStockLineInput {
+  inventoryId: string;
+  performedById: string;
+  meta?: InventoryOperationMeta;
+}
+
+/**
+ * Soft-deletes ONE stock line — a single lot/batch stocked on one ambulance.
+ * Unlike deleting a medicine this never cascades: the medicine and all of its
+ * other batches/lots stay untouched. Historical transactions keep resolving
+ * because nothing is physically dropped.
+ */
+export async function removeStockLine(input: RemoveStockLineInput) {
+  const referenceId = crypto.randomUUID();
+
+  return prisma.$transaction(async (tx) => {
+    const inventory = await lockInventory(tx, input.inventoryId);
+    if (inventory.deletedAt) throw AppError.notFound('Inventory record not found');
+    const now = new Date();
+
+    const updated = await tx.inventory.update({
+      where: { id: inventory.id },
+      data: { deletedAt: now },
+      select: INVENTORY_DETAIL,
+    });
+
+    await createAudit(tx, {
+      userId: input.performedById,
+      action: 'DELETE_STOCK',
+      entityType: 'Inventory',
+      entityId: inventory.id,
+      ambulanceId: inventory.ambulanceId,
+      stationId: inventory.ambulance.station.id,
+      metadata: {
+        referenceId,
+        medicineName: inventory.batch.medicine.name,
+        batchId: inventory.batch.id,
+        batchNumber: inventory.batch.batchNumber,
+        quantity: inventory.quantity,
+        notes: inventory.notes ?? null,
+      },
+      ...input.meta,
+    });
+
+    return updated;
+  });
+}
+
 export interface ReturnInput {
   ambulanceId: string;
   batchId: string;
@@ -557,7 +610,7 @@ export async function returnStock(input: ReturnInput) {
     const inventory = await tx.inventory.upsert({
       where: { ambulanceId_batchId: { ambulanceId: input.ambulanceId, batchId: input.batchId } },
       create: { ambulanceId: input.ambulanceId, batchId: input.batchId, quantity: input.quantity },
-      update: { quantity: { increment: input.quantity } },
+      update: { quantity: { increment: input.quantity }, deletedAt: null },
       select: INVENTORY_DETAIL,
     });
 
@@ -621,7 +674,7 @@ export async function setInitialStock(input: InitialStockInput) {
     const inventory = await tx.inventory.upsert({
       where: { ambulanceId_batchId: { ambulanceId: input.ambulanceId, batchId: input.batchId } },
       create: { ambulanceId: input.ambulanceId, batchId: input.batchId, quantity: input.quantity },
-      update: { quantity: input.quantity },
+      update: { quantity: input.quantity, deletedAt: null },
       select: INVENTORY_DETAIL,
     });
 

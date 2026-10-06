@@ -95,7 +95,8 @@ export async function initAppSession() {
     clearSession();
     return null;
   }
-  if (cached && cached.user?.firebaseUid === fbUser.uid) {
+  // Sessions cached before the duty-roster upgrade lack `dutyRoster` — refresh them once.
+  if (cached && cached.user?.firebaseUid === fbUser.uid && 'dutyRoster' in cached) {
     return cached; // re-validated lazily on first 401
   }
   return loginWithBackend();

@@ -65,12 +65,21 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
   res.status(204).send();
 });
 
-/** PUT /api/auth/me/managed-stations — supervisor self-service unit list. */
-export const updateMyManagedStations = asyncHandler(async (req: Request, res: Response) => {
-  const me = req.authUser!;
-  if (me.role !== 'SUPERVISOR') {
-    throw AppError.forbidden('Only supervisors can manage their station list');
-  }
-  const managedStations = await userService.setMyManagedStations(me.id, req.body.stationCodes);
+/**
+ * PUT /api/users/:id/managed-stations — administrator assigns the units a
+ * supervisor is responsible for. Crew cannot reach this (station:assign is
+ * admin-only), which is what stops a supervisor from granting themselves
+ * extra units.
+ */
+export const setManagedStations = asyncHandler(async (req: Request, res: Response) => {
+  const targetId = reqParam(req, 'id');
+  const managedStations = await userService.setManagedStationsForUser(targetId, req.body.stationCodes);
   res.json({ success: true, data: { managedStations } });
+});
+
+/** PUT /api/users/:id/units — replaces the user's roster allow-list. */
+export const setUnits = asyncHandler(async (req: Request, res: Response) => {
+  const targetId = reqParam(req, 'id');
+  const units = await userService.setUserUnits(actor(req), targetId, req.body.stationIds, requestMeta(req));
+  res.json({ success: true, data: { units } });
 });

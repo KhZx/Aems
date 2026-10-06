@@ -64,6 +64,7 @@ enum TransactionType {
   RETURN
   INSPECTION_CORRECTION
   INITIAL_STOCK
+  DISTRIBUTION
 }
 
 enum TransferStatus {
@@ -123,10 +124,13 @@ model User {
   performedTransfers    Transfer[]             @relation("TransferPerformer")
   auditLogs             AuditLog[]
   shiftNotes            ShiftNote[]            @relation("ShiftNoteAuthor")
+  deletedShiftNotes      ShiftNote[]            @relation("ShiftNoteDeletedBy")
   handovers             Handover[]             @relation("HandoverAuthor")
   reports               Report[]               @relation("ReportAuthor")
   supplyRequests        SupplyRequest[]        @relation("SupplyRequestAuthor")
   reviewedSupplyRequests SupplyRequest[]       @relation("SupplyRequestReviewer")
+  appliedDistributions  Distribution[]       @relation("DistributionAppliedBy")
+  dutyRoster            DutyRoster[]
 
   @@index([stationId])
   @@index([role])
@@ -156,13 +160,15 @@ model Station {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  users      User[]
-  ambulances Ambulance[]
-  managedBy  ManagedStation[]
-  auditLogs  AuditLog[]
-  shiftNotes ShiftNote[]
-  handovers  Handover[]
-  reports    Report[]
+  users         User[]
+  ambulances    Ambulance[]
+  managedBy     ManagedStation[]
+  dutyAssignments DutyRoster[]
+  auditLogs     AuditLog[]
+  shiftNotes    ShiftNote[]
+  handovers     Handover[]
+  reports       Report[]
+  distributions Distribution[]
 
   @@index([code])
 }
@@ -186,6 +192,24 @@ model Ambulance {
   @@index([stationId])
 }
 
+/**
+ * Admin-maintained allow-list: which units (stations) a crew member may hold
+ * as their duty unit. `User.stationId` is the *active* unit; this table is
+ * everything they are allowed to switch to. Switching is free and audited.
+ */
+model DutyRoster {
+  userId    String
+  stationId String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  station Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, stationId])
+  @@index([stationId])
+}
+
 // ── Medicines & Batches ────────────────────────────────────────
 
 model Medicine {
@@ -195,10 +219,9 @@ model Medicine {
   category     MedicineCategory @default(MEDICATION)
   strength     String?
   dosageForm   String?
+  size         String?
   unit         String?
   barcode      String?          @unique
-  minimumStock Int              @default(0)
-  maximumStock Int?
   location     String?
   serialNumber String?
   notes        String?
@@ -208,8 +231,9 @@ model Medicine {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
-  batches MedicineBatch[]
-  supplyRequests SupplyRequest[]
+  batches           MedicineBatch[]
+  supplyRequests    SupplyRequest[]
+  distributionItems DistributionTemplateItem[]
 
   @@index([name])
   @@index([category])
@@ -409,13 +433,20 @@ model ShiftNote {
   author      String?
   createdById String?
   createdAt   DateTime     @default(now())
+  // Notes are never physically dropped: a removal is a soft delete that a
+  // supervisor can undo, and the who/why is kept for the audit trail.
+  deletedAt     DateTime?
+  deletedById   String?
+  deleteReason  String?
 
   station   Station @relation(fields: [stationId], references: [id], onDelete: Cascade)
   createdBy User?   @relation("ShiftNoteAuthor", fields: [createdById], references: [id])
+  deletedBy User?   @relation("ShiftNoteDeletedBy", fields: [deletedById], references: [id])
 
   @@index([stationId])
   @@index([priority])
   @@index([createdAt])
+  @@index([deletedAt])
 }
 
 // ── Shift Handovers ─────────────────────────────────────────────
@@ -463,4 +494,79 @@ model Report {
 
   @@index([stationId])
   @@index([createdAt])
+}
+
+// ── Inventory Distribution (admin templates) ────────────────────
+
+model DistributionTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items         DistributionTemplateItem[]
+  distributions Distribution[]
+
+  @@index([isActive])
+  @@index([updatedAt])
+}
+
+model DistributionTemplateItem {
+  id             String           @id @default(uuid())
+  templateId     String
+  medicineId     String?
+  name           String
+  category       MedicineCategory @default(MEDICATION)
+  location       String?
+  serialNumber   String?
+  size           String?
+  barcode        String?
+  notes          String?
+  technicalNotes String?
+  sortOrder      Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  template DistributionTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  medicine Medicine?                 @relation(fields: [medicineId], references: [id])
+  batches  DistributionTemplateBatch[]
+
+  @@index([templateId])
+  @@index([medicineId])
+  @@unique([templateId, sortOrder])
+}
+
+model DistributionTemplateBatch {
+  id             String   @id @default(uuid())
+  templateItemId String
+  batchNumber    String
+  expiryDate     DateTime
+  receivedDate   DateTime?
+  supplier       String?
+  quantity       Int      @default(1)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  templateItem DistributionTemplateItem @relation(fields: [templateItemId], references: [id], onDelete: Cascade)
+
+  @@index([templateItemId])
+}
+
+model Distribution {
+  id          String   @id @default(uuid())
+  templateId  String
+  stationId   String
+  appliedById String
+  appliedAt   DateTime @default(now())
+
+  template  DistributionTemplate @relation(fields: [templateId], references: [id])
+  station   Station              @relation(fields: [stationId], references: [id])
+  appliedBy User                 @relation("DistributionAppliedBy", fields: [appliedById], references: [id])
+
+  @@index([templateId])
+  @@index([stationId])
+  @@index([appliedById])
+  @@index([appliedAt])
 }

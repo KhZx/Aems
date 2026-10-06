@@ -55,6 +55,12 @@ function mapPrismaError(err: Prisma.PrismaClientKnownRequestError): KnownErrorMa
 /**
  * Central error handler. Converts every thrown value into a consistent JSON
  * error envelope. Internal details are never leaked to clients in production.
+ *
+ * A rejected request is also a security signal: someone either walked into a
+ * route they have no business calling, or tried to reach another unit's record.
+ * Every 401/403 for an authenticated user is written to the audit trail as
+ * SECURITY_SCOPE_DENIED so the attempt is visible to a supervisor instead of
+ * vanishing silently. Best-effort: a logging failure never changes the response.
  */
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   let statusCode = 500;
@@ -89,9 +95,52 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     logger.error({ err: err instanceof Error ? err.stack : String(err), path: req.path, method: req.method }, 'Server error');
   }
 
+  if ((statusCode === 401 || statusCode === 403) && req.authUser) {
+    logScopeDenial(req, code, message);
+  }
+
   const body: ApiErrorResponse = {
     success: false,
     error: { code, message, ...(details !== undefined ? { details } : {}) },
   };
   res.status(statusCode).json(body);
+}
+
+/**
+ * Appends a SECURITY_SCOPE_DENIED entry. Fire-and-forget on purpose: the client
+ * is already getting its 403 and must not wait on (or be affected by) the audit
+ * write.
+ */
+function logScopeDenial(req: Request, code: string, message: string): void {
+  const user = req.authUser;
+  if (!user) return;
+
+  logger.warn(
+    { userId: user.id, role: user.role, method: req.method, path: req.path, ip: req.ip },
+    'Access denied',
+  );
+
+  void (async () => {
+    try {
+      const { createAudit } = await import('../services/audit.service.js');
+      const { prisma } = await import('../config/prisma.js');
+      await createAudit(prisma, {
+        userId: user.id,
+        action: 'SECURITY_SCOPE_DENIED',
+        entityType: 'HttpRequest',
+        metadata: {
+          method: req.method,
+          path: req.path,
+          code,
+          reason: message,
+          role: user.role,
+          stationId: user.stationId,
+        },
+        ipAddress: req.ip ?? null,
+        userAgent: req.headers['user-agent'] ?? null,
+      });
+    } catch (logErr) {
+      logger.error({ err: logErr }, 'Failed to record access-denied audit entry');
+    }
+  })();
 }

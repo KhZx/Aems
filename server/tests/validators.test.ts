@@ -34,9 +34,11 @@ describe('request validators', () => {
     expect(r.success).toBe(false);
   });
 
-  it('medicine creation rejects negative stock thresholds', () => {
-    const r = createMedicineSchema.safeParse({ name: 'X', category: 'MEDICATION', minimumStock: -1 });
+  it('medicine creation rejects an oversized size label', () => {
+    const r = createMedicineSchema.safeParse({ name: 'Paracetamol', category: 'MEDICATION', size: 'x'.repeat(60) });
     expect(r.success).toBe(false);
+    expect(createMedicineSchema.safeParse({ name: 'Paracetamol', category: 'MEDICATION', size: '10FG' }).success).toBe(true);
+    expect(createMedicineSchema.safeParse({ name: 'Paracetamol', category: 'MEDICATION' }).success).toBe(true);
   });
 
   it('use medicine requires positive quantity and a reason', () => {

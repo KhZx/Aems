@@ -25,17 +25,25 @@ export async function createBatch(actorId: string, input: CreateBatchInput, meta
   const existing = await prisma.medicineBatch.findUnique({
     where: { medicineId_batchNumber: { medicineId: input.medicineId, batchNumber } },
   });
-  if (existing) throw AppError.conflict('Batch number already exists for this medicine');
+  if (existing && !existing.deletedAt) {
+    throw AppError.conflict('Batch number already exists for this medicine');
+  }
 
-  const batch = await prisma.medicineBatch.create({
-    data: {
-      medicineId: input.medicineId,
-      batchNumber,
-      expiryDate: expiry,
-      receivedDate: input.receivedDate ? new Date(input.receivedDate) : null,
-      supplier: input.supplier ?? null,
-    },
-  });
+  const data: Prisma.MedicineBatchUncheckedCreateInput = {
+    medicineId: input.medicineId,
+    batchNumber,
+    expiryDate: expiry,
+    receivedDate: input.receivedDate ? new Date(input.receivedDate) : null,
+    supplier: input.supplier ?? null,
+    isActive: true,
+    deletedAt: null,
+  };
+
+  // A soft-deleted batch is revived in place (same id) so historical
+  // transactions keep pointing at it and the unique MRP-key stays intact.
+  const batch = existing
+    ? await prisma.medicineBatch.update({ where: { id: existing.id }, data })
+    : await prisma.medicineBatch.create({ data });
 
   await createAudit(prisma, {
     userId: actorId,
@@ -71,7 +79,7 @@ export async function listBatches(input: { medicineId?: string; activeOnly?: boo
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
-        medicine: { select: { id: true, name: true, category: true, unit: true, minimumStock: true } },
+        medicine: { select: { id: true, name: true, category: true, unit: true, size: true } },
         _count: { select: { inventory: true } },
       },
     }),

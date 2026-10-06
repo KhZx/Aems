@@ -94,6 +94,7 @@ const PATHS = {
   camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z"/><circle cx="12" cy="13" r="3"/>',
   smartphone: '<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
   crown: '<path d="M11.6 3.9 9 8l-3.4-2.6a1 1 0 0 0-1.7.9L5.5 19a2 2 0 0 0 2 1.8h9a2 2 0 0 0 2-1.8l1.6-12.7a1 1 0 0 0-1.7-.9L15 8l-2.6-4.1a.8.8 0 0 0-.8 0Z"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
 };
 
 const KNOWN = `
@@ -103,7 +104,7 @@ checkCircle info user users clock timer pin package list building save edit tras
 print door heart activity trending eye key filter flag wrench lock copy sync shield play swap idCard
 rotate home message star chevronDown arrowRight arrowLeft
 chart globe backpack carevent droplet bed antenna map flame flashlight gloves stethoscope ruler
-thermometer toolbox siren camera smartphone crown
+thermometer toolbox siren camera smartphone crown grid
 `.trim().split(/\s+/);
 
 function assertIcons() {

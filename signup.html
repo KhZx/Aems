@@ -159,11 +159,7 @@
 
   <div class="top-bar">
     <a href="/" style="display:flex;align-items:center;text-decoration:none;">
-      <svg viewBox="0 0 205 48" style="height:40px;width:auto;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
-        <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
-        <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
-      </svg>
+      <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" style="height:40px;width:auto;display:block" decoding="async">
     </a>
     <button class="lang-toggle" id="langToggle">عربي</button>
   </div>
@@ -171,11 +167,7 @@
   <div class="card-wrap">
     <div class="card">
       <div class="brand" style="text-align:center;margin-bottom:1.5rem;">
-        <svg viewBox="0 0 205 48" style="height:52px;width:auto;display:block;margin:0 auto 10px;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
-          <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
-          <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
-        </svg>
+        <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" style="height:52px;width:auto;display:block;margin:0 auto 10px;" decoding="async">
         <div class="brand-sub" data-i18n="footer.org" style="margin-top:4px;">Dubai Corporation of Ambulance</div>
       </div>
 
@@ -279,7 +271,7 @@
   </div>
 
   <script type="module">
-import { initI18n, setLanguage, getCurrentLang, t } from './js/i18n.js';
+import { initI18n, setLanguage, getCurrentLang, t, unitLabel } from './js/i18n.js';
 import { mountSprite } from './js/icons.js';
 import { FIREBASE_CONFIG } from './js/config.js';
     import { initFirebase, signUpWithEmail, firebaseSignOut } from './js/services/firebase.js';
@@ -316,18 +308,19 @@ import { FIREBASE_CONFIG } from './js/config.js';
       if (!val) { stationDrop.innerHTML = ''; return; }
 
       stationDrop.innerHTML = matches.map(s =>
-        `<div class="ac-item" data-code="${esc(s.code)}" data-name="${esc(s.name)}" onclick="pickStation('${esc(s.code)}','${esc(s.name)}')">
-          <span>${esc(s.name)}</span>
+        `<div class="ac-item" data-code="${esc(s.code)}" data-name="${esc(s.name)}" onclick="pickStation(this.dataset.code, this.dataset.name)">
+          <span>${esc(unitLabel(s.code, s.name))}</span>
           <span class="ac-code">${esc(s.code)}</span>
         </div>`
       ).join('');
     }
 
     window.pickStation = function(code, name) {
-      stationInput.value = name;
+      const label = unitLabel(code, name);
+      stationInput.value = label;
       _stationCode = code;
       stationDrop.innerHTML = '';
-      stationHint.textContent = `✓ Station: ${name} (${code})`;
+      stationHint.textContent = `✓ ${label}`;
       stationHint.style.color = '#FDA4AF';
     };
 

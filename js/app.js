@@ -1,18 +1,19 @@
 ﻿// js/app.js — AEMS paramedic app (REST API + inventory model)
 
-import { initI18n, setLanguage, getCurrentLang, onLanguageChanged, t } from './i18n.js';
+import { initI18n, setLanguage, getCurrentLang, onLanguageChanged, t, unitLabel } from './i18n.js';
 import { FIREBASE_CONFIG } from './config.js';
 import { initFirebase } from './services/firebase.js';
 import { api } from './api.js';
 import { initAppSession, signOutAll, getSession, setSession } from './auth.js';
 import { startHealthMonitor } from './health.js';
 import {
-  renderItemCard, renderAlertCard, renderShiftNote, renderChangeItem, renderBatchItem,
+  renderItemCard, renderItemRow, renderAlertCard, renderShiftNote, renderChangeItem, renderBatchItem, toggleTree,
   emptyState, toast, openModal, closeModal, closeAllModals,
   catIcon, catLabel, catColor, fmtDate, fmtDateTime, earliestExpiry, expiryStatus,
 } from './ui.js';
 import { CATEGORIES } from './data/initial-data.js';
 import { icon, mountSprite } from './icons.js';
+import { initDutyCalendar, renderDutyCalendar } from './duty-calendar.js';
 
 mountSprite();
 
@@ -32,7 +33,9 @@ const S = {
   ready: false,
   permissions: [],
   ambulances: [],
-  activeAmbulanceId: null,
+  activeAmbulanceId: null, // car within the active unit (local pick)
+  activeUnit: null,        // active duty unit (station): {id, code, name}
+  dutyRoster: [],          // units (stations) the admin allows this user to hold
   stationId: null,
   stationName: '—',
   items: [],
@@ -47,6 +50,7 @@ const S = {
   filterCat: '',
   filterExpiry: '',
   searchTerm: '',
+  view: localStorage.getItem('aems_view') === 'list' ? 'list' : 'cards', // 'cards' | 'list' (ESO-style toggle)
   editMode: null, // 'add' | 'adjust'
   addMode: 'new', // 'new' | 'restock'
   tempBatches: [],
@@ -98,8 +102,7 @@ function normalizeItem(row) {
     name: m.name || 'Unknown item',
     category: (m.category || 'MEDICATION').toLowerCase(),
     quantity: row.quantity ?? 0,
-    minimal: m.minimumStock ?? null,
-    maximal: m.maximumStock ?? null,
+    size: m.size || null,
     expiry: row.batch?.expiryDate || null,
     unit: m.unit || '',
     strength: m.strength || '',
@@ -109,10 +112,59 @@ function normalizeItem(row) {
     technicalNotes: m.technicalNotes || null,
     serial: m.serialNumber || null,
     storeCode: m.barcode || null,
+    barcode: m.barcode || null,
+    genericName: m.genericName || null,
+    dosageForm: m.dosageForm || null,
+    ambulanceId: row.ambulanceId || null,
     batches: null,
     lastCheck: null,
     _inv: row,
   };
+}
+
+// Group the flat stock lines into ONE consolidated card per medicine. Every
+// batch/LOT of the same medicine is listed inside its card.
+function groupRows(rows) {
+  const map = new Map();
+  rows.forEach(item => {
+    if (!map.has(item.medicineId)) {
+      map.set(item.medicineId, {
+        id: item.medicineId,
+        medicineId: item.medicineId,
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        strength: item.strength,
+        size: item.size,
+        location: item.location,
+        notes: item.notes,
+        technicalNotes: item.technicalNotes,
+        serial: item.serial,
+        storeCode: item.storeCode,
+        barcode: item.barcode ?? item.storeCode,
+        genericName: item.genericName,
+        dosageForm: item.dosageForm,
+        ambulanceId: item.ambulanceId,
+        batches: [],
+        quantity: 0,
+      });
+    }
+    map.get(item.medicineId).batches.push(item);
+  });
+  const groups = Array.from(map.values());
+  groups.forEach(g => {
+    g.quantity = g.batches.reduce((sum, b) => sum + (b.quantity || 0), 0);
+    g.batches.sort((a, b) => (a.expiry || '').localeCompare(b.expiry || ''));
+  });
+  return groups;
+}
+
+function groupedItems() {
+  return groupRows(S.items);
+}
+
+function findGroup(medicineId) {
+  return groupedItems().find(g => g.id === medicineId);
 }
 
 // Items re-mapped to their "last inspection" quantities for change badges.
@@ -138,7 +190,10 @@ async function loadInventory() {
 
 async function loadShiftNotes() {
   if (!S.stationId) { S.shiftNotes = []; return; }
-  const data = await api.shiftNotes({ stationId: S.stationId, pageSize: 50 });
+  // Supervisors also see removed notes so they can put them back.
+  const params = { stationId: S.stationId, pageSize: 50 };
+  if (can('shiftnote:restore')) params.includeDeleted = 'true';
+  const data = await api.shiftNotes(params);
   S.shiftNotes = data.notes || [];
 }
 
@@ -249,7 +304,7 @@ function renderSupplyPage() {
 
 function openSupplyModal(id) {
   if (!requireAmbulance()) return;
-  const item = S.items.find(i => i.id === id) || S.items.find(i => i.medicineId === id);
+  const item = findGroup(id) || S.items.find(i => i.id === id) || S.items.find(i => i.medicineId === id);
   if (!item) { toast(t('supply.no_item'), 'error'); return; }
   S.supplyTargetItem = item;
   const el = document.getElementById('supplyItemInfo');
@@ -258,7 +313,7 @@ function openSupplyModal(id) {
     const vehicle = active?.vehicleNumber || t('supply.no_vehicle');
     el.innerHTML = `
       <div style="padding:12px 14px;background:var(--bg);border-radius:12px;border:1px solid var(--border);">
-        <div style="font-weight:700;font-size:.95rem;">${esc(item.name)}</div>
+        <div style="font-weight:700;font-size:.95rem;">${esc(item.name)}${item.size ? ` <span style="font-weight:600;font-size:.8rem;color:var(--text-muted);">(${esc(item.size)})</span>` : ''}</div>
         <div style="font-size:.75rem;color:var(--text-muted);margin-top:4px;">
           ${icon('package')} ${catLabel(item.category)}
           &nbsp;·&nbsp; ${icon('ambulance')} ${esc(vehicle)}
@@ -266,7 +321,7 @@ function openSupplyModal(id) {
         </div>
       </div>`;
   }
-  document.getElementById('supply-qty').value = Math.max(1, (item.minimal || 0) - (item.quantity || 0));
+  document.getElementById('supply-qty').value = 1;
   document.getElementById('supply-reason').value = '';
   openModal('modal-supply');
 }
@@ -453,82 +508,10 @@ function renderExpiryTimeline() {
   });
 }
 
-function renderStockLevels() {
-  const canvas = document.getElementById('stockLevelsChart');
-  const card = document.getElementById('stockLevelsCard');
-  if (!canvas || typeof Chart === 'undefined') return;
-  const atRisk = S.items
-    .filter(i => i.minimal != null)
-    .sort((a, b) => (a.quantity / Math.max(a.minimal, 1)) - (b.quantity / Math.max(b.minimal, 1)))
-    .slice(0, 15);
-  if (!atRisk.length) {
-    if (card) card.style.display = 'none';
-    _destroyChart('stockLevels');
-    return;
-  }
-  if (card) card.style.display = 'block';
-  canvas.parentElement.style.minHeight = `${Math.max(120, atRisk.length * 28)}px`;
-  const barColors = atRisk.map(i =>
-    i.quantity === 0 ? '#DC2626' :
-    i.quantity < i.minimal ? '#D97706' :
-    i.quantity < i.minimal * 1.5 ? '#F59E0B' : '#059669'
-  );
-  _destroyChart('stockLevels');
-  _charts.stockLevels = new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels: atRisk.map(i => i.name.length > 22 ? i.name.slice(0, 20) + '…' : i.name),
-      datasets: [
-        {
-          label: t('ui.chart.current'),
-          data: atRisk.map(i => i.quantity),
-          backgroundColor: barColors.map(c => c + 'BB'),
-          borderColor: barColors,
-          borderWidth: 1.5, borderRadius: 4, borderSkipped: false,
-        },
-        {
-          label: t('ui.chart.min'),
-          data: atRisk.map(i => i.minimal),
-          type: 'line',
-          backgroundColor: 'transparent',
-          borderColor: '#9CA3AF',
-          borderWidth: 1.5,
-          borderDash: [4, 3],
-          pointRadius: 3,
-          pointBackgroundColor: '#9CA3AF',
-          order: 0,
-        },
-      ],
-    },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      animation: { duration: 700, easing: 'easeOutQuart' },
-      plugins: {
-        legend: {
-          display: true, position: 'top', align: 'end',
-          labels: { font: { size: 10 }, color: '#94A3B8', boxWidth: 12, padding: 14 },
-        },
-        tooltip: {
-          callbacks: {
-            afterLabel: ctx => {
-              const item = atRisk[ctx.dataIndex];
-              return item ? `  ${t('ui.chart.min_tip', { n: item.minimal })}  |  ${item.quantity < item.minimal ? t('ui.chart.below') : t('ui.chart.ok')}` : '';
-            },
-          },
-        },
-      },
-      scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { precision: 0, color: '#94A3B8', font: { size: 11 } } },
-        y: { grid: { display: false }, ticks: { color: '#4B5563', font: { size: 11 } } },
-      },
-    },
-  });
-}
-
 // ── Dashboard renderers ────────────────────────────────────────
 function renderStats() {
   let expired = 0, warning = 0, ok = 0;
-  S.items.forEach(item => {
+  groupedItems().forEach(item => {
     const s = expiryStatus(earliestExpiry(item));
     if (s === 'expired') expired++;
     else if (s === 'warning') warning++;
@@ -537,31 +520,42 @@ function renderStats() {
   setText('stat-expired', expired);
   setText('stat-warning', warning);
   setText('stat-ok', ok);
-  setText('stat-total', S.items.length);
+  setText('stat-total', groupedItems().length);
 }
 
 function getAlerts() {
-  const expired = [], warning = [], lowStock = [];
-  S.items.forEach(item => {
+  const expired = [], warning = [];
+  groupedItems().forEach(item => {
     const s = expiryStatus(earliestExpiry(item));
     if (s === 'expired') expired.push(item);
     else if (s === 'warning') warning.push(item);
-    if (item.minimal != null && item.quantity < item.minimal) lowStock.push(item);
   });
-  return { expired, warning, lowStock };
+  return { expired, warning };
 }
 
 function renderAlertsList() {
   const el = document.getElementById('alertsList');
   if (!el) return;
   const alerts = [];
-  S.items.forEach(item => {
+  groupedItems().forEach(item => {
     const s = expiryStatus(earliestExpiry(item));
     if (s === 'expired') alerts.push(renderAlertCard(item, 'expired'));
     else if (s === 'warning') alerts.push(renderAlertCard(item, 'warning'));
-    if (item.minimal != null && item.quantity < item.minimal) alerts.push(renderAlertCard(item, 'low_stock'));
   });
   el.innerHTML = alerts.length ? alerts.join('') : emptyState(icon('checkCircle'), t('app.empty.good'));
+}
+
+/** Mirrors the server rule: the author may remove their own note for 12h; a
+ *  supervisor may remove anyone's. Purely cosmetic — the API enforces the same. */
+const AUTHOR_DELETE_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+function canDeleteShiftNote(note) {
+  if (!can('shiftnote:delete')) return false;
+  const isReviewer = S.user?.role === 'ADMIN' || S.user?.role === 'SUPERVISOR';
+  if (isReviewer) return true;
+  const mine = note.createdById && note.createdById === S.user?.id;
+  if (!mine) return false;
+  return Date.now() - new Date(note.createdAt || note.date).getTime() < AUTHOR_DELETE_WINDOW_MS;
 }
 
 function renderShiftNotesList() {
@@ -572,8 +566,13 @@ function renderShiftNotesList() {
     order[(a.priority || 'medium').toLowerCase()] - order[(b.priority || 'medium').toLowerCase()] ||
     new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date)
   );
+  const decorated = sorted.slice(0, 8).map((n) => ({
+    ...n,
+    _canDelete: !n.deletedAt && canDeleteShiftNote(n),
+    _canRestore: !!n.deletedAt && can('shiftnote:restore'),
+  }));
   el.innerHTML = sorted.length
-    ? sorted.slice(0, 8).map(n => renderShiftNote(n)).join('')
+    ? decorated.map(n => renderShiftNote(n)).join('')
     : `<p style="color:var(--text-muted);font-size:0.88rem;text-align:center;padding:16px;">${t('app.empty.no_notes')}</p>`;
 }
 
@@ -656,7 +655,6 @@ function renderCharts() {
   renderStatusDonut();
   renderCatBars();
   renderExpiryTimeline();
-  renderStockLevels();
 }
 
 // ── Equipment / All pages ──────────────────────────────────────
@@ -688,12 +686,69 @@ function renderItemsGrid(items, containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
   if (!S.stationId) {
+    el.className = 'items-grid';
     el.innerHTML = emptyState(icon('ambulance'), t('app.empty.no_unit'));
     return;
   }
-  el.innerHTML = items.length
-    ? items.map(item => renderItemCard(item, snapshotItems())).join('')
-    : emptyState(icon('package'), t('app.empty.no_equipment'));
+  const groups = groupRows(items);
+  if (!groups.length) {
+    el.className = 'items-grid';
+    el.innerHTML = emptyState(icon('package'), t('app.empty.no_equipment'));
+    return;
+  }
+  el.className = S.view === 'list' ? 'inventory-list' : 'items-grid';
+  el.innerHTML = S.view === 'list'
+    ? renderInventoryRows(groups)
+    : groups.map(g => renderItemCard(g, snapshotItems())).join('');
+}
+
+function renderInventoryRows(groups) {
+  const snapshot = snapshotItems();
+  const totalUnits = groups.reduce((s, g) => s + (g.quantity || 0), 0);
+  let expiring = 0, expired = 0;
+  groups.forEach(g => {
+    const s = expiryStatus(earliestExpiry(g));
+    if (s === 'expired') expired++;
+    else if (s === 'warning') expiring++;
+  });
+
+  const summary = `
+    <div class="inv-l-summary">
+      <span class="inv-sum-chip">${icon('package')} <strong>${groups.length}</strong> ${t('ui.table.items')}</span>
+      <span class="inv-sum-chip">${icon('bag')} <strong>${totalUnits}</strong> ${t('ui.table.units')}</span>
+      ${expiring ? `<span class="inv-sum-chip warn">${icon('clock')} <strong>${expiring}</strong> ${t('ui.table.expiring')}</span>` : ''}
+      ${expired ? `<span class="inv-sum-chip danger">${icon('alert')} <strong>${expired}</strong> ${t('ui.table.expired')}</span>` : ''}
+    </div>
+    <div class="inv-l-head">
+      <span></span>
+      <span>${t('ui.table.name')}</span>
+      <span>${t('ui.batch.lot')} / ${t('ui.batch.expiry')}</span>
+      <span></span>
+      <span>${t('ui.table.status')} &amp; ${t('ui.batch.qty')}</span>
+      <span></span>
+    </div>`;
+
+  return `<div class="inv-list">${summary}${groups.map(g => renderItemRow(g, snapshot)).join('')}</div>`;
+}
+
+// ── View toggle (Cards ⇄ List, persisted) ──────────────────────
+function syncViewToggle() {
+  document.querySelectorAll('.view-toggle').forEach(tg => {
+    tg.querySelectorAll('.view-btn').forEach(btn => {
+      const on = btn.dataset.view === S.view;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+      btn.title = btn.dataset.view === 'cards' ? t('app.view.cards') : t('app.view.list');
+    });
+  });
+}
+
+function setView(view) {
+  if (view !== 'cards' && view !== 'list') return;
+  S.view = view;
+  try { localStorage.setItem('aems_view', view); } catch { /* private mode */ }
+  syncViewToggle();
+  if (S.ready) renderAll();
 }
 
 function applySearch(items, term) {
@@ -702,6 +757,8 @@ function applySearch(items, term) {
     i.name.toLowerCase().includes(q) ||
     (i.location || '').toLowerCase().includes(q) ||
     (i.batchNumber || '').toLowerCase().includes(q) ||
+    (i.serial || '').toLowerCase().includes(q) ||
+    (i.storeCode || '').toLowerCase().includes(q) ||
     (i.notes || '').toLowerCase().includes(q)
   );
 }
@@ -723,6 +780,9 @@ const AUDIT_STYLE = {
   REJECT_SUPPLY_REQUEST: { key: 'ui.audit.supply_reject', color: 'var(--danger)' },
   FULFIL_SUPPLY_REQUEST: { key: 'ui.audit.supply_fulfil', color: 'var(--success)' },
   CANCEL_SUPPLY_REQUEST: { key: 'ui.audit.supply_cancel', color: '#64748B' },
+  DISTRIBUTE_STOCK: { key: 'ui.audit.distribution', color: '#10B981' },
+  DELETE_MEDICINE: { key: 'ui.audit.delete_medicine', color: 'var(--danger)' },
+  DELETE_STOCK: { key: 'ui.audit.delete_lot', color: 'var(--danger)' },
   LOGIN: { key: 'ui.audit.login', color: '#64748B' },
 };
 
@@ -750,6 +810,9 @@ function auditDetails(log) {
     case 'REJECT_SUPPLY_REQUEST': return t('ui.audit.supply_reject_d', { name: name || t('ui.item'), qty: m.quantity ?? '' });
     case 'FULFIL_SUPPLY_REQUEST': return t('ui.audit.supply_fulfil_d', { name: name || t('ui.item'), qty: m.quantity ?? '' });
     case 'CANCEL_SUPPLY_REQUEST': return t('ui.audit.supply_cancel_d', { name: name || t('ui.item'), qty: m.quantity ?? '' });
+    case 'DISTRIBUTE_STOCK': return t('ui.audit.distribution_d', { template: m.templateName || '', units: m.units ?? m.items ?? '' });
+    case 'DELETE_MEDICINE': return t('ui.audit.delete_medicine_d', { name: name || t('ui.medicine'), batches: m.batches ?? '', stock: m.totalUnits ?? '' });
+    case 'DELETE_STOCK': return t('ui.audit.delete_lot_d', { name: name || t('ui.item'), lot: m.batchNumber || '', qty: m.quantity ?? '' });
     case 'LOGIN': return t('ui.audit.login_d');
     default: return '';
   }
@@ -759,7 +822,7 @@ function renderAuditEvent(log) {
   const style = AUDIT_STYLE[log.action] || { key: null, color: '#999' };
   const when = fmtDateTime(log.createdAt);
   const who = log.user?.displayName || 'System';
-  const station = log.station ? `<span>${icon('building')} ${esc(log.station.name)} (${esc(log.station.code)})</span>` : '';
+  const station = log.station ? `<span>${icon('building')} ${esc(unitLabel(log.station.code, log.station.name))}</span>` : '';
   const vehicle = log.ambulance?.vehicleNumber ? `<span>${icon('ambulance')} ${esc(log.ambulance.vehicleNumber)}</span>` : '';
   const details = auditDetails(log);
   const label = style.key ? t(style.key) : log.action;
@@ -1000,6 +1063,7 @@ function navigateTo(page, cat) {
   if (page === 'dashboard') renderDashboard();
   if (page === 'handover') renderHandoverPage();
   if (page === 'supply') renderSupplyPage();
+  if (page === 'settings') renderDutyCalendar();
   document.getElementById('sidebar')?.classList.remove('open');
   document.getElementById('sidebarOverlay')?.classList.remove('open');
 }
@@ -1017,15 +1081,155 @@ function updateUserUI() {
 
 function updateSidebar() {
   const u = S.user;
-  const stName = u?.station?.name || '—';
-  const callSign = u?.station?.code || '—';
+  const unit = S.activeUnit || (u?.station?.id ? u.station : null);
+  const stName = unit ? unitLabel(unit.code, unit.name) : '-';
+  const callSign = unit?.code || u?.station?.code || '-';
+  S.stationId = unit?.id || u?.station?.id || null;
   S.stationName = stName;
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
   document.getElementById('sidebarStationName').textContent = stName;
   document.getElementById('sidebarCallSign').textContent = callSign;
-  set('settingsStationName', stName);
-  set('s-callsign', callSign);
+  updateSettingsUnit();
+  updateDutyChip();
   updateSupplyNavBadge();
+}
+
+/** Fills the settings-page unit card: badge, label, roster note, car picker. */
+function updateSettingsUnit() {
+  const badge = document.getElementById('settingsUnitCode');
+  if (!badge) return;
+  const unit = currentUnit();
+  badge.textContent = unit?.code || '—';
+  const nameEl = document.getElementById('settingsUnitName');
+  if (nameEl) nameEl.textContent = unit ? unitLabel(unit.code, unit.name) : t('app.settings.unit_none');
+  const n = S.dutyRoster.length;
+  const sub = document.getElementById('settingsUnitSub');
+  if (sub) sub.textContent = n > 1 ? t('app.settings.unit_roster', { n }) : t('app.settings.unit_solo');
+  const btn = document.getElementById('settingsUnitChange');
+  if (btn) btn.disabled = n === 0;
+
+  const wrap = document.getElementById('settingsCarsWrap');
+  const sel = document.getElementById('s-car');
+  if (wrap && sel) {
+    const cars = S.ambulances || [];
+    if (!cars.length) {
+      wrap.style.display = 'none';
+    } else {
+      wrap.style.display = '';
+      sel.innerHTML = cars.map((a) => {
+        const label = a.vehicleNumber || a.id;
+        const oos = a.status && a.status !== 'ACTIVE' ? ` — ${a.status}` : '';
+        return `<option value="${esc(a.id)}" ${a.id === S.activeAmbulanceId ? 'selected' : ''}>${esc(label + oos)}</option>`;
+      }).join('');
+      if (!sel.dataset.wired) {
+        sel.dataset.wired = '1';
+        sel.addEventListener('change', onCarPicked);
+      }
+    }
+  }
+}
+
+/** Local pick of the car inside the active unit (equipment/inspections follow it). */
+function pickActiveCar() {
+  const saved = localStorage.getItem('aems_car_pick');
+  S.activeAmbulanceId = S.ambulances.find(a => a.id === saved)?.id
+    || S.ambulances.find(a => a.status === 'ACTIVE')?.id
+    || S.ambulances[0]?.id
+    || null;
+}
+
+async function onCarPicked() {
+  const sel = document.getElementById('s-car');
+  if (!sel) return;
+  S.activeAmbulanceId = sel.value || null;
+  if (S.activeAmbulanceId) localStorage.setItem('aems_car_pick', S.activeAmbulanceId);
+  else localStorage.removeItem('aems_car_pick');
+  toast(t('app.settings.car_picked', { v: sel.selectedOptions[0]?.text || '' }), 'success');
+  await loadAll();
+  renderAll();
+}
+
+// ── Duty unit switching (unlimited, reason required, audited) ──
+function currentUnit() {
+  if (S.activeUnit) return S.activeUnit;
+  return S.dutyRoster.find(s => s.id === S.stationId)
+    || (S.user?.station?.id === S.stationId ? S.user.station : null)
+    || null;
+}
+
+function updateDutyChip() {
+  const el = document.getElementById('dutyUnitBtn');
+  if (!el) return;
+  const unit = currentUnit();
+  el.innerHTML = `${icon('ambulance')}<span>${unit ? t('app.duty.chip', { v: unit.code }) : t('app.duty.no_unit')}</span>`;
+  el.classList.toggle('unpicked', !unit);
+}
+
+function openDutySwitchModal(force = false) {
+  if (!S.dutyRoster.length) { toast(t('app.duty.empty'), 'error'); return; }
+  S.dutyForce = !!force;
+  window.AEMS_DUTY_FORCE = S.dutyForce;
+  const list = document.getElementById('dutyUnitList');
+  const activeId = currentUnit()?.id;
+  list.innerHTML = S.dutyRoster.map(s => {
+    const oos = s.status !== 'ACTIVE';
+    return `
+    <label class="duty-unit ${s.id === activeId ? 'active' : ''} ${oos ? 'disabled' : ''}">
+      <input type="radio" name="dutyUnit" value="${esc(s.id)}" ${s.id === activeId ? 'checked' : ''} ${oos ? 'disabled' : ''}>
+      <span class="duty-num">${esc(s.code)}</span>
+      <span class="duty-station">${esc(unitLabel(s.code))}</span>
+      ${oos ? `<span class="duty-oos">${t('app.duty.out_of_service')}</span>` : ''}
+    </label>`;
+  }).join('');
+  const reason = document.getElementById('dutyReason');
+  if (reason) reason.value = '';
+  const sub = document.getElementById('dutyModalSub');
+  if (sub) sub.textContent = force ? t('app.duty.pick_first') : t('app.duty.pick');
+  const closeBtn = document.getElementById('dutyModalClose');
+  if (closeBtn) closeBtn.style.display = force ? 'none' : '';
+  const cancelBtn = document.getElementById('dutyModalCancel');
+  if (cancelBtn) cancelBtn.style.display = force ? 'none' : '';
+  openModal('modal-duty-switch');
+}
+
+/** Re-pulls the session after a switch: active unit, cars, roster, permissions. */
+async function refreshSessionState() {
+  const payload = await api.me();
+  S.session = { ...S.session, ...payload };
+  S.user = payload.user;
+  S.permissions = payload.permissions || [];
+  window.AEMS_PERMS = S.permissions;
+  S.ambulances = payload.ambulances || [];
+  S.dutyRoster = payload.dutyRoster || [];
+  S.activeUnit = payload.user?.station ? { ...payload.user.station } : null;
+  S.stationId = S.activeUnit?.id || null;
+  S.stationName = S.activeUnit ? unitLabel(S.activeUnit.code, S.activeUnit.name) : '-';
+  pickActiveCar();
+  const cached = getSession();
+  if (cached) setSession({ ...cached, ...payload });
+}
+
+async function confirmDutySwitch() {
+  const sel = document.querySelector('input[name="dutyUnit"]:checked');
+  if (!sel) { toast(t('app.duty.pick_one'), 'error'); return; }
+  const reason = (document.getElementById('dutyReason')?.value || '').trim();
+  if (reason.length < 2) { toast(t('app.duty.need_reason'), 'error'); return; }
+  try {
+    const data = await api.switchDutyUnit({ stationId: sel.value, reason });
+    await refreshSessionState();
+    const unit = data.active;
+    S.dutyForce = false;
+    window.AEMS_DUTY_FORCE = false;
+    closeModal('modal-duty-switch');
+    updateUserUI();
+    updateSidebar();
+    loadStationInfo();
+    toast(t('app.duty.switched', { v: unit?.code || '' }));
+    await loadAll();
+    renderAll();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 function shiftSelection() {
@@ -1064,14 +1268,15 @@ function loadStationInfo() {
     const el = document.getElementById(id);
     if (el && !el.dataset.autosave) { el.dataset.autosave = '1'; el.addEventListener('change', persistShiftSelection); }
   });
+  updateSettingsUnit();
 }
 
 function getStation() {
   const shiftCode = document.getElementById('s-shift')?.value || '';
   const shiftPeriod = document.getElementById('s-period')?.value || '';
   return {
-    stationName: document.getElementById('settingsStationName')?.value || S.stationName || '—',
-    stationCallSign: document.getElementById('s-callsign')?.value || '—',
+    stationName: S.stationName || '—',
+    stationCallSign: S.activeUnit?.code || '—',
     paramedicName: document.getElementById('settingsParamedicName')?.value || S.user?.displayName || '—',
     paramedicId: document.getElementById('settingsParamedicId')?.value || S.user?.empId || '—',
     shiftType: shiftLabel(shiftCode, shiftPeriod),
@@ -1209,15 +1414,14 @@ async function prepareRestockSelector() {
   };
 }
 
-function openEditModal(id) {
-  const item = S.items.find(i => i.id === id);
-  if (!item) return;
+function openEditModal(medicineId, preferInventoryId) {
+  const group = findGroup(medicineId);
+  if (!group) return;
   S.editMode = 'adjust';
-  S.editInventoryId = id;
-  S.editItem = item;
+  S.editGroup = group;
   S.editQtyAllowed = can('inventory:adjust');
   S.editExpiryAllowed = can('inventory:update-expiry');
-  S.editDeleteAllowed = can('medicine:delete');
+  S.editDeleteAllowed = can('inventory:adjust');
   if (!S.editQtyAllowed && !S.editExpiryAllowed && !S.editDeleteAllowed) { toast(t('app.toast.no_perm'), 'error'); return; }
   document.getElementById('modal-item-title').textContent = t('modal.item.adjust');
   document.getElementById('addModeToggle').style.display = 'none';
@@ -1226,57 +1430,161 @@ function openEditModal(id) {
   document.getElementById('adjustFields').style.display = 'block';
   document.getElementById('qtyGroup').style.display = S.editQtyAllowed ? 'block' : 'none';
   document.getElementById('reasonGroup').style.display = S.editQtyAllowed ? 'block' : 'none';
-  document.getElementById('f-medname').value = item.name;
-  document.getElementById('f-current').value = item.quantity;
-  document.getElementById('qtyLabel').textContent = t('modal.qty.new');
-  const qty = document.getElementById('f-qty');
-  if (qty) { qty.min = '0'; qty.value = item.quantity; }
-  document.getElementById('f-reason').value = '';
-  document.getElementById('f-reason').placeholder = t('app.adjust.reason_ph');
-  const exp = document.getElementById('f-expiry');
-  if (exp) { exp.value = item.expiry ? item.expiry.slice(0, 10) : ''; exp.disabled = !S.editExpiryAllowed; }
-  const expCur = document.getElementById('f-expirycurrent');
-  if (expCur) expCur.value = item.expiry ? fmtDate(item.expiry) : '—';
+
+  const sel = document.getElementById('f-batch-edit');
+  if (sel) {
+    sel.innerHTML = group.batches.map(b => {
+      const st = expiryStatus(b.expiry);
+      const mark = st === 'expired' ? ' · Expired' : st === 'warning' ? ' · ⚠' : '';
+      return `<option value="${b.id}">${esc(b.batchNumber || b.id.slice(0, 8))} — ${t('ui.pill.qty', {})} ${b.quantity} — ${b.expiry ? fmtDate(b.expiry) : '—'}${mark}</option>`;
+    }).join('');
+    sel.onchange = () => { S.editBatchId = sel.value; loadEditBatchFields(); };
+    S.editBatchId = preferInventoryId && group.batches.some(b => b.id === preferInventoryId)
+      ? preferInventoryId
+      : group.batches[0]?.id || null;
+    sel.value = S.editBatchId;
+  }
+
+  loadEditBatchFields();
   const delBtn = document.getElementById('btn-delete-med');
   if (delBtn) delBtn.style.display = S.editDeleteAllowed ? 'inline-flex' : 'none';
   openModal('modal-item');
 }
 
-// ── Delete medicine (soft delete: medicine + batches + stock) ──
+function openEditBatch(medicineId, inventoryId) {
+  openEditModal(medicineId, inventoryId);
+}
 
-function openDeleteModal() {
-  const item = S.editItem;
-  if (!item || !S.editDeleteAllowed) return;
-  const today = new Date().setHours(0, 0, 0, 0);
-  const expDate = item.expiry ? new Date(item.expiry).getTime() : null;
-  const hasActiveStock = item.quantity > 0 && (!expDate || expDate >= today);
-  const qtyLine = item.expiry
-    ? `${t('app.expiry.current')} <strong style="color:var(--text)">${fmtDate(item.expiry)}</strong>`
-    : '—';
-  document.getElementById('delItemInfo').innerHTML = `
-    <div style="background:var(--bg);border-radius:10px;padding:14px 16px;">
-      <div style="font-size:1rem;font-weight:700;margin-bottom:6px;">${esc(item.name)}</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.85rem;color:var(--text-muted);">
-        <span>${catIcon(item.category)} ${catLabel(item.category)}</span>
-        ${item.batchNumber ? `<span><strong>${esc(item.batchNumber)}</strong></span>` : ''}
-        <span>${t('modal.delete.qty')} <strong style="color:var(--text)">${item.quantity ?? 0}</strong></span>
-        <span>${qtyLine}</span>
-      </div>
-      <div style="margin-top:10px;padding:9px 12px;border-radius:8px;font-size:.8rem;border:1px solid ${hasActiveStock ? 'rgba(250,204,21,.4)' : 'rgba(248,113,113,.35)'};color:${hasActiveStock ? '#FDE68A' : '#FCA5A5'};">
-        ${esc(hasActiveStock ? t('modal.delete.active') : t('modal.delete.inactive'))}
-      </div>
-    </div>`;
+function loadEditBatchFields() {
+  const group = S.editGroup;
+  const batch = group?.batches.find(b => b.id === S.editBatchId);
+  if (!group || !batch) return;
+  S.editItem = batch;
+  S.editInventoryId = batch.id;
+  refreshBatchCurrentInfo();
+  document.getElementById('qtyLabel').textContent = t('modal.qty.new');
+  const qty = document.getElementById('f-qty');
+  if (qty) { qty.min = '0'; qty.value = batch.quantity; }
+  const reason = document.getElementById('f-reason');
+  if (reason) { reason.value = ''; reason.placeholder = t('app.adjust.reason_ph'); }
+  const expFields = document.getElementById('expFields');
+  if (expFields) expFields.style.display = S.editExpiryAllowed ? '' : 'none';
+  const exp = document.getElementById('f-expiry');
+  if (exp) { exp.value = batch.expiry ? batch.expiry.slice(0, 10) : ''; exp.disabled = !S.editExpiryAllowed; }
+}
+
+function refreshBatchCurrentInfo() {
+  const el = document.getElementById('batchCurrentInfo');
+  if (!el) return;
+  const group = S.editGroup;
+  const batch = group?.batches.find(b => b.id === S.editBatchId);
+  if (!group || !batch) { el.innerHTML = ''; return; }
+  const st = batch.expiry ? expiryStatus(batch.expiry) : 'ok';
+  const stCls = st === 'expired' ? 'is-expired' : st === 'warning' ? 'is-warning' : '';
+  el.innerHTML = `
+    <span class="bci-chip bci-name">${icon('pill')} <strong>${esc(group.name)}</strong></span>
+    <span class="bci-chip">${icon('tag')} <strong>${esc(batch.batchNumber || batch.id.slice(0, 8))}</strong></span>
+    <span class="bci-chip">${icon('package')} ${t('ui.pill.qty')} <strong>${batch.quantity}</strong></span>
+    <span class="bci-chip ${stCls}">${icon('clock')} ${t('ui.pill.expiry')} ${batch.expiry ? fmtDate(batch.expiry) : '—'}</span>`;
+}
+
+// ── Delete: stock line (default, safer) vs whole medicine ──
+// Deletion is deliberately split in TWO scopes so a crew member can remove ONE
+// lot without wiping the medicine and every other batch (the old behaviour).
+//   - 'stock'     → DELETE /inventory/:id  (one lot on this vehicle)
+//   - 'medicine'  → DELETE /medicines/:id  (whole medicine + all its lots)
+// Whole-medicine deletion is reserved for senior roles (inventory:adjust).
+
+async function openDeleteModal(mode = 'stock') {
+  const titleEl = document.getElementById('modal-delete-title');
+  const warnEl = document.getElementById('delWarningText');
+  const btnEl = document.getElementById('btn-delete-confirm');
+  if (!titleEl || !warnEl || !btnEl) return;
+
+  if (mode === 'medicine') {
+    const group = S.editGroup;
+    if (!group || !(can('inventory:adjust') && can('medicine:delete'))) return;
+    S.deleteTarget = { mode: 'medicine', medicineId: group.id, name: group.name };
+    const today = new Date().setHours(0, 0, 0, 0);
+    const hasActiveStock = group.batches.some(b => (b.quantity > 0) && (!b.expiry || new Date(b.expiry).getTime() >= today));
+    const latestExpiry = earliestExpiry(group);
+    const lotNumbers = group.batches.map(b => b.batchNumber).filter(Boolean).join(', ');
+    document.getElementById('delItemInfo').innerHTML = `
+      <div style="background:var(--bg);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:1rem;font-weight:700;margin-bottom:6px;">${esc(group.name)}${group.size ? ` <span style="font-weight:600;font-size:.8rem;color:var(--text-muted);">(${esc(group.size)})</span>` : ''}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.85rem;color:var(--text-muted);">
+          <span>${catIcon(group.category)} ${catLabel(group.category)}</span>
+          ${lotNumbers ? `<span><strong>${esc(lotNumbers)}</strong></span>` : ''}
+          <span>${group.batches.length === 1 ? t('ui.batch.count_one', { n: group.batches.length }) : t('ui.batch.count_other', { n: group.batches.length })}</span>
+          <span>${t('modal.delete.qty')} <strong style="color:var(--text)">${group.quantity ?? 0}</strong></span>
+          ${latestExpiry ? `<span>${t('app.expiry.current')} <strong style="color:var(--text)">${fmtDate(latestExpiry)}</strong></span>` : ''}
+        </div>
+        <div style="margin-top:10px;padding:9px 12px;border-radius:8px;font-size:.8rem;border:1px solid ${hasActiveStock ? 'rgba(250,204,21,.4)' : 'rgba(248,113,113,.35)'};color:${hasActiveStock ? '#FDE68A' : '#FCA5A5'};">
+          ${esc(hasActiveStock ? t('modal.delete.active') : t('modal.delete.inactive'))}
+        </div>
+      </div>`;
+    titleEl.innerHTML = `${icon('alert')} ${t('modal.delete.medicine_title')}`;
+    warnEl.textContent = t('modal.delete.medicine_warning');
+    btnEl.textContent = t('modal.delete.medicine_btn');
+  } else {
+    const item = S.items.find(i => i.id === S.editInventoryId);
+    if (!item || !can('inventory:adjust')) return;
+    S.deleteTarget = { mode: 'stock', inventoryId: item.id, name: item.name, lot: item.batchNumber, qty: item.quantity };
+    document.getElementById('delItemInfo').innerHTML = `
+      <div style="background:var(--bg);border-radius:10px;padding:14px 16px;">
+        <div style="font-size:1rem;font-weight:700;margin-bottom:6px;">${esc(item.name)}${item.strength ? ` <span style="font-weight:600;font-size:.8rem;color:var(--text-muted);">${esc(item.strength)}</span>` : ''}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.85rem;color:var(--text-muted);">
+          <span>${catIcon(item.category)} ${catLabel(item.category)}</span>
+          ${item.batchNumber ? `<span>${icon('tag')} <strong>${esc(item.batchNumber)}</strong></span>` : ''}
+          <span>${t('ui.batch.qty')} <strong style="color:var(--text)">${item.quantity}</strong></span>
+          ${item.expiry ? `<span>${t('ui.pill.expiry')} <strong>${fmtDate(item.expiry)}</strong></span>` : ''}
+        </div>
+      </div>`;
+    titleEl.innerHTML = `${icon('trash')} ${t('modal.delete.stock_title')}`;
+    warnEl.innerHTML = t('modal.delete.stock_warning', { lot: esc(item.batchNumber || t('ui.batch.lot')) });
+    btnEl.textContent = t('modal.delete.stock_btn');
+  }
   openModal('modal-delete');
 }
 
+/** Direct delete of one lot from a card/batch-list row. */
+function deleteStockLine(inventoryId) {
+  const item = S.items.find(i => i.id === inventoryId);
+  if (!item || !can('inventory:adjust')) return;
+  S.editItem = item;
+  S.editInventoryId = inventoryId;
+  openDeleteModal('stock');
+}
+
+/** Whole-medicine delete (senior-only), used from the batch list modal. */
+function openMedicineDelete() {
+  openDeleteModal('medicine');
+}
+
 async function confirmDelete() {
-  if (!S.editDeleteAllowed || !S.editInventoryId) return;
+  const target = S.deleteTarget;
+  if (!target) return;
   try {
-    await api.deleteMedicine(S.editItem.medicineId);
-    const name = S.editItem?.name || '';
-    closeModal('modal-delete');
-    closeModal('modal-item');
-    toast(t('app.toast.deleted', name ? { name } : {}));
+    if (target.mode === 'stock') {
+      await api.deleteStock(target.inventoryId);
+      closeModal('modal-delete');
+      closeModal('modal-item');
+      toast(t('app.toast.lot_deleted', { name: target.name || '' }));
+    } else {
+      // Fleet-wide removal: the API refuses while the item sits on more than one
+      // ambulance, so the crew is asked to confirm the blast radius explicitly.
+      let data;
+      try {
+        data = await api.deleteMedicine(target.medicineId, false);
+      } catch (err) {
+        if (err.code !== 'CONFLICT') throw err;
+        if (!confirm(t('app.confirm.delete_medicine_fleet', { name: target.name || '' }))) return;
+        data = await api.deleteMedicine(target.medicineId, true);
+      }
+      closeModal('modal-delete');
+      closeModal('modal-item');
+      toast(t('app.toast.deleted', { name: target.name || '' }));
+    }
     await loadInventory();
     renderAll();
   } catch (err) { toast(err.message, 'error'); }
@@ -1299,12 +1607,80 @@ function removeBatch(idx) {
   updateBatchesUI();
 }
 
+function toggleBatches(medicineId) { /* deprecated — use showAllBatches */ }
+
+function showAllBatches(medicineId) {
+  const group = findGroup(medicineId);
+  if (!group || !group.batches.length) return;
+  S.editGroup = group;
+  const totalQty = group.batches.reduce((s, b) => s + (b.quantity || 0), 0);
+  const canDel = window.AEMS_PERMS?.includes('inventory:adjust');
+  const renderRow = b => {
+    const bs = expiryStatus(b.expiry);
+    return `
+      <div class="batch-row">
+        <span class="batch-lot"><svg class="ic" aria-hidden="true"><use href="#i-tag"/></svg> <strong>${esc(b.batchNumber || b.id.slice(0, 8))}</strong></span>
+        <span class="batch-exp ${bs === 'expired' ? 'batch-exp-expired' : bs === 'warning' ? 'batch-exp-warning' : ''}"><span class="batch-dot"></span>${b.expiry ? fmtDate(b.expiry) : '—'}</span>
+        <span class="batch-qty">${b.quantity}</span>
+        <span class="batch-ops">
+          <button type="button" class="batch-btn" onclick="App.openEditBatch('${esc(group.medicineId)}','${esc(b.id)}')" title="${t('ui.btn.edit')}"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg></button>
+          ${canDel ? `<button type="button" class="batch-btn danger" onclick="App.deleteStockLine('${esc(b.id)}')" title="${t('ui.btn.delete_lot')}"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>` : ''}
+        </span>
+      </div>`;
+  };
+  document.getElementById('batchModalContent').innerHTML = `
+    <div class="batch-modal-header">
+      <div class="batch-modal-cat" style="--cat:${catColor(group.category)}">${catIcon(group.category)}</div>
+      <div>
+        <div class="batch-modal-title">${esc(group.name)}${group.strength ? `<span class="item-strength">${esc(group.strength)}</span>` : ''}</div>
+        <div class="batch-modal-sub">${catLabel(group.category)}${group.size ? ` &middot; ${esc(group.size)}` : ''}</div>
+      </div>
+      <button class="modal-close" onclick="closeModal('modal-batches')" style="margin-inline-start:auto;">✕</button>
+    </div>
+    <div class="batch-modal-stats">
+      <span class="batch-modal-stat"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> ${t('ui.pill.qty')} <span class="pi">${totalQty}</span></span>
+      <span class="batch-modal-stat"><svg class="ic" aria-hidden="true"><use href="#i-tag"/></svg> ${group.batches.length === 1 ? t('ui.batch.count_one', { n: group.batches.length }) : t('ui.batch.count_other', { n: group.batches.length })}</span>
+    </div>
+    <div class="batch-modal-list">
+      <div class="batch-head">
+        <span class="batch-lot">${t('ui.batch.lot')}</span>
+        <span class="batch-exp">${t('ui.batch.expiry')}</span>
+        <span class="batch-qty">${t('ui.batch.qty')}</span>
+        <span class="batch-edit"></span>
+      </div>
+      ${group.batches.map(renderRow).join('')}
+    </div>
+    <div class="batch-modal-footer">
+      ${(window.AEMS_PERMS?.includes('inventory:adjust') && window.AEMS_PERMS?.includes('medicine:delete'))
+        ? `<button class="btn btn-danger btn-sm" style="margin-inline-end:auto;" onclick="App.openMedicineDelete()" title="${t('ui.btn.delete_medicine')}"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> ${t('ui.btn.delete_medicine')}</button>` : ''}
+      <button class="btn btn-ghost" onclick="closeModal('modal-batches')">${t('modal.close')}</button>
+      ${(window.AEMS_PERMS?.includes('inventory:adjust') || window.AEMS_PERMS?.includes('inventory:update-expiry')) ? `<button class="btn btn-primary" onclick="closeModal('modal-batches');App.openEditModal('${esc(group.id)}')"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg> ${t('ui.btn.edit')}</button>` : ''}
+    </div>`;
+  openModal('modal-batches');
+}
+
 function updateBatchesUI() {
   const el = document.getElementById('batchesList');
   if (!el) return;
   el.innerHTML = S.tempBatches.length
     ? S.tempBatches.map((b, i) => renderBatchItem(b, i)).join('')
     : `<p style="color:var(--text-muted);font-size:0.82rem;text-align:center;margin:8px 0;">${t('ui.batch.no_batches')}</p>`;
+}
+
+async function findExistingMedicine(name, size) {
+  const norm = s => (s || '').trim().toLowerCase();
+  const nameN = norm(name);
+  if (!nameN) return null;
+  try {
+    const d = await api.medicines({ search: name, includeInactive: true, pageSize: 200 });
+    const sameName = (d.medicines || []).filter(m => norm(m.name) === nameN);
+    if (!sameName.length) return null;
+    const sizeN = size ? norm(size) : null;
+    if (sizeN) return sameName.find(m => norm(m.size) === sizeN) || null;
+    return sameName.length === 1 ? sameName[0] : null;
+  } catch {
+    return null;
+  }
 }
 
 async function onSaveItem(e) {
@@ -1338,37 +1714,51 @@ async function onSaveItem(e) {
     if (!name || !category) { toast(t('app.add.error_name_cat'), 'error'); return; }
     if (!S.tempBatches.length) { toast(t('app.add.error_no_batch'), 'error'); return; }
     const gv = id => document.getElementById(id).value.trim();
-    const num = id => { const v = document.getElementById(id).value; return v === '' ? null : parseInt(v, 10); };
     const reason = t('app.reason.initial');
     try {
-      const med = await api.createMedicine({
+      const size = gv('f-size');
+      const existing = await findExistingMedicine(name, size);
+      const med = existing || await api.createMedicine({
         name,
         category,
+        size,
         location: gv('f-location'),
         serialNumber: gv('f-serial'),
         notes: gv('f-notes'),
         technicalNotes: gv('f-technotes'),
         barcode: gv('f-storecode'),
-        minimumStock: num('f-min') ?? undefined,
-        maximumStock: num('f-max') ?? undefined,
       });
+      let knownBatches = [];
+      try {
+        const bd = await api.batches({ medicineId: med.id, activeOnly: true, pageSize: 500 });
+        knownBatches = (bd.batches || []).map(x => ({ id: x.id, batchNumber: x.batchNumber }));
+      } catch {}
       for (let i = 0; i < S.tempBatches.length; i++) {
         const b = S.tempBatches[i];
-        const batch = await api.createBatch({
-          medicineId: med.id,
-          batchNumber: b.batchNumber || `LOT-${Date.now().toString(36).toUpperCase()}${i}`,
-          expiryDate: b.expiry,
-          receivedDate: nowLocal().slice(0, 10),
-          supplier: b.supplier || '',
-        });
+        const lot = (b.batchNumber || '').trim();
+        const dup = lot ? knownBatches.find(x => x.batchNumber === lot) : null;
+        let batchId = dup ? dup.id : null;
+        if (!batchId) {
+          const batch = await api.createBatch({
+            medicineId: med.id,
+            batchNumber: lot || `LOT-${Date.now().toString(36).toUpperCase()}${i}`,
+            expiryDate: b.expiry,
+            receivedDate: nowLocal().slice(0, 10),
+            supplier: b.supplier || '',
+          });
+          batchId = batch.id;
+          knownBatches.push({ id: batch.id, batchNumber: lot });
+        }
         if (b.quantity > 0) {
-          await api.restock({ ambulanceId: S.activeAmbulanceId, batchId: batch.id, quantity: b.quantity, reason });
+          await api.restock({ ambulanceId: S.activeAmbulanceId, batchId, quantity: b.quantity, reason });
         }
       }
-      S.medicines = S.medicines || [];
-      S.medicines.push(med);
+      if (!existing) {
+        S.medicines = S.medicines || [];
+        S.medicines.push(med);
+      }
       closeModal('modal-item');
-      toast(t('app.toast.added_name', { name }));
+      toast(existing ? t('app.toast.batch_added', { name }) : t('app.toast.added_name', { name }));
       await loadInventory();
       renderAll();
     } catch (err) { toast(err.message, 'error'); }
@@ -1401,15 +1791,20 @@ async function onSaveItem(e) {
 // ── Inspections ────────────────────────────────────────────────
 async function checkItem(id) {
   if (!requireAmbulance()) return;
-  const item = S.items.find(i => i.id === id);
-  if (!item) return;
+  const group = findGroup(id);
+  const single = S.items.find(i => i.id === id);
+  if (!group && !single) return;
+  const name = group ? group.name : single.name;
+  const items = group
+    ? group.batches.map(b => ({ inventoryId: b.id, actualQuantity: b.quantity }))
+    : [{ inventoryId: single.id, actualQuantity: single.quantity }];
   try {
     await api.createInspection({
       ambulanceId: S.activeAmbulanceId,
       notes: t('app.inspect.quick_note', { name: me().name }),
-      items: [{ inventoryId: id, actualQuantity: item.quantity }],
+      items,
     });
-    toast(t('app.toast.checked', { name: item.name }));
+    toast(t('app.toast.checked', { name }));
   } catch (err) { toast(err.message, 'error'); }
 }
 
@@ -1437,19 +1832,18 @@ async function startInspection() {
 // ── Use ────────────────────────────────────────────────────────
 function openUseModal(id) {
   if (!requireAmbulance()) return;
-  const item = S.items.find(i => i.id === id);
+  const item = findGroup(id) || S.items.find(i => i.id === id);
   if (!item) return;
-  S.useId = id;
+  S.useId = item.medicineId;
   document.getElementById('use-qty').value = 1;
   document.getElementById('use-reason').value = '';
   document.getElementById('use-notes').value = '';
   document.getElementById('useItemInfo').innerHTML = `
     <div style="background:var(--bg);border-radius:10px;padding:14px 16px;">
-      <div style="font-size:1rem;font-weight:700;margin-bottom:6px;">${esc(item.name)}</div>
+      <div style="font-size:1rem;font-weight:700;margin-bottom:6px;">${esc(item.name)}${item.size ? ` <span style="font-weight:600;font-size:.8rem;color:var(--text-muted);">(${esc(item.size)})</span>` : ''}</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:0.85rem;color:var(--text-muted);">
         <span>${catIcon(item.category)} ${catLabel(item.category)}</span>
         <span>${t('app.use.current_qty')} <strong style="color:var(--text)">${item.quantity}</strong></span>
-        ${item.minimal != null ? `<span>${t('app.use.min_qty')} <strong>${item.minimal}</strong></span>` : ''}
         ${item.expiry ? `<span>${t('ui.pill.expiry')} <strong>${fmtDate(item.expiry)}</strong></span>` : ''}
       </div>
     </div>`;
@@ -1457,7 +1851,7 @@ function openUseModal(id) {
 }
 
 async function confirmUse() {
-  const item = S.items.find(i => i.id === S.useId);
+  const item = findGroup(S.useId) || S.items.find(i => i.id === S.useId);
   if (!item) return;
   const qty = parseInt(document.getElementById('use-qty').value, 10);
   const reason = document.getElementById('use-reason').value.trim();
@@ -1505,11 +1899,31 @@ async function saveNote(e) {
   } catch (err) { toast(err.message, 'error'); }
 }
 
+/**
+ * Removes a shift note. The server keeps it (soft delete) so a supervisor can
+ * put it back — nothing is ever destroyed from here.
+ */
 async function deleteShiftNote(id) {
+  const note = S.shiftNotes.find((n) => n.id === id);
+  if (!note || !can('shiftnote:delete')) return;
   if (!confirm(t('app.confirm.delete_note'))) return;
+  const reason = window.prompt(t('app.confirm.delete_note_reason'), '') ?? null;
+  if (reason === null) return;
   try {
-    await api.deleteShiftNote(id);
+    await api.deleteShiftNote(id, reason.trim() ? reason.trim() : undefined);
     toast(t('app.toast.note_deleted'));
+    await loadShiftNotes();
+    renderShiftNotesList();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+/** Supervisor/admin undo of a removed shift note. */
+async function restoreShiftNote(id) {
+  if (!can('shiftnote:restore')) return;
+  if (!confirm(t('app.confirm.restore_note'))) return;
+  try {
+    await api.restoreShiftNote(id);
+    toast(t('app.toast.note_restored'));
     await loadShiftNotes();
     renderShiftNotesList();
   } catch (err) { toast(err.message, 'error'); }
@@ -1540,11 +1954,6 @@ function buildReportText() {
     alerts.expired.forEach(a => { r += `  ✕ ${a.name} (${catLabel(a.category)})\n`; });
     r += '\n';
   }
-  if (alerts.lowStock.length) {
-    r += `${t('app.report.low_stock', { n: alerts.lowStock.length })}:\n`;
-    alerts.lowStock.forEach(a => { r += `  ⚠ ${a.name}: ${a.quantity} (${t('app.report.min_label', { n: a.minimal })})\n`; });
-    r += '\n';
-  }
   if (S.shiftNotes.length) {
     r += `${t('app.report.notes')}\n`;
     S.shiftNotes.slice(0, 5).forEach(n => {
@@ -1554,7 +1963,7 @@ function buildReportText() {
     r += '\n';
   }
   r += '══════════════════════════════════\n';
-  r += `${t('app.report.total', { n: S.items.length })}\n`;
+  r += `${t('app.report.total', { n: groupedItems().length })}\n`;
   return r;
 }
 
@@ -1578,7 +1987,6 @@ async function sendReport() {
         changes,
         alerts: {
           expired: alerts.expired.map(a => ({ name: a.name, category: a.category, expiry: earliestExpiry(a) })),
-          lowStock: alerts.lowStock.map(a => ({ name: a.name, quantity: a.quantity, minimal: a.minimal, category: a.category })),
         },
         shiftNotes: S.shiftNotes.slice(0, 10),
         itemsSnapshot: S.items.map(i => ({ id: i.id, name: i.name, quantity: i.quantity, category: i.category, expiry: i.expiry })),
@@ -1657,18 +2065,18 @@ async function acknowledgeHandoverForm(id) {
 
 // ── Export ─────────────────────────────────────────────────────
 function exportCSV(cat) {
-  const data = cat === 'all' ? S.items : S.items.filter(i => i.category === cat);
+  const data = groupRows(cat === 'all' ? S.items : S.items.filter(i => i.category === cat));
   const headers = [
     t('ui.history.name'), t('ui.history.category'), t('ui.history.qty'),
-    t('ui.history.min'), t('ui.history.max'), t('ui.history.expiry'),
-    t('ui.history.batch'), t('ui.history.supplier'),
+    t('ui.pill.size'), t('ui.history.expiry'), t('ui.history.batch'), t('ui.history.supplier'),
   ];
-  const rows = data.map(item => [
-    item.name, catLabel(item.category), item.quantity,
-    item.minimal || '', item.maximal || '',
-    item.expiry ? fmtDate(item.expiry) : '',
-    item.batchNumber || '', item.supplier || '',
-  ]);
+  const rows = data.flatMap(group =>
+    group.batches.map(b => [
+      group.name, catLabel(group.category), b.quantity,
+      group.size || '', b.expiry ? fmtDate(b.expiry) : '',
+      b.batchNumber || '', b.supplier || '',
+    ])
+  );
   let csv = '\uFEFF' + headers.join(',') + '\n';
   rows.forEach(r => { csv += r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',') + '\n'; });
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1677,6 +2085,260 @@ function exportCSV(cat) {
   a.download = `aems_${new Date().toISOString().split('T')[0]}.csv`;
   a.click();
   toast(t('app.toast.exported'));
+}
+
+const EXPORT_FORMAT = 'aems-inventory';
+const EXPORT_VERSION = 1;
+
+function fmtISODate(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = v => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * Exports the current stock as a nested, human-readable JSON file
+ * (items → batches → per-unit distribution). Re-importing the same file once
+ * the units were deleted restores the exact same data (round-trip safe).
+ */
+function exportInventory(cat) {
+  const rows = cat === 'all' ? S.items : S.items.filter(i => i.category === cat);
+  const byMed = new Map();
+
+  rows.forEach(item => {
+    const raw = item._inv || {};
+    const med = raw.batch?.medicine || {};
+    if (!byMed.has(item.medicineId)) {
+      byMed.set(item.medicineId, {
+        name: med.name || item.name,
+        category: med.category || (item.category || 'MEDICATION').toUpperCase(),
+        size: med.size ?? item.size ?? null,
+        strength: med.strength ?? null,
+        dosageForm: med.dosageForm ?? null,
+        genericName: med.genericName ?? null,
+        unit: med.unit ?? item.unit ?? null,
+        barcode: med.barcode ?? item.storeCode ?? null,
+        serialNumber: med.serialNumber ?? item.serial ?? null,
+        location: med.location ?? item.location ?? null,
+        notes: med.notes ?? item.notes ?? null,
+        technicalNotes: med.technicalNotes ?? item.technicalNotes ?? null,
+        batches: new Map(),
+      });
+    }
+    const g = byMed.get(item.medicineId);
+    const key = (item.batchId || '') + '::' + (item.batchNumber || '');
+    if (!g.batches.has(key)) {
+      g.batches.set(key, {
+        batchNumber: item.batchNumber || '',
+        expiryDate: fmtISODate(item.expiry),
+        receivedDate: raw.batch?.receivedDate ? fmtISODate(raw.batch.receivedDate) : null,
+        supplier: item.supplier || null,
+        quantity: 0,
+        distribution: new Map(),
+      });
+    }
+    const b = g.batches.get(key);
+    b.quantity += item.quantity || 0;
+    const vehicle = raw.ambulance?.vehicleNumber || null;
+    if (vehicle) b.distribution.set(vehicle, (b.distribution.get(vehicle) || 0) + (item.quantity || 0));
+  });
+
+  const items = Array.from(byMed.values()).map(g => ({
+    name: g.name,
+    category: g.category,
+    size: g.size,
+    strength: g.strength,
+    dosageForm: g.dosageForm,
+    genericName: g.genericName,
+    unit: g.unit,
+    barcode: g.barcode,
+    serialNumber: g.serialNumber,
+    location: g.location,
+    notes: g.notes,
+    technicalNotes: g.technicalNotes,
+    batches: Array.from(g.batches.values()).map(b => {
+      const batch = {
+        batchNumber: b.batchNumber,
+        expiryDate: b.expiryDate,
+        receivedDate: b.receivedDate,
+        supplier: b.supplier,
+      };
+      if (b.distribution.size > 1) {
+        batch.distribution = Array.from(b.distribution.entries()).map(([vehicle, quantity]) => ({ vehicle, quantity }));
+      } else {
+        batch.quantity = b.quantity;
+      }
+      return batch;
+    }),
+  }));
+
+  const payload = {
+    format: EXPORT_FORMAT,
+    version: EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    source: {
+      station: S.stationName || '—',
+      unit: S.ambulances.find(a => a.id === S.activeAmbulanceId)?.vehicleNumber || null,
+    },
+    stats: {
+      items: items.length,
+      batches: items.reduce((s, i) => s + i.batches.length, 0),
+      units: items.reduce((s, i) => s + i.batches.reduce((x, b) => x + (b.quantity || 0), 0), 0),
+    },
+    items,
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `aems_${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  toast(t('app.toast.exported'));
+}
+
+// ── Import (JSON) ─────────────────────────────────────────────
+let importPayload = null;
+let importResult = null;
+
+function importItemUnits(it) {
+  return (it.batches || []).reduce((sum, b) => {
+    if (Array.isArray(b.distribution) && b.distribution.length) {
+      return sum + b.distribution.reduce((s, d) => s + (d.quantity || 0), 0);
+    }
+    return sum + (b.quantity || 0);
+  }, 0);
+}
+
+function openImportModal() {
+  importPayload = null;
+  importResult = null;
+  ['import-drop', 'import-preview', 'import-result'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  });
+  document.getElementById('import-drop').hidden = false;
+  document.getElementById('importFile').value = '';
+  openModal('modal-import');
+}
+
+function readImportFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || data.format !== EXPORT_FORMAT || data.version !== EXPORT_VERSION) {
+        throw new Error(t('modal.import.unsupported'));
+      }
+      if (!Array.isArray(data.items) || data.items.length === 0) {
+        throw new Error(t('modal.import.empty'));
+      }
+      importPayload = data;
+      renderImportPreview();
+    } catch (err) {
+      importPayload = null;
+      openImportModal();
+      toast(err.message, 'error');
+    }
+  };
+  reader.onerror = () => toast(t('modal.import.read_failed'), 'error');
+  reader.readAsText(file);
+}
+
+function onImportFile(input) {
+  readImportFile(input.files && input.files[0]);
+}
+
+function onImportDrop(ev) {
+  ev.preventDefault();
+  const zone = document.getElementById('import-drop');
+  if (zone) zone.classList.remove('dragover');
+  readImportFile(ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]);
+}
+
+function renderImportPreview() {
+  if (!importPayload) return;
+  const items = importPayload.items;
+  const batches = items.reduce((s, i) => s + (i.batches || []).length, 0);
+  const units = items.reduce((s, i) => s + importItemUnits(i), 0);
+
+  document.getElementById('import-summary-items').textContent = items.length;
+  document.getElementById('import-summary-batches').textContent = batches;
+  document.getElementById('import-summary-units').textContent = units;
+
+  const unitName = S.ambulances.find(a => a.id === S.activeAmbulanceId)?.vehicleNumber
+    || t('modal.import.first_unit');
+  document.getElementById('import-target-unit').textContent = unitName;
+
+  const list = document.getElementById('import-item-list');
+  list.innerHTML = items.map(it => `
+    <div class="imp-item">
+      <div class="imp-item-main">
+        <span class="imp-item-name">${esc(it.name)}</span>
+        <span class="imp-item-cat">${esc(catLabel((it.category || '').toLowerCase()))}</span>
+      </div>
+      <span class="imp-item-meta">${(it.batches || []).length} ${t('modal.import.batches')} · ${importItemUnits(it)} ${t('modal.import.units')}</span>
+    </div>`).join('');
+
+  document.getElementById('import-preview').hidden = false;
+}
+
+async function confirmImport() {
+  if (!importPayload) return;
+  const btn = document.getElementById('importConfirmBtn');
+  btn.disabled = true;
+  try {
+    const payload = { ambulanceId: S.activeAmbulanceId || null, items: importPayload.items };
+    const res = await api.importInventory(payload);
+    importResult = res.data;
+    await loadInventory();
+    renderAll();
+    renderImportResult();
+    toast(t('app.toast.imported'), 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderImportResult() {
+  const r = importResult;
+  if (!r) return;
+  document.getElementById('import-drop').hidden = true;
+  document.getElementById('import-preview').hidden = true;
+
+  document.getElementById('import-res-created').textContent = r.items.created;
+  document.getElementById('import-res-restored').textContent = r.items.restored;
+  document.getElementById('import-res-merged').textContent = r.items.merged;
+  document.getElementById('import-res-units').textContent = r.units;
+
+  const list = document.getElementById('import-status-list');
+  list.innerHTML = (r.statuses || []).map(st => `
+    <div class="imp-item">
+      <div class="imp-item-main">
+        <span class="imp-item-name">${esc(st.name)}</span>
+        <span class="imp-item-cat">${st.batches} ${t('modal.import.batches')} · ${st.units} ${t('modal.import.units')}</span>
+      </div>
+      <span class="imp-status imp-${st.status}">${t(`modal.import.status_${st.status}`)}</span>
+    </div>`).join('');
+
+  const warnBox = document.getElementById('import-warnings');
+  const warns = r.warnings || [];
+  if (warns.length) {
+    warnBox.hidden = false;
+    warnBox.innerHTML = warns.map(w => `<div class="import-warn-line">${esc(w)}</div>`).join('');
+  } else {
+    warnBox.hidden = true;
+  }
+  document.getElementById('import-result').hidden = false;
+}
+
+function resetImport() {
+  importPayload = null;
+  openImportModal();
 }
 
 // ── Render all ─────────────────────────────────────────────────
@@ -1691,7 +2353,11 @@ function renderAll() {
 // ── Static events ──────────────────────────────────────────────
 function wireStaticEvents() {
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeAllModals();
+    if (e.key === 'Escape') {
+      // A forced duty pick (no unit yet) must not be dismissable.
+      if (window.AEMS_DUTY_FORCE) return;
+      closeAllModals();
+    }
   });
   document.getElementById('catTabs')?.addEventListener('click', e => {
     const btn = e.target.closest('.cat-tab');
@@ -1715,9 +2381,17 @@ function wireStaticEvents() {
   document.getElementById('searchEquip')?.addEventListener('input', e => {
     const term = e.target.value.toLowerCase();
     const filtered = S.items.filter(i => i.category === S.currentCat &&
-      (i.name.toLowerCase().includes(term) || (i.location || '').toLowerCase().includes(term)));
+      (i.name.toLowerCase().includes(term) || (i.location || '').toLowerCase().includes(term) ||
+       (i.serial || '').toLowerCase().includes(term) || (i.storeCode || '').toLowerCase().includes(term)));
     renderItemsGrid(filtered, 'equipmentList');
   });
+  document.querySelectorAll('.view-toggle').forEach(tg => {
+    tg.addEventListener('click', e => {
+      const btn = e.target.closest('.view-btn');
+      if (btn) setView(btn.dataset.view);
+    });
+  });
+  syncViewToggle();
   document.querySelectorAll('.search-field').forEach(f => {
     const inp = f.querySelector('.search-input');
     const btn = f.querySelector('.search-clear');
@@ -1772,23 +2446,29 @@ async function init() {
   S.permissions = session.permissions || [];
   window.AEMS_PERMS = S.permissions;
   S.ambulances = session.ambulances || [];
+  S.dutyRoster = session.dutyRoster || [];
+  // The active unit is the user's station (server-managed, admin-set roster).
+  S.activeUnit = session.user.station ? { ...session.user.station } : null;
   S.stationId = session.user.station?.id || null;
-  S.stationName = session.user.station?.name || '—';
+  S.stationName = session.user.station ? unitLabel(session.user.station.code, session.user.station.name) : '-';
+  // The car within the unit is a local pick from the unit's vehicles.
+  pickActiveCar();
 
   updateUserUI();
   updateSidebar();
   loadStationInfo();
+  initDutyCalendar();
 
-  // A unit normally has a single car. Pick it automatically (preferring an
-  // active car); the manual ambulance switcher has been removed.
-  const active = S.ambulances.find(a => a.status === 'ACTIVE') || S.ambulances[0];
-  S.activeAmbulanceId = active?.id || null;
-
-  if (!S.activeAmbulanceId && !S.stationId) {
+  if (!S.stationId && !S.dutyRoster.length) {
     setConnection(t('app.conn.no_unit'), false);
     renderAll();
     document.getElementById('pageLoader')?.classList.add('hide');
     return;
+  }
+
+  // No duty unit yet but a roster exists → force the pick before stock loads.
+  if (!S.stationId) {
+    openDutySwitchModal(true);
   }
 
   try {
@@ -1810,21 +2490,31 @@ onLanguageChanged(() => {
   updateUserUI();
   updateSidebar();
   refreshItemModalText();
+  renderDutyCalendar();
   if (S.currentPage) navigateTo(S.currentPage, S.currentCat);
 });
 
 window.App = {
   navigateTo,
+  openDutySwitch: () => openDutySwitchModal(false),
+  confirmDutySwitch,
   selectCat: (cat) => navigateTo('equipment', cat),
+  setView,
+  toggleTree,
   openAddModal,
   openEditModal,
+  openEditBatch,
   onSaveItem,
   saveItem: onSaveItem,
   openDeleteModal,
   confirmDelete,
+  deleteStockLine,
+  openMedicineDelete,
   setAddMode,
   addBatch,
   removeBatch,
+  toggleBatches,
+  showAllBatches,
   checkItem,
   markChecked: checkItem,
   openUseModal,
@@ -1836,11 +2526,20 @@ window.App = {
   openNoteModal,
   saveNote,
   deleteShiftNote,
+  restoreShiftNote,
   openReportModal,
   sendReport,
   copyReport,
   exportCSV,
   exportCurrentCat: () => exportCSV(S.currentCat || 'medication'),
+  exportInventory,
+  exportInventoryCurrent: () => exportInventory(S.currentCat || 'medication'),
+  exportInventoryAll: () => exportInventory('all'),
+  openImportModal,
+  onImportFile,
+  onImportDrop,
+  confirmImport,
+  resetImport,
   saveStationInfoAction,
   submitHandover,
   cancelHandoverForm,

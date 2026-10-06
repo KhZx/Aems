@@ -225,7 +225,13 @@ export async function cancelSupplyRequest(actor: SupplyActor, requestId: string,
     (actor.role === 'SUPERVISOR' && managed.has(request.ambulance.stationId)) ||
     request.createdById === actor.id;
 
-  if (isReviewer && !inScope) throw AppError.forbidden('You do not have access to this request');
+  // Everyone is checked: a reviewer only inside their own units, a crew member
+  // only on their own request. (The reviewer-only check let any crew member
+  // cancel any unit's pending request.)
+  if (!inScope) throw AppError.forbidden('You do not have access to this request');
+  if (!isReviewer && request.createdById !== actor.id) {
+    throw AppError.forbidden('You can only cancel a supply request you raised');
+  }
 
   const updated = await prisma.supplyRequest.update({
     where: { id: requestId },

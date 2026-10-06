@@ -15,6 +15,8 @@ export type Permission =
   | 'station:create'
   | 'station:update'
   | 'station:delete'
+  /** ADMIN only: hand out/revoke supervisor station assignments. */
+  | 'station:assign'
   | 'ambulance:read'
   | 'ambulance:create'
   | 'ambulance:update'
@@ -37,6 +39,8 @@ export type Permission =
   | 'shiftnote:read'
   | 'shiftnote:create'
   | 'shiftnote:delete'
+  /** Puts a soft-deleted shift note back (supervisor/admin only). */
+  | 'shiftnote:restore'
   | 'handover:read'
   | 'handover:create'
   | 'handover:acknowledge'
@@ -46,7 +50,8 @@ export type Permission =
   | 'supply:request'
   | 'supply:read'
   | 'supply:review'
-  | 'dashboard:read';
+  | 'dashboard:read'
+  | 'distribution:manage';
 
 const ALL_PERMISSIONS: Permission[] = [
   'user:read',
@@ -59,6 +64,7 @@ const ALL_PERMISSIONS: Permission[] = [
   'station:create',
   'station:update',
   'station:delete',
+  'station:assign',
   'ambulance:read',
   'ambulance:create',
   'ambulance:update',
@@ -81,6 +87,7 @@ const ALL_PERMISSIONS: Permission[] = [
   'shiftnote:read',
   'shiftnote:create',
   'shiftnote:delete',
+  'shiftnote:restore',
   'handover:read',
   'handover:create',
   'handover:acknowledge',
@@ -91,6 +98,7 @@ const ALL_PERMISSIONS: Permission[] = [
   'supply:read',
   'supply:review',
   'dashboard:read',
+  'distribution:manage',
 ];
 
 /**
@@ -119,6 +127,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'shiftnote:read',
     'shiftnote:create',
     'shiftnote:delete',
+    'shiftnote:restore',
     'handover:read',
     'handover:create',
     'handover:acknowledge',
@@ -134,12 +143,12 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   PARAMEDIC: [
     'medicine:read',
     'medicine:create',
-    'medicine:delete',
     'batch:read',
     'batch:create',
     'inventory:read',
     'inventory:use',
     'inventory:restock',
+    'inventory:adjust',
     'inventory:update-expiry',
     'inspection:read',
     'inspection:create',
@@ -160,12 +169,12 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   EMT: [
     'medicine:read',
     'medicine:create',
-    'medicine:delete',
     'batch:read',
     'batch:create',
     'inventory:read',
     'inventory:use',
     'inventory:restock',
+    'inventory:adjust',
     'inventory:update-expiry',
     'inspection:read',
     'inspection:create',
@@ -186,7 +195,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   TECHNICIAN: [
     'medicine:read',
     'medicine:create',
-    'medicine:delete',
     'batch:read',
     'batch:create',
     'inventory:read',
@@ -211,7 +219,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 
   DOCTOR: [
     'medicine:read',
-    'medicine:delete',
     'batch:read',
     'inventory:read',
     'inventory:use',

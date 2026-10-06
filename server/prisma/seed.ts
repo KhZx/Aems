@@ -11,21 +11,21 @@ const prisma = new PrismaClient();
  * and registering that Firebase account.
  */
 async function main() {
-  // ── Stations (units — code is the car number) ───────────────
+  // ── Stations (units — name/code are the ambulance number) ───
   const central = await prisma.station.upsert({
     where: { code: '01' },
-    update: { name: 'Central Station', location: 'Main City — Ambulance Bay 1' },
-    create: { code: '01', name: 'Central Station', location: 'Main City — Ambulance Bay 1' },
+    update: { name: 'Unit 01', location: 'Main City — Ambulance Bay 1' },
+    create: { code: '01', name: 'Unit 01', location: 'Main City — Ambulance Bay 1' },
   });
   const south = await prisma.station.upsert({
     where: { code: '02' },
-    update: { name: 'South Station', location: 'South District' },
-    create: { code: '02', name: 'South Station', location: 'South District' },
+    update: { name: 'Unit 02', location: 'South District' },
+    create: { code: '02', name: 'Unit 02', location: 'South District' },
   });
   const north = await prisma.station.upsert({
     where: { code: '03' },
-    update: { name: 'North Station', location: 'North District' },
-    create: { code: '03', name: 'North Station', location: 'North District' },
+    update: { name: 'Unit 03', location: 'North District' },
+    create: { code: '03', name: 'Unit 03', location: 'North District' },
   });
 
   // ── Ambulances (one car per unit; car number = unit code) ───
@@ -55,8 +55,6 @@ async function main() {
       dosageForm: 'Tablet',
       unit: 'tab',
       barcode: 'AEMS-PARA-500',
-      minimumStock: 20,
-      maximumStock: 200,
     },
     {
       name: 'Ibuprofen',
@@ -66,8 +64,6 @@ async function main() {
       dosageForm: 'Tablet',
       unit: 'tab',
       barcode: 'AEMS-IBU-400',
-      minimumStock: 10,
-      maximumStock: 100,
     },
     {
       name: 'Adrenaline (Epinephrine)',
@@ -77,8 +73,6 @@ async function main() {
       dosageForm: 'Ampoule',
       unit: 'amp',
       barcode: 'AEMS-ADR-1MG',
-      minimumStock: 5,
-      maximumStock: 30,
     },
     {
       name: 'Lifepak 15 Defib Pads',
@@ -86,10 +80,9 @@ async function main() {
       category: MedicineCategory.LIFEPAK,
       strength: null,
       dosageForm: 'Set',
+      size: 'Adult',
       unit: 'set',
       barcode: 'AEMS-LP15-PADS',
-      minimumStock: 2,
-      maximumStock: 10,
     },
     {
       name: 'Ambu Bag (Adult)',
@@ -97,10 +90,29 @@ async function main() {
       category: MedicineCategory.RESPONDER,
       strength: null,
       dosageForm: 'Unit',
+      size: 'Adult',
       unit: 'pc',
       barcode: 'AEMS-AMBUBAG-AD',
-      minimumStock: 2,
-      maximumStock: 8,
+    },
+    {
+      name: 'Suction Catheter — 10FG',
+      genericName: null,
+      category: MedicineCategory.SUCTION,
+      strength: null,
+      dosageForm: 'Catheter',
+      size: '10FG',
+      unit: 'pc',
+      barcode: 'AEMS-SUC-10F',
+    },
+    {
+      name: 'Suction Catheter — 14FG',
+      genericName: null,
+      category: MedicineCategory.SUCTION,
+      strength: null,
+      dosageForm: 'Catheter',
+      size: '14FG',
+      unit: 'pc',
+      barcode: 'AEMS-SUC-14F',
     },
   ];
 

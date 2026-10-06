@@ -43,13 +43,14 @@ export function hasGlobalScope(user: { role: Role } | undefined): boolean {
   return user?.role === 'ADMIN';
 }
 
-/** True when the ambulance belongs to a station the user may access. */
+/** True when the user may operate on the given ambulance. */
 export function canAccessAmbulance(
   user: { role: Role; stationId: string | null },
-  ambulance: Pick<Ambulance, 'stationId'>,
+  ambulance: Pick<Ambulance, 'id' | 'stationId'>,
   managedStationIds: ReadonlySet<string>,
 ): boolean {
   if (user.role === 'ADMIN') return true;
   if (user.role === 'SUPERVISOR') return managedStationIds.has(ambulance.stationId);
+  // Crew: the unit (station) they currently hold as their duty unit.
   return user.stationId != null && user.stationId === ambulance.stationId;
 }

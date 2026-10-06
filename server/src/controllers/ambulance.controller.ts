@@ -3,6 +3,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { requestMeta } from '../utils/request.js';
 import { reqParam } from '../utils/param.js';
 import * as ambulanceService from '../services/ambulance.service.js';
+import * as stationService from '../services/station.service.js';
 import * as scopeService from '../services/scope.service.js';
 
 const actor = (req: Request) => req.authUser!;
@@ -39,21 +40,36 @@ export const getById = asyncHandler(async (req: Request, res: Response) => {
 
 /** POST /api/ambulances */
 export const create = asyncHandler(async (req: Request, res: Response) => {
+  const user = actor(req);
+  // A non-admin may only add a vehicle to a unit they are actually attached to.
+  // The ambulance API addresses units by code, so resolve it first.
+  const code = req.body.stationCode as string | undefined;
+  if (code && user.role !== 'ADMIN') {
+    const station = await stationService.getStationByCode(code);
+    const managed = await scopeService.managedStationIds(user.id);
+    await scopeService.requireStationAccess(user, station.id, managed);
+  }
   const meta = requestMeta(req);
-  const ambulance = await ambulanceService.createAmbulance(actor(req).id, req.body, meta);
+  const ambulance = await ambulanceService.createAmbulance(user.id, req.body, meta);
   res.status(201).json({ success: true, data: ambulance });
 });
 
 /** PATCH /api/ambulances/:id */
 export const update = asyncHandler(async (req: Request, res: Response) => {
+  const user = actor(req);
+  const managed = await scopeService.managedStationIds(user.id);
+  await scopeService.requireAmbulanceAccess(user, reqParam(req, 'id'), managed);
   const meta = requestMeta(req);
-  const ambulance = await ambulanceService.updateAmbulance(actor(req).id, reqParam(req, 'id'), req.body, meta);
+  const ambulance = await ambulanceService.updateAmbulance(user.id, reqParam(req, 'id'), req.body, meta);
   res.json({ success: true, data: ambulance });
 });
 
 /** DELETE /api/ambulances/:id */
 export const remove = asyncHandler(async (req: Request, res: Response) => {
+  const user = actor(req);
+  const managed = await scopeService.managedStationIds(user.id);
+  await scopeService.requireAmbulanceAccess(user, reqParam(req, 'id'), managed);
   const meta = requestMeta(req);
-  await ambulanceService.deleteAmbulance(actor(req).id, reqParam(req, 'id'), meta);
+  await ambulanceService.deleteAmbulance(user.id, reqParam(req, 'id'), meta);
   res.status(204).send();
 });

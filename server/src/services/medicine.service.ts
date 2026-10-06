@@ -10,14 +10,13 @@ export interface CreateMedicineInput {
   category: MedicineCategory;
   strength?: string | null;
   dosageForm?: string | null;
+  size?: string | null;
   unit?: string | null;
   barcode?: string | null;
   location?: string | null;
   serialNumber?: string | null;
   notes?: string | null;
   technicalNotes?: string | null;
-  minimumStock?: number;
-  maximumStock?: number | null;
 }
 
 export interface UpdateMedicineInput {
@@ -26,14 +25,13 @@ export interface UpdateMedicineInput {
   category?: MedicineCategory;
   strength?: string | null;
   dosageForm?: string | null;
+  size?: string | null;
   unit?: string | null;
   barcode?: string | null;
   location?: string | null;
   serialNumber?: string | null;
   notes?: string | null;
   technicalNotes?: string | null;
-  minimumStock?: number;
-  maximumStock?: number | null;
   isActive?: boolean;
 }
 
@@ -61,8 +59,7 @@ export async function createMedicine(actorId: string, input: CreateMedicineInput
       serialNumber: input.serialNumber ?? null,
       notes: input.notes ?? null,
       technicalNotes: input.technicalNotes ?? null,
-      minimumStock: input.minimumStock ?? 0,
-      maximumStock: input.maximumStock ?? null,
+      size: input.size ?? null,
     },
   });
 
@@ -108,8 +105,7 @@ export async function updateMedicine(
       serialNumber: input.serialNumber !== undefined ? input.serialNumber : undefined,
       notes: input.notes !== undefined ? input.notes : undefined,
       technicalNotes: input.technicalNotes !== undefined ? input.technicalNotes : undefined,
-      minimumStock: input.minimumStock,
-      maximumStock: input.maximumStock !== undefined ? input.maximumStock : undefined,
+      size: input.size !== undefined ? input.size : undefined,
       isActive: input.isActive,
     },
   });
@@ -144,11 +140,18 @@ export interface DeleteMedicineResult {
  * transfers, inspections, supply requests and audit entries keep resolving —
  * but nothing deleted can ever surface in active lists again.
  * The barcode is released so entering the same medicine afresh is possible.
+ *
+ * SAFETY: this is a company-wide operation — it clears the item off EVERY
+ * ambulance in the fleet, not just the caller's unit. It is therefore limited to
+ * ADMIN/SUPERVISOR (`medicine:delete`) and refuses to run untouched while the
+ * item is still stocked on more than one car: the caller must pass
+ * `force: true` to confirm they understand the blast radius.
  */
 export async function deleteMedicine(
   actorId: string,
   id: string,
   meta: AuditEntryInput = {},
+  options: { force?: boolean } = {},
 ): Promise<DeleteMedicineResult> {
   const medicine = await prisma.medicine.findUnique({ where: { id }, include: { batches: true } });
   if (!medicine || medicine.deletedAt) throw AppError.notFound('Medicine not found');
@@ -158,7 +161,7 @@ export async function deleteMedicine(
 
   const stockRows = batchIds.length
     ? await prisma.inventory.findMany({
-        where: { batchId: { in: batchIds } },
+        where: { batchId: { in: batchIds }, deletedAt: null },
         select: { id: true, ambulanceId: true, batchId: true, quantity: true },
       })
     : [];
@@ -169,6 +172,13 @@ export async function deleteMedicine(
     .filter((r) => classifyExpiry(expiryOf.get(r.batchId) ?? null, now) === 'EXPIRED')
     .reduce((s, r) => s + r.quantity, 0);
   const affectedAmbulances = new Set(stockRows.map((r) => r.ambulanceId)).size;
+
+  if (affectedAmbulances > 1 && !options.force) {
+    throw AppError.conflict(
+      `"${medicine.name}" is still stocked on ${affectedAmbulances} ambulances. ` +
+        'Deleting it removes it from every unit in the fleet — confirm to continue.',
+    );
+  }
 
   await prisma.$transaction([
     prisma.inventory.updateMany({ where: { batchId: { in: batchIds } }, data: { deletedAt: now } }),
@@ -190,6 +200,7 @@ export async function deleteMedicine(
       expiredUnits,
       activeUnits: totalUnits - expiredUnits,
       affectedAmbulances,
+      forcedFleetWide: affectedAmbulances > 1,
     },
     ...meta,
   });

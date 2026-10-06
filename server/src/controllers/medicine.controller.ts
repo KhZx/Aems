@@ -38,9 +38,11 @@ export const update = asyncHandler(async (req: Request, res: Response) => {
   res.json({ success: true, data: medicine });
 });
 
-/** DELETE /api/medicines/:id */
+/** DELETE /api/medicines/:id — fleet-wide removal; needs `force` for multi-car impact. */
 export const remove = asyncHandler(async (req: Request, res: Response) => {
   const meta = requestMeta(req);
-  const result = await medicineService.deleteMedicine(actorId(req), reqParam(req, 'id'), meta);
+  const result = await medicineService.deleteMedicine(actorId(req), reqParam(req, 'id'), meta, {
+    force: req.body?.force === true,
+  });
   res.json({ success: true, data: result });
 });

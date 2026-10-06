@@ -3,7 +3,9 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { requestMeta } from '../utils/request.js';
 import { reqParam } from '../utils/param.js';
 import * as inventoryService from '../services/inventory.service.js';
+import * as importService from '../services/import.service.js';
 import * as scopeService from '../services/scope.service.js';
+import { AppError } from '../utils/AppError.js';
 
 const user = (req: Request) => req.authUser!;
 
@@ -11,6 +13,7 @@ const user = (req: Request) => req.authUser!;
 export const list = asyncHandler(async (req: Request, res: Response) => {
   const me = user(req);
   const stationId = req.query.stationId as string | undefined;
+  const ambulanceId = req.query.ambulanceId as string | undefined;
 
   let rows;
   if (stationId) {
@@ -18,7 +21,7 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
     await scopeService.requireStationAccess(me, stationId, managed);
     rows = await inventoryService.listInventory({
       stationIds: [stationId],
-      ambulanceId: req.query.ambulanceId as string | undefined,
+      ambulanceId,
       medicineId: req.query.medicineId as string | undefined,
       category: req.query.category as string | undefined,
       search: req.query.search as string | undefined,
@@ -27,7 +30,7 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
   } else {
     const accessible = await scopeService.accessibleStationIds(me);
     rows = await inventoryService.listInventory({
-      ambulanceId: req.query.ambulanceId as string | undefined,
+      ambulanceId,
       medicineId: req.query.medicineId as string | undefined,
       category: req.query.category as string | undefined,
       search: req.query.search as string | undefined,
@@ -54,6 +57,20 @@ async function requireAmbulanceFor(req: Request, ambulanceId: string) {
   const ambulance = await scopeService.requireAmbulanceAccess(me, ambulanceId, managed);
   return { ambulance, managed };
 }
+
+/** DELETE /api/inventory/:id — removes a single stock line (one lot on one car). */
+export const remove = asyncHandler(async (req: Request, res: Response) => {
+  const me = user(req);
+  const row = await inventoryService.getInventoryDetail(reqParam(req, 'id'));
+  await requireAmbulanceFor(req, row.ambulanceId);
+  const meta = requestMeta(req);
+  const data = await inventoryService.removeStockLine({
+    inventoryId: row.id,
+    performedById: me.id,
+    meta,
+  });
+  res.json({ success: true, data });
+});
 
 /** POST /api/inventory/use */
 export const use = asyncHandler(async (req: Request, res: Response) => {
@@ -192,6 +209,35 @@ export const initialStock = asyncHandler(async (req: Request, res: Response) => 
     batchId: req.body.batchId,
     quantity: req.body.quantity,
     performedById: me.id,
+    meta,
+  });
+  res.status(201).json({ success: true, data });
+});
+
+/** POST /api/inventory/import — restore/merge an exported AEMS file. */
+export const importInventory = asyncHandler(async (req: Request, res: Response) => {
+  const me = user(req);
+  const managed = await scopeService.managedStationIds(me.id);
+  let stationId: string | null = null;
+  let primaryAmbulanceId: string | null = null;
+
+  if (req.body.ambulanceId) {
+    const ambulance = await scopeService.requireAmbulanceAccess(me, req.body.ambulanceId, managed);
+    stationId = ambulance.stationId;
+    primaryAmbulanceId = ambulance.id;
+  } else {
+    stationId = me.stationId;
+  }
+  if (!stationId) {
+    throw AppError.badRequest('No station could be resolved for this import');
+  }
+
+  const meta = requestMeta(req);
+  const data = await importService.importInventory({
+    actorId: me.id,
+    stationId,
+    primaryAmbulanceId,
+    items: req.body.items,
     meta,
   });
   res.status(201).json({ success: true, data });

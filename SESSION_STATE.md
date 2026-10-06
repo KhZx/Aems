@@ -1,7 +1,8 @@
 # AEMS — Session State & Handoff
 
 > Full progress save so a future session can resume without re-discovery.
-> Last updated: Aug 30, 2026 (local, +04). **GitHub is set up and current — resume at Railway.**
+> Last updated: Oct 6, 2026 (local, +04). **Everything is LOCAL ONLY — nothing pushed since the Aug 30 era.**
+> Resume via: `WORK_NOTES_2026-10-06.md` (latest) + `WORK_NOTES_2026-10-04.md`. Railway/Vercel deploy still pending (§6–7 below).
 
 ## 1. What this project is
 

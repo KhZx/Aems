@@ -56,76 +56,254 @@ export const catIcon  = (c) => icon((CATEGORIES[c] && CATEGORIES[c].icon) || 'pa
 export const catLabel = (c) => t(CAT_I18N[(c || '').toLowerCase()]) || CATEGORIES[c]?.label || c;
 export const catColor = (c) => CATEGORIES[c]?.color || '#6B7280';
 
-// ── Item Card ─────────────────────────────────────────────────
-export function renderItemCard(item, snapshot) {
-  const expDate  = earliestExpiry(item);
+// ── Detail spec strip ──────────────────────────────────────────
+// "Filled-in only" chips: whatever detail exists on the medicine is printed
+// right on the card so crews can read it at a glance. Empty fields vanish —
+// the strip only renders what was actually written.
+function hasSpec(group) {
+  return !!(group.size || group.location || group.serial || group.barcode || group.storeCode || group.genericName || group.dosageForm);
+}
+function specChips(group) {
+  if (!hasSpec(group)) return '';
+  const chips = [];
+  const push = (ic, key, val) => {
+    const v = val;
+    if (v === null || v === undefined || String(v).trim() === '') return;
+    chips.push(`
+      <span class="spec-chip" title="${esc(t(key))}: ${esc(v)}">
+        <span class="spec-chip-ic">${icon(ic)}</span>
+        <span class="spec-chip-lbl">${t(key)}</span>
+        <span class="spec-chip-val">${esc(v)}</span>
+      </span>`);
+  };
+  push('ruler', 'ui.pill.size', group.size);
+  push('pin', 'ui.pill.location', group.location);
+  push('key', 'ui.pill.serial', group.serial);
+  push('tag', 'ui.pill.store', group.barcode ?? group.storeCode);
+  push('pill', 'ui.pill.generic', group.genericName);
+  push('package', 'ui.pill.dosage', group.dosageForm);
+  return `<div class="spec-strip">${chips.join('')}</div>`;
+}
+
+// ── Item Card (ONE consolidated card per medicine, batches inside) ──
+export function renderItemCard(group, snapshot) {
+  const expDate  = earliestExpiry(group);
   const status   = expiryStatus(expDate);
-  const prevItem = snapshot?.find(s => s.id === item.id);
-  const isChanged = prevItem && prevItem.quantity !== item.quantity;
-  const diff      = isChanged ? item.quantity - prevItem.quantity : null;
-  const lowStock  = item.minimal != null && item.quantity < item.minimal;
+  const prevTotal = snapshot
+    ? group.batches.reduce((sum, b) => sum + (snapshot.find(s => s.id === b.id)?.quantity ?? 0), 0)
+    : null;
+  const isChanged = prevTotal != null && prevTotal !== group.quantity;
+  const diff      = isChanged ? group.quantity - prevTotal : null;
+  const single    = group.batches.length === 1;
+  const catHex    = catColor(group.category);
 
   const badges = [];
   if (status === 'expired') badges.push(`<span class="badge badge-expired">${t('ui.badge.expired')}</span>`);
   else if (status === 'warning') badges.push(`<span class="badge badge-warning">${t('ui.badge.warning')}</span>`);
   else if (status === 'ok') badges.push(`<span class="badge badge-ok">${t('ui.badge.ok')}</span>`);
   if (isChanged) badges.push(`<span class="badge badge-changed">${t('ui.badge.changed')}</span>`);
+  if (!single) badges.push(`<span class="badge badge-lots">${t('ui.batch.count_other', { n: group.batches.length })}</span>`);
 
-  const pills = [
-    `<span class="meta-pill${lowStock ? ' danger' : ''}">${t('ui.pill.qty')} <span class="pi">${item.quantity}</span></span>`,
-  ];
-  if (item.minimal != null) pills.push(`<span class="meta-pill">${t('ui.pill.min')} <span class="pi">${item.minimal}</span></span>`);
-  if (item.maximal != null) pills.push(`<span class="meta-pill">${t('ui.pill.max')} <span class="pi">${item.maximal}</span></span>`);
-  if (expDate) pills.push(`<span class="meta-pill ${status === 'expired' ? 'danger' : status === 'warning' ? 'warning' : ''}">${t('ui.pill.expiry')} <span class="pi">${fmtDate(expDate)}</span></span>`);
-  if (item.location)  pills.push(`<span class="meta-pill">${icon('pin')} ${item.location}</span>`);
-  if (item.batchNumber) pills.push(`<span class="meta-pill">${icon('tag')} ${t('ui.pill.batch', { no: item.batchNumber })}</span>`);
-  if (item.serial)    pills.push(`<span class="meta-pill">${icon('key')} ${t('ui.pill.serial')}: ${item.serial}</span>`);
-  if (item.storeCode) pills.push(`<span class="meta-pill">${icon('tag')} ${item.storeCode}</span>`);
-
-  const changePill = isChanged && prevItem
+  const changePill = isChanged
     ? `<span class="meta-pill" style="background:${diff < 0 ? 'rgba(239,68,68,.14)' : 'rgba(16,185,129,.14)'};color:${diff < 0 ? '#FCA5A5' : '#6EE7B7'};font-weight:700;">
-         ${prevItem.quantity} → ${item.quantity} (${diff > 0 ? '+' : ''}${diff})
+         ${prevTotal} → ${group.quantity} (${diff > 0 ? '+' : ''}${diff})
        </span>`
     : '';
 
-  let stockMeter = '';
-  if (item.minimal != null && item.maximal != null && item.maximal > 0) {
-    const pct = Math.max(0, Math.min(100, (item.quantity / item.maximal) * 100));
-    stockMeter = `
-      <div class="stock-meter ${lowStock ? 'low' : pct < 50 ? 'mid' : 'good'}">
-        <div class="stock-meter-bar"><span style="width:${pct}%"></span></div>
-        <div class="stock-meter-lbl">${t('ui.stock.level', { q: item.quantity, m: item.maximal })}</div>
+  const head = `
+    <div class="item-body">
+      <div class="item-head">
+        <span class="item-cat-ico">${catIcon(group.category)}</span>
+        <div class="item-name">${esc(group.name)}${group.strength ? `<span class="item-strength">${esc(group.strength)}</span>` : ''}</div>
+        <div class="item-badges">${badges.join('')}</div>
+      </div>
+    </div>`;
+
+  const actions = renderActions(group);
+
+  const notes = (group.notes || group.technicalNotes) ? `
+    <div class="item-notes">
+      ${group.notes ? `${icon('fileText')} ${esc(group.notes)}` : ''}
+      ${group.technicalNotes ? `<div style="margin-top:4px;">${icon('wrench')} ${esc(group.technicalNotes)}</div>` : ''}
+    </div>` : '';
+
+  const MAX_BATCHES_VISIBLE = 3;
+  const renderLotRow = b => {
+    const bs = expiryStatus(b.expiry);
+    const canDel = window.AEMS_PERMS?.includes('inventory:adjust');
+    return `
+      <div class="batch-row">
+        <span class="batch-lot" title="${t('ui.pill.batch', { no: b.batchNumber || '' })}">${icon('tag')} <strong>${esc(b.batchNumber || b.id.slice(0, 8))}</strong></span>
+        <span class="batch-exp ${bs === 'expired' ? 'batch-exp-expired' : bs === 'warning' ? 'batch-exp-warning' : ''}"><span class="batch-dot"></span>${b.expiry ? fmtDate(b.expiry) : '—'}</span>
+        <span class="batch-qty">${b.quantity}</span>
+        <span class="batch-ops">
+          <button type="button" class="batch-btn" onclick="App.openEditBatch('${group.medicineId}','${b.id}')" title="${t('ui.btn.edit')}">${icon('edit')}</button>
+          ${canDel ? `<button type="button" class="batch-btn danger" onclick="App.deleteStockLine('${b.id}')" title="${t('ui.btn.delete_lot')}">${icon('trash')}</button>` : ''}
+        </span>
+      </div>`;
+  };
+
+  const hiddenCount = Math.max(0, group.batches.length - MAX_BATCHES_VISIBLE);
+  const visibleRows = group.batches.slice(0, MAX_BATCHES_VISIBLE).map(renderLotRow).join('');
+
+  const badgesMini = `
+    <div class="item-meta">
+      <span class="meta-pill pill-qty">${t('ui.pill.qty')} <span class="pi">${group.quantity}</span></span>
+      ${!single ? `<span class="meta-pill pill-lots">${icon('list')} ${t('ui.batch.count_other', { n: group.batches.length })}</span>` : ''}
+      <div>${changePill}</div>
+    </div>`;
+
+  if (single) {
+    const b = group.batches[0];
+    const bs = expiryStatus(b.expiry);
+    const strip = specChips(group);
+    return `
+      <div class="item-card is-single cat-${group.category} ${status === 'expired' ? 'is-expired' : ''} ${isChanged ? 'is-changed' : ''}" data-id="${group.id}" data-cat="${group.category}" style="--cat:${catHex}">
+        ${head}
+        <div class="item-body">
+          <div class="single-layout">
+            <div class="qty-hero">
+              <div class="qty-num">${group.quantity}</div>
+              ${group.unit ? `<div class="qty-unit">${esc(group.unit)}</div>` : ''}
+            </div>
+            <div class="single-info">
+              <div class="sline"><span class="sline-ic">${icon('tag')}</span><span class="sline-lbl">${t('ui.batch.lot')}</span><strong>${esc(b.batchNumber || b.id.slice(0, 8))}</strong></div>
+              <div class="sline"><span class="sline-ic">${icon('clock')}</span><span class="sline-lbl">${t('ui.pill.expiry')}</span><span class="sline-exp ${bs === 'expired' ? 'exp-red' : bs === 'warning' ? 'exp-amber' : 'exp-green'}">${b.expiry ? fmtDate(b.expiry) : '—'}</span></div>
+            </div>
+          </div>
+          ${strip}
+          ${changePill ? `<div class="item-meta">${changePill}</div>` : ''}
+          ${notes}
+        </div>
+        ${actions}
       </div>`;
   }
 
-  const catHex = catColor(item.category);
-  const catTint = /^#([0-9a-f]{6})$/i.test(catHex)
-    ? `rgba(${parseInt(catHex.slice(1, 3), 16)},${parseInt(catHex.slice(3, 5), 16)},${parseInt(catHex.slice(5, 7), 16)},.16)`
-    : 'rgba(255,255,255,.05)';
+  return `
+    <div class="item-card cat-${group.category} ${status === 'expired' ? 'is-expired' : ''} ${isChanged ? 'is-changed' : ''}" data-id="${group.id}" data-cat="${group.category}" style="--cat:${catHex}">
+      ${head}
+      <div class="item-body">
+        ${badgesMini}
+        ${specChips(group)}
+        <div class="batch-list">
+          <div class="batch-head">
+            <span class="batch-lot">${t('ui.batch.lot')}</span>
+            <span class="batch-exp">${t('ui.batch.expiry')}</span>
+            <span class="batch-qty">${t('ui.batch.qty')}</span>
+            <span class="batch-edit"></span>
+          </div>
+          ${visibleRows}
+          ${hiddenCount ? `
+          <button type="button" class="batch-toggle" onclick="App.showAllBatches('${group.id}')">
+            <span class="batch-toggle-label">${t('ui.batch.show_more', { n: hiddenCount })}</span>
+            <span class="batch-toggle-ic">${icon('chevronDown')}</span>
+          </button>` : ''}
+        </div>
+        ${notes}
+      </div>
+      ${actions}
+    </div>`;
+}
+
+function renderActions(group) {
+  return `
+    <div class="item-actions">
+      <button class="btn btn-success btn-sm" onclick="App.checkItem('${group.id}')">${t('ui.btn.check')}</button>
+      ${window.AEMS_PERMS?.includes('inventory:use') ? `<button class="btn btn-warning btn-sm" onclick="App.openUseModal('${group.id}')">${t('ui.btn.use')}</button>` : ''}
+      ${window.AEMS_PERMS?.includes('supply:request') ? `<button class="btn btn-ghost btn-sm" onclick="App.openSupplyModal('${group.id}')">${t('ui.btn.request')}</button>` : ''}
+      ${window.AEMS_PERMS?.includes('inventory:restock') ? `<button class="btn btn-ghost btn-sm" onclick="App.openAddModal()">${t('ui.btn.add_restock')}</button>` : ''}
+      ${(window.AEMS_PERMS?.includes('inventory:adjust') || window.AEMS_PERMS?.includes('inventory:update-expiry') || window.AEMS_PERMS?.includes('medicine:delete')) ? `<button class="btn btn-ghost btn-sm" onclick="App.openEditModal('${group.id}')">${t('ui.btn.edit')}</button>` : ''}
+    </div>`;
+}
+
+// ── Tree list — medicine row with nested, branch-connected batches ──
+const closedTreeIds = new Set();
+
+export function toggleTree(id) {
+  if (closedTreeIds.has(id)) closedTreeIds.delete(id);
+  else closedTreeIds.add(id);
+  const row = document.getElementById('tree-' + id);
+  if (row) {
+    row.classList.toggle('is-open', !closedTreeIds.has(id));
+    const btn = row.querySelector('.inv-tree-toggle');
+    if (btn) btn.setAttribute('aria-expanded', String(!closedTreeIds.has(id)));
+  }
+}
+
+function treeStatusBadge(status) {
+  return status === 'expired'
+    ? `<span class="badge badge-expired inv-badge-pulse">${t('ui.badge.expired')}</span>`
+    : status === 'warning'
+      ? `<span class="badge badge-warning">${t('ui.badge.warning')}</span>`
+      : `<span class="badge badge-ok">${t('ui.badge.ok')}</span>`;
+}
+
+export function renderItemRow(group, snapshot) {
+  const expDate  = earliestExpiry(group);
+  const status   = expiryStatus(expDate);
+  const catHex   = catColor(group.category);
+  const prevTotal = snapshot
+    ? group.batches.reduce((sum, b) => sum + (snapshot.find(s => s.id === b.id)?.quantity ?? 0), 0)
+    : null;
+  const isChanged = prevTotal != null && prevTotal !== group.quantity;
+  const diff      = isChanged ? group.quantity - prevTotal : null;
+  const canUse    = window.AEMS_PERMS?.includes('inventory:use');
+  const canRestock = window.AEMS_PERMS?.includes('inventory:restock');
+  const canSupply = window.AEMS_PERMS?.includes('supply:request');
+  const canEdit   = window.AEMS_PERMS?.includes('inventory:adjust') || window.AEMS_PERMS?.includes('inventory:update-expiry') || window.AEMS_PERMS?.includes('medicine:delete');
+  const open      = !closedTreeIds.has(group.id);
+
+  const batchRows = group.batches.map(b => {
+    const bs = expiryStatus(b.expiry);
+    return `
+      <div class="inv-tree-batch ${bs === 'expired' ? 'is-expired' : bs === 'warning' ? 'is-warning' : ''}">
+        <span class="inv-tree-node" aria-hidden="true"></span>
+        <span class="inv-batch-dot ${bs === 'expired' ? 'd-expired' : bs === 'warning' ? 'd-warning' : ''}"></span>
+        <span class="inv-batch-num">${esc(b.batchNumber || b.id.slice(0, 8))}</span>
+        <span class="inv-batch-qty">${b.quantity}${group.unit ? `<small> ${esc(group.unit)}</small>` : ''}</span>
+        ${b.expiry
+          ? `<span class="inv-batch-exp ${bs === 'expired' ? 'e-expired' : bs === 'warning' ? 'e-warning' : ''}">${fmtDate(b.expiry)}</span>`
+          : '<span class="inv-batch-exp muted">' + t('common.not_available') + '</span>'}
+        <span class="inv-batch-actions">
+          <button type="button" class="inv-bact" onclick="App.openEditBatch('${group.medicineId}','${b.id}')" title="${t('ui.btn.edit')}">${icon('edit')}</button>
+        </span>
+      </div>`;
+  }).join('');
 
   return `
-    <div class="item-card cat-${item.category} ${status === 'expired' ? 'is-expired' : ''} ${isChanged ? 'is-changed' : ''}" data-id="${item.id}" data-cat="${item.category}">
-      <div class="item-body">
-        <div class="item-head">
-          <span class="item-cat-ico" style="background:${catTint};color:${catHex};">${catIcon(item.category)}</span>
-          <div class="item-name">${item.name}</div>
-          <div class="item-badges">${badges.join('')}</div>
+    <div id="tree-${group.id}" class="inv-tree-row ${open ? 'is-open' : ''} ${status === 'expired' ? 'is-expired' : ''} ${isChanged ? 'is-changed' : ''}" style="--cat:${catHex}" data-id="${group.id}">
+      <div class="inv-tree-head">
+        <span class="inv-l-rail" aria-hidden="true"></span>
+        <button type="button" class="inv-l-tile" onclick="App.openEditModal('${group.id}')" title="${t('ui.btn.edit')}">${catIcon(group.category)}</button>
+        <div class="inv-l-main">
+          <span class="inv-l-title">${esc(group.name)}${group.strength ? `<span class="item-strength">${esc(group.strength)}</span>` : ''}</span>
         </div>
-        <div class="item-meta">${pills.join('')}${changePill}</div>
-        ${stockMeter}
-        ${item.notes || item.technicalNotes ? `
-          <div class="item-notes">
-            ${item.notes ? `${icon('fileText')} ${item.notes}` : ''}
-            ${item.technicalNotes ? `<div style="margin-top:4px;">${icon('wrench')} ${item.technicalNotes}</div>` : ''}
-          </div>` : ''}
-        ${item.lastCheck ? `<div class="item-lastcheck">${t('ui.last_check', { date: fmtDateTime(item.lastCheck) })}</div>` : ''}
+        <div class="inv-tree-status">
+          ${treeStatusBadge(status)}
+          ${group.batches.length > 1 ? `<span class="inv-tree-lots">${icon('list')} ${group.batches.length}</span>` : ''}
+          ${isChanged ? `<span class="inv-changed ${(diff ?? 0) > 0 ? 'up' : 'down'}">${(diff ?? 0) > 0 ? '▲' : '▼'} ${Math.abs(diff ?? 0)}</span>` : ''}
+        </div>
+        <div class="inv-tree-stock">
+          <span class="inv-l-qty ${isChanged ? 'qty-flash' : ''}">${group.quantity}</span>
+          ${group.unit ? `<span class="inv-l-unit">${esc(group.unit)}</span>` : ''}
+        </div>
+        <div class="inv-tree-exp">
+          <span class="batch-dot ${status === 'expired' ? 'st-expired' : status === 'warning' ? 'st-warning' : ''}"></span>
+          <span class="inv-tree-exp-txt">${expDate ? fmtDate(expDate) : '—'}</span>
+        </div>
+        <div class="inv-tree-actions">
+          <button type="button" class="inv-l-act act-check" onclick="App.checkItem('${group.id}')" title="${t('ui.btn.check')}">${icon('checkCircle')}</button>
+          ${canUse ? `<button type="button" class="inv-l-act act-use" onclick="App.openUseModal('${group.id}')" title="${t('ui.btn.use')}">${icon('zap')}</button>` : ''}
+          ${canSupply ? `<button type="button" class="inv-l-act" onclick="App.openSupplyModal('${group.id}')" title="${t('ui.btn.request')}">${icon('send')}</button>` : ''}
+          ${canRestock ? `<button type="button" class="inv-l-act" onclick="App.openAddModal()" title="${t('ui.btn.add_restock')}">${icon('plus')}</button>` : ''}
+          ${canEdit ? `<button type="button" class="inv-l-act act-edit" onclick="App.openEditModal('${group.id}')" title="${t('ui.btn.edit')}">${icon('edit')}</button>` : ''}
+        </div>
+        <button type="button" class="inv-tree-toggle" onclick="App.toggleTree('${group.id}')" aria-expanded="${String(open)}" aria-label="${open ? t('ui.collapse') : t('ui.expand')}" title="${open ? t('ui.collapse') : t('ui.expand')}">${icon('chevronDown')}</button>
       </div>
-      <div class="item-actions">
-        <button class="btn btn-success btn-sm" onclick="App.checkItem('${item.id}')">${t('ui.btn.check')}</button>
-        ${window.AEMS_PERMS?.includes('inventory:use') ? `<button class="btn btn-warning btn-sm" onclick="App.openUseModal('${item.id}')">${t('ui.btn.use')}</button>` : ''}
-        ${window.AEMS_PERMS?.includes('supply:request') ? `<button class="btn btn-ghost btn-sm" onclick="App.openSupplyModal('${item.id}')">${t('ui.btn.request')}</button>` : ''}
-        ${window.AEMS_PERMS?.includes('inventory:restock') ? `<button class="btn btn-ghost btn-sm" onclick="App.openAddModal()">${t('ui.btn.add_restock')}</button>` : ''}
-        ${(window.AEMS_PERMS?.includes('inventory:adjust') || window.AEMS_PERMS?.includes('inventory:update-expiry') || window.AEMS_PERMS?.includes('medicine:delete')) ? `<button class="btn btn-ghost btn-sm" onclick="App.openEditModal('${item.id}')">${t('ui.btn.edit')}</button>` : ''}
+      <div class="inv-tree-body">
+        <div class="inv-tree-batches">
+          ${batchRows}
+        </div>
       </div>
     </div>`;
 }
@@ -134,14 +312,13 @@ export function renderItemCard(item, snapshot) {
 export function renderAlertCard(item, alertType) {
   const expDate = earliestExpiry(item);
   const msgs = {
-    expired:   t('ui.alert.expired', { name: item.name, date: fmtDate(expDate) }),
-    warning:   t('ui.alert.warning', { name: item.name, date: fmtDate(expDate) }),
-    low_stock: t('ui.alert.low_stock', { name: item.name, qty: item.quantity, min: item.minimal }),
+    expired: t('ui.alert.expired', { name: item.name, date: fmtDate(expDate) }),
+    warning: t('ui.alert.warning', { name: item.name, date: fmtDate(expDate) }),
   };
   return `
     <div class="alert-card ${alertType === 'expired' ? 'danger' : 'warning'}" onclick="App.openEditModal('${item.id}')" title="${catLabel(item.category)}">
       <div style="font-size:0.88rem;line-height:1.5;">${msgs[alertType] || ''}</div>
-      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${catIcon(item.category)} ${catLabel(item.category)}</div>
+      <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${catIcon(item.category)} ${catLabel(item.category)}${item.size ? ` · ${esc(item.size)}` : ''}</div>
     </div>`;
 }
 
@@ -174,20 +351,34 @@ export function renderHistoryEvent(ev) {
 }
 
 // ── Shift Note ────────────────────────────────────────────────
+/**
+ * `note._canDelete` / `note._canRestore` are set by the caller (app.js) from the
+ * session: an author may remove their own note while it is fresh, a supervisor
+ * may remove anyone's, and only a supervisor can undo a removal.
+ */
 export function renderShiftNote(note) {
   const prioCol  = { high:'#EF4444', medium:'#F59E0B', low:'#10B981' };
   const prio  = (note.priority || 'medium').toLowerCase();
+  const removed = !!note.deletedAt;
+  const action = removed
+    ? (note._canRestore
+        ? `<button class="btn btn-ghost btn-sm" onclick="App.restoreShiftNote('${note.id}')" style="padding:3px 7px;font-size:0.7rem;" title="${esc(t('app.toast.note_restored'))}">${icon('refresh')}</button>`
+        : '')
+    : (note._canDelete
+        ? `<button class="btn btn-ghost btn-sm" onclick="App.deleteShiftNote('${note.id}')" style="padding:3px 7px;font-size:0.7rem;" title="${esc(t('app.confirm.delete_note'))}">${icon('trash')}</button>`
+        : '');
   return `
-    <div class="shift-note prio-${prio}">
+    <div class="shift-note prio-${prio}"${removed ? ' style="opacity:.55;border-style:dashed;"' : ''}>
       <div class="note-header">
-        <div class="note-title"><span class="prio-dot" style="background:${prioCol[prio] || '#94A3B8'};"></span> ${note.title}</div>
+        <div class="note-title"><span class="prio-dot" style="background:${prioCol[prio] || '#94A3B8'};"></span> ${note.title}${removed ? ` <span class="chip" style="font-size:.6rem;">${esc(t('ui.note.removed'))}</span>` : ''}</div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="note-meta">${fmtDateTime(note.createdAt || note.date)}</span>
-          <button class="btn btn-ghost btn-sm" onclick="App.deleteShiftNote('${note.id}')" style="padding:3px 7px;font-size:0.7rem;">${icon('trash')}</button>
+          ${action}
         </div>
       </div>
       <div class="note-content">${note.content}</div>
       ${note.author ? `<div style="margin-top:5px;font-size:0.7rem;color:var(--text-muted);">${icon('edit')} ${note.author}</div>` : ''}
+      ${removed && note.deleteReason ? `<div style="margin-top:5px;font-size:0.7rem;color:var(--danger);">${icon('info')} ${esc(note.deleteReason)}</div>` : ''}
     </div>`;
 }
 

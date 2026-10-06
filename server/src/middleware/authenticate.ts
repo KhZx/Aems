@@ -64,7 +64,9 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   try {
     const { firebaseUid, idToken } = await verifyTokenFromHeader(req);
 
-    const user = await prisma.user.findUnique({ where: { firebaseUid } });
+    const user = await prisma.user.findUnique({
+      where: { firebaseUid },
+    });
     if (!user) {
       throw AppError.unauthorized('Account has not been registered in the application');
     }
@@ -88,6 +90,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       displayName: user.displayName,
       role: user.role,
       status: user.status,
+      // For crew this is their active duty unit; switching updates it.
       stationId: user.stationId,
     };
     req.permissions = permissionsFor(user.role);

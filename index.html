@@ -57,13 +57,21 @@
       position: fixed; top: 0; left: 0; right: 0; z-index: 200;
       height: 66px; padding: 0 2.5rem;
       display: flex; align-items: center; justify-content: space-between;
-      background: rgba(6,8,15,.92); backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--brd);
+      background: transparent; backdrop-filter: none;
+      border-bottom: 1px solid transparent;
+      transition: background .3s, border-color .3s;
     }
+    .hdr.solid {
+      background: rgba(6,8,15,.88); backdrop-filter: blur(20px);
+      border-bottom-color: var(--brd);
+    }
+    .hdr:not(.solid) .nav-lnk { color: rgba(255,255,255,.9); text-shadow: 0 1px 10px rgba(0,0,0,.6); }
+    .hdr:not(.solid) .btn-ghost { color: rgba(255,255,255,.88); border-color: rgba(255,255,255,.28); text-shadow: 0 1px 8px rgba(0,0,0,.55); }
+    .hdr:not(.solid) .lang-btn { color: rgba(255,255,255,.88); border-color: rgba(255,255,255,.28); }
 
     /* DCA SVG logo */
     .brand { text-decoration: none; display: flex; align-items: center; }
-    .dca-logo { height: 40px; width: auto; direction: ltr; }
+    .dca-logo { height: 38px; width: auto; direction: ltr; }
     .dca-logo .ecg-line { stroke: var(--red); }
     .dca-logo .ar-text  { fill: var(--red); }
     .dca-logo .en-text  { fill: #4A9BDF; }
@@ -85,13 +93,32 @@
       padding-top: 66px; position: relative; overflow: hidden;
     }
 
-    /* Dark atmospheric background */
+    /* Dark atmospheric background + banner layer */
     .hero-atm {
       position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(170deg, #06080F 0%, #080B16 100%);
+    }
+    /* User banner (Banner1.jpg) — full strength, slow cinematic drift */
+    .hero-banner {
+      position: absolute; inset: 0;
+      background: url('assets/Banner1.jpg') center center / cover no-repeat;
+      opacity: 1;
+      animation: bannerDrift 46s ease-in-out infinite alternate;
+    }
+    /* Cinematic grade — only anchors header/text/bottom; the art stays fully visible */
+    .hero-banner::after {
+      content: ''; position: absolute; inset: 0;
       background:
+        linear-gradient(180deg, rgba(6,8,15,.62) 0%, rgba(6,8,15,.16) 28%, transparent 48%),
+        linear-gradient(90deg, rgba(6,8,15,.55) 0%, rgba(6,8,15,.20) 36%, transparent 60%),
+        linear-gradient(180deg, transparent 52%, rgba(6,8,15,.55) 84%, #06080F 100%),
+        radial-gradient(130% 100% at 50% 45%, transparent 55%, rgba(6,8,15,.45) 100%),
         radial-gradient(ellipse 70% 80% at 70% 55%, rgba(200,16,46,.10) 0%, transparent 55%),
-        radial-gradient(ellipse 50% 60% at 20% 40%, rgba(200,16,46,.07) 0%, transparent 50%),
-        linear-gradient(170deg, #06080F 0%, #080B16 100%);
+        radial-gradient(ellipse 50% 60% at 20% 40%, rgba(200,16,46,.07) 0%, transparent 50%);
+    }
+    @keyframes bannerDrift {
+      from { transform: scale(1) translate3d(0, 0, 0); }
+      to   { transform: scale(1.08) translate3d(-1.2%, -0.8%, 0); }
     }
 
     /* Emergency light flicker on bg */
@@ -103,9 +130,9 @@
     .light-b { background: rgba(0,61,165,.10); top: 5%; right: 28%; animation: lFlash .9s ease-in-out infinite .45s; }
     @keyframes lFlash { 0%,100%{opacity:.3} 50%{opacity:1} }
 
-    /* Left — text */
+    /* Left — text directly over the artwork (no boxes) */
     .hero-l {
-      padding: 0 3rem 4rem 2.5rem;
+      padding: clamp(2rem, 5vh, 4rem) 3rem 4rem 2.5rem;
       display: flex; flex-direction: column; justify-content: center;
       position: relative; z-index: 2;
     }
@@ -123,20 +150,22 @@
     .h-title {
       font-family: var(--disp); font-weight: 900; line-height: .9;
       letter-spacing: -0.025em; color: var(--text);
-      font-size: clamp(4rem, 7vw, 7.5rem);
-      margin-bottom: 28px;
+      font-size: clamp(3.1rem, 5.4vw, 6rem);
+      margin-bottom: 22px;
+      text-shadow: 0 8px 44px rgba(0,0,0,.85), 0 2px 10px rgba(0,0,0,.5);
       opacity: 0; animation: riseIn .55s ease forwards .22s;
     }
     .h-title .acc { color: var(--red); display: block; }
     .h-title .small { font-size: .45em; color: var(--text2); display: block; font-weight: 700; margin-top: 4px; letter-spacing: .04em; }
 
     .h-sub {
-      font-size: .96rem; line-height: 1.74; color: var(--text2);
+      font-size: .96rem; line-height: 1.74; color: rgba(228,232,242,.94);
       max-width: 400px; margin-bottom: 36px;
+      text-shadow: 0 2px 18px rgba(0,0,0,.75);
       opacity: 0; animation: riseIn .55s ease forwards .36s;
     }
     .h-btns {
-      display: flex; gap: 11px; flex-wrap: wrap; margin-bottom: 44px;
+      display: flex; gap: 11px; flex-wrap: wrap; margin-bottom: 30px;
       opacity: 0; animation: riseIn .55s ease forwards .5s;
     }
     .btn-primary {
@@ -149,17 +178,19 @@
     }
     .btn-primary:hover { background: var(--red2); transform: translateY(-2px); box-shadow: 0 8px 30px rgba(200,16,46,.58); }
     .btn-outline {
-      padding: 13px 26px; background: transparent; color: var(--text2);
-      border: 1px solid var(--brd2); border-radius: 8px; font-family: var(--body);
+      padding: 13px 26px; background: rgba(6,8,15,.42); color: rgba(235,238,246,.92);
+      border: 1px solid rgba(255,255,255,.24); border-radius: 8px; font-family: var(--body);
       font-size: .92rem; font-weight: 600; cursor: pointer; text-decoration: none;
       display: inline-flex; align-items: center; gap: 8px; transition: all .18s;
+      backdrop-filter: blur(8px);
     }
-    .btn-outline:hover { color: var(--text); border-color: rgba(255,255,255,.22); background: rgba(255,255,255,.04); }
+    .btn-outline:hover { color: var(--text); border-color: rgba(255,255,255,.4); background: rgba(6,8,15,.62); }
 
     /* Operational status row */
     .h-ops {
       display: flex; gap: 0; border: 1px solid var(--brd); border-radius: 8px; overflow: hidden;
       opacity: 0; animation: riseIn .55s ease forwards .64s; width: fit-content;
+      box-shadow: 0 12px 34px rgba(0,0,0,.45);
     }
     .ops-item {
       padding: 10px 20px; background: var(--bg2);
@@ -240,6 +271,11 @@
       opacity: 0; transform: translateY(28px) scale(.97);
     }
     @keyframes winRise { to { opacity:1; transform:translateY(0) scale(1); } }
+
+    @media (min-width:1200px){
+      .app-win { right: -64px; }
+      .radar   { transform: translate(calc(-52% + 64px), -50%); }
+    }
 
     /* Title bar */
     .aw-bar {
@@ -393,8 +429,23 @@
     .rear-tag { font-family: var(--mono); font-size: .7rem; color: var(--red); text-transform: uppercase; letter-spacing: .12em; }
     .rear-body { padding: 1.8rem; display: flex; flex-direction: column; align-items: center; gap: 16px; }
 
-    /* CSS Ambulance rear view */
-    .ambu { max-width: 600px; width: 100%; filter: drop-shadow(0 14px 36px rgba(0,0,0,.7)) drop-shadow(0 2px 8px rgba(200,16,46,.1)); }
+    /* CSS Ambulance rear view — living vehicle (idle bob, hover rev, drive test) */
+    .ambu { max-width: 600px; width: 100%; filter: drop-shadow(0 14px 36px rgba(0,0,0,.7)) drop-shadow(0 2px 8px rgba(200,16,46,.1)); animation: ambuIdle 3.6s ease-in-out infinite; will-change: transform; }
+    @keyframes ambuIdle { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+    .ambu:hover { animation: ambuRev .5s ease-in-out; }
+    .ambu:hover .a-led { animation-duration: .35s; }
+    @keyframes ambuRev { 0% { transform: translateY(0); } 25% { transform: translateY(-7px); } 50% { transform: translateY(0); } 75% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
+    .ambu.driving { animation: ambuDrive 2.4s cubic-bezier(.37,0,.63,1); pointer-events: none; }
+    .ambu.driving .a-led { animation-duration: .25s; }
+    @keyframes ambuDrive {
+      0%   { transform: translateY(0) scale(1); opacity: 1; }
+      6%   { transform: translateY(6px) scale(1.015); opacity: 1; }
+      14%  { transform: translateY(-2px) scale(1); opacity: 1; }
+      60%  { transform: translateY(-30px) scale(.6); opacity: .85; }
+      76%  { transform: translateY(-30px) scale(.6); opacity: .85; }
+      94%  { transform: translateY(4px) scale(1.01); opacity: 1; }
+      100% { transform: translateY(0) scale(1); opacity: 1; }
+    }
     .a-lb { height: 22px; background: linear-gradient(180deg,#181c28,#20263a); border-radius: 5px 5px 0 0; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 18px; border: 1px solid rgba(255,255,255,.06); border-bottom: none; }
     .a-led { width: 16px; height: 9px; border-radius: 2px; }
     .a-led.r { background: var(--red); box-shadow: 0 0 7px var(--red); animation: ledR .9s ease-in-out infinite; }
@@ -521,6 +572,13 @@
     .open-btn { padding: 11px 26px; background: var(--red); color: #fff; border: none; border-radius: 7px; font-family: var(--body); font-size: .88rem; font-weight: 700; cursor: pointer; box-shadow: 0 4px 18px rgba(200,16,46,.38); transition: transform .18s, box-shadow .18s, background .3s; }
     .open-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(200,16,46,.52); }
     .ambu.open .open-btn { background: var(--bg4); box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+    .ambu-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    .drive-btn { background: transparent; border: 1px solid var(--brd2); color: var(--text2); box-shadow: none; }
+    .drive-btn:hover { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.22); box-shadow: none; }
+    .ambu.open .drive-btn { background: transparent; box-shadow: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .hero-banner, .ambu { animation: none !important; }
+    }
     .item-det { width: 100%; max-width: 600px; background: var(--bg3); border: 1px solid var(--brd); border-radius: 10px; padding: 16px 20px; display: none; animation: fadeUp .3s ease; }
     .item-det.on { display: flex; gap: 16px; align-items: flex-start; }
     @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
@@ -639,7 +697,7 @@
     .rv.in { opacity: 1; transform: translateY(0); }
 
     /* ─── RESPONSIVE ─── */
-    @media(max-width:880px)  { .hero { grid-template-columns: 1fr; } .hero-r { padding: 0 2rem 3rem; } .car-stage { max-width: 460px; margin: 0 auto; } .feat-grid { grid-template-columns: repeat(2,1fr); } .stats-inner { grid-template-columns: repeat(2,1fr); } .how-grid { grid-template-columns: 1fr; } .how-grid::before { display: none; } .h-ops { flex-wrap: wrap; } }
+    @media(max-width:880px)  { .hero { grid-template-columns: 1fr; } .hero-l { padding: 2rem 1.5rem 3rem; } .hero-r { padding: 0 2rem 3rem; } .car-stage { max-width: 460px; margin: 0 auto; } .feat-grid { grid-template-columns: repeat(2,1fr); } .stats-inner { grid-template-columns: repeat(2,1fr); } .how-grid { grid-template-columns: 1fr; } .how-grid::before { display: none; } .h-ops { flex-wrap: wrap; } }
     @media(max-width:600px)  { .feat-grid { grid-template-columns: 1fr; } .hdr-nav .nav-lnk { display: none; } .foot-row { flex-direction: column; text-align: center; } .foot-links { justify-content: center; } }
   
 /* Dark scrollbars */
@@ -755,15 +813,7 @@
 <header class="hdr">
   <!-- DCA SVG Logo -->
   <a href="/" class="brand" aria-label="Dubai Corporation for Ambulance Services">
-    <svg class="dca-logo" viewBox="0 0 205 48" xmlns="http://www.w3.org/2000/svg" dir="ltr">
-      <!-- ECG Heartbeat Waveform -->
-      <polyline class="ecg-line" points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34"
-        fill="none" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-      <!-- إسعاف Arabic -->
-      <text class="ar-text" x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" text-anchor="end" direction="ltr">إسعاف</text>
-      <!-- Ambulance English -->
-      <text class="en-text" x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" direction="ltr">Ambulance</text>
-    </svg>
+    <img class="dca-logo" src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" decoding="async">
   </a>
   <nav class="hdr-nav">
     <a href="#demo" class="nav-lnk" data-i18n="nav.demo">Live Demo</a>
@@ -782,12 +832,7 @@
 <nav class="nav-drawer" id="navDrawer" aria-label="Mobile navigation">
   <div class="nav-drawer-head">
     <a href="/" class="brand" aria-label="Dubai Corporation for Ambulance Services">
-      <svg class="dca-logo" viewBox="0 0 205 48" xmlns="http://www.w3.org/2000/svg" dir="ltr">
-        <polyline class="ecg-line" points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34"
-          fill="none" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <text class="ar-text" x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" text-anchor="end" direction="ltr">إسعاف</text>
-        <text class="en-text" x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" direction="ltr">Ambulance</text>
-      </svg>
+      <img class="dca-logo" src="assets/DubaiAmbulance.svg" alt="" decoding="async">
     </a>
     <button class="d-drawer-close" id="drawerClose" title="Close" aria-label="Close" data-i18n="common.close" data-i18n-attr="title"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
   </div>
@@ -804,7 +849,7 @@
 
 <!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="hero-atm"></div>
+  <div class="hero-atm"><div class="hero-banner" aria-hidden="true"></div></div>
   <div class="light-r"></div>
   <div class="light-b"></div>
 
@@ -1051,7 +1096,10 @@
           </div>
           <div class="a-bumper"><div class="a-plate">DXB · E · 1701</div></div>
         </div>
-        <button class="open-btn" onclick="toggleDoors()"><span class="door-ico"><svg class="ic" aria-hidden="true"><use href="#i-door"/></svg></span> <span id="doorLbl" data-i18n="ambu.open">Open Rear Doors</span></button>
+        <div class="ambu-actions">
+          <button class="open-btn" onclick="toggleDoors()"><span class="door-ico"><svg class="ic" aria-hidden="true"><use href="#i-door"/></svg></span> <span id="doorLbl" data-i18n="ambu.open">Open Rear Doors</span></button>
+          <button class="open-btn drive-btn" type="button" onclick="driveAmbu()"><span class="door-ico"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg></span> <span data-i18n="ambu.drive">Drive Test</span></button>
+        </div>
         <div class="item-det" id="itemDet"></div>
       </div>
     </div>
@@ -1158,12 +1206,7 @@
 <footer>
   <div class="foot-row">
     <div class="foot-brand">
-      <svg viewBox="0 0 205 48" xmlns="http://www.w3.org/2000/svg" dir="ltr" style="height:34px;width:auto;opacity:.8">
-        <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34"
-          fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
-        <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
-      </svg>
+      <img src="assets/DubaiAmbulance.svg" alt="" style="height:34px;width:auto;opacity:.8;display:block" decoding="async">
       <div class="foot-brand-text">
         <span class="fs">مؤسسة دبي للإسعاف · Dubai Ambulance</span>
       </div>
@@ -1416,6 +1459,10 @@ sizeTraces(); setRhythm('nsr',false); refreshNums();
 mlog(t('monitor.log.ready'));
 if(motionOK){ requestAnimationFrame(step); } else { prefillTraces(); }
 
+const hdrEl=document.querySelector('.hdr');
+const hdrScroll=()=>hdrEl.classList.toggle('solid',window.scrollY>40);
+window.addEventListener('scroll',hdrScroll,{passive:true}); hdrScroll();
+
 let doorsOpen=false;
 function updateDoorLbl() {
   const l=document.getElementById('doorLbl');
@@ -1427,6 +1474,13 @@ window.toggleDoors=function(){
   document.getElementById('ambuEl').classList.toggle('open',doorsOpen);
   updateDoorLbl();
   if(!doorsOpen){document.getElementById('itemDet').classList.remove('on');document.querySelectorAll('.eq').forEach(s=>s.classList.remove('sel'));}
+};
+window.driveAmbu=function(){
+  const el=document.getElementById('ambuEl');
+  if(el.classList.contains('driving'))return;
+  if(doorsOpen) window.toggleDoors();
+  el.classList.add('driving');
+  setTimeout(()=>{ el.classList.remove('driving'); },2400);
 };
 
 const EQ={

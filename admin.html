@@ -237,6 +237,61 @@
     @keyframes loaderSpin {
       to { transform: rotate(360deg); }
     }
+
+    /* ── Duty roster inline panel (opens under the user row — no overlay) ── */
+    .units-panel-row > td {
+      background: rgba(245,158,11,.05);
+      border-top: 1px solid rgba(245,158,11,.2);
+      border-bottom: 1px solid rgba(245,158,11,.2);
+      padding: 0 !important;
+    }
+    .units-panel { padding: 14px 18px; animation: unitsOpen .18s ease; }
+    @keyframes unitsOpen {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: none; }
+    }
+    .units-panel-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; margin-bottom: 11px; }
+    .units-panel-title { font-weight: 800; font-size: .9rem; display: inline-flex; align-items: center; gap: 7px; }
+    .units-panel-title .ic { width: 15px; height: 15px; color: #F59E0B; }
+    .units-panel-hint { font-size: .72rem; color: var(--text3); }
+    .units-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .unit-chip {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 7px 14px; border-radius: 999px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.12);
+      font-size: .84rem; font-weight: 700;
+      cursor: pointer; user-select: none;
+      transition: background .15s ease, border-color .15s ease, color .15s ease;
+    }
+    .unit-chip input { position: absolute; opacity: 0; pointer-events: none; }
+    .unit-chip-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: rgba(255,255,255,.25);
+      transition: background .15s ease, box-shadow .15s ease;
+    }
+    .unit-chip:hover { border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.08); }
+    .unit-chip.on {
+      background: rgba(245,158,11,.16);
+      border-color: rgba(245,158,11,.55);
+      color: #FDE68A;
+    }
+    .unit-chip.on .unit-chip-dot { background: #F59E0B; box-shadow: 0 0 6px rgba(245,158,11,.8); }
+    .units-panel-foot {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-top: 13px; flex-wrap: wrap;
+    }
+    .units-count { font-size: .74rem; color: var(--text3); font-weight: 600; }
+    .units-panel-actions { display: flex; gap: 8px; }
+    .units-cancel, .units-save {
+      padding: 7px 16px; border-radius: 8px;
+      font-size: .8rem; font-weight: 700;
+      cursor: pointer; font-family: var(--font-body);
+    }
+    .units-cancel { background: rgba(255,255,255,.05); color: var(--text2); border: 1px solid rgba(255,255,255,.1); }
+    .units-save { background: linear-gradient(135deg,#F59E0B,#D97706); color: #fff; border: none; }
+    .units-save:disabled { opacity: .6; cursor: wait; }
+    .units-empty { color: var(--text3); font-size: .84rem; }
   </style>
 </head>
 <body>
@@ -247,11 +302,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <a href="/" style="display:flex;align-items:center;text-decoration:none;margin-bottom:4px;">
-      <svg viewBox="0 0 205 48" style="height:36px;width:auto;direction:ltr;" xmlns="http://www.w3.org/2000/svg">
-        <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
-        <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
-      </svg>
+      <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" style="height:34px;width:auto;display:block" decoding="async">
     </a>
     <div class="admin-badge"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg> <span data-i18n="admin.title">Admin Panel</span></div>
   </div>
@@ -274,6 +325,9 @@
     </button>
     <button class="nav-item" data-page="equipment" onclick="navTo('equipment')">
       <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></span> <span data-i18n="admin.nav.equipment">Equipment Overview</span>
+    </button>
+    <button class="nav-item" data-page="distributions" onclick="navTo('distributions')">
+      <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span> <span data-i18n="admin.nav.distributions">Distributions</span>
     </button>
     <button class="nav-item" data-page="logs" onclick="navTo('logs')">
       <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span> <span data-i18n="admin.nav.logs">Audit Log</span>
@@ -500,11 +554,10 @@
 
     <!-- ═══ EQUIPMENT OVERVIEW ════════════════════════════ -->
     <div id="page-equipment" class="page">
-      <div class="stat-row" id="equipStatRow" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.5rem;">
+      <div class="stat-row" id="equipStatRow" style="grid-template-columns:repeat(3,1fr);margin-bottom:1.5rem;">
         <div class="stat-card info"><div class="stat-card-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></div><div class="stat-card-num" id="eq-total">—</div><div class="stat-card-label" data-i18n="admin.equip.stats.total">Total Items</div></div>
         <div class="stat-card danger"><div class="stat-card-icon"><svg class="ic" aria-hidden="true"><use href="#i-xCircle"/></svg></div><div class="stat-card-num" id="eq-expired">—</div><div class="stat-card-label" data-i18n="admin.equip.stats.expired">Expired</div></div>
         <div class="stat-card warning"><div class="stat-card-icon"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></div><div class="stat-card-num" id="eq-warning">—</div><div class="stat-card-label" data-i18n="admin.equip.stats.warning">Expiring Soon</div></div>
-        <div class="stat-card success"><div class="stat-card-icon"><svg class="ic" aria-hidden="true"><use href="#i-trending"/></svg></div><div class="stat-card-num" id="eq-lowstock">—</div><div class="stat-card-label" data-i18n="admin.equip.stats.low_stock">Low Stock</div></div>
       </div>
       <div class="section">
         <div class="section-head">
@@ -513,7 +566,7 @@
         </div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th data-i18n="admin.equip.col.category">Category</th><th data-i18n="admin.equip.col.items">Items</th><th data-i18n="admin.equip.col.expired">Expired</th><th data-i18n="admin.equip.col.expiring">Expiring ≤30d</th><th data-i18n="admin.equip.col.low_stock">Low Stock</th><th data-i18n="admin.equip.col.status">Status</th></tr></thead>
+            <thead><tr><th data-i18n="admin.equip.col.category">Category</th><th data-i18n="admin.equip.col.items">Items</th><th data-i18n="admin.equip.col.expired">Expired</th><th data-i18n="admin.equip.col.expiring">Expiring ≤30d</th><th data-i18n="admin.equip.col.status">Status</th></tr></thead>
             <tbody id="equipTbody"></tbody>
           </table>
         </div>
@@ -522,9 +575,53 @@
         <div class="section-head"><div class="section-title" data-i18n="admin.equip.breakdown"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg> Per Station Breakdown</div></div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th data-i18n="admin.equip.bd.col.code">Station Code</th><th data-i18n="admin.equip.bd.col.name">Station Name</th><th data-i18n="admin.equip.bd.col.total">Total Items</th><th data-i18n="admin.equip.bd.col.expired">Expired</th><th data-i18n="admin.equip.bd.col.low_stock">Low Stock</th></tr></thead>
+            <thead><tr><th data-i18n="admin.equip.bd.col.code">Station Code</th><th data-i18n="admin.equip.bd.col.name">Station Name</th><th data-i18n="admin.equip.bd.col.total">Total Items</th><th data-i18n="admin.equip.bd.col.expired">Expired</th></tr></thead>
             <tbody id="stationEquipTbody"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ DISTRIBUTIONS ══════════════════════════════════ -->
+    <div id="page-distributions" class="page">
+      <div class="section" style="margin-bottom:1rem;">
+        <div class="section-head">
+          <div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg> <span data-i18n="admin.dist.title">Inventory Distribution</span></div>
+          <button onclick="openTemplateModal()" style="padding:7px 14px;background:linear-gradient(135deg,#10B981,#059669);border:none;border-radius:8px;font-family:var(--font-body);font-size:.8rem;font-weight:700;color:white;cursor:pointer;" data-i18n="admin.dist.new_list">+ New List</button>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th data-i18n="admin.dist.col.name">List Name</th>
+              <th data-i18n="admin.dist.col.items">Items</th>
+              <th data-i18n="admin.dist.col.units">Total Units</th>
+              <th data-i18n="admin.dist.col.used">Times Applied</th>
+              <th data-i18n="admin.dist.col.status">Status</th>
+              <th data-i18n="admin.dist.col.actions">Actions</th>
+            </tr></thead>
+            <tbody id="distTemplatesTbody"></tbody>
+          </table>
+          <div id="distTemplatesEmpty" class="empty-state" style="display:none;">
+            <div class="empty-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></div>
+            <div class="empty-text" data-i18n="admin.dist.empty">No lists yet — create one to start distributing stock.</div>
+          </div>
+        </div>
+      </div>
+      <div class="section" style="margin-top:1.5rem;">
+        <div class="section-head"><div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg> <span data-i18n="admin.dist.history_title">Distribution History</span></div></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr>
+              <th data-i18n="admin.dist.hist.col.when">When</th>
+              <th data-i18n="admin.dist.hist.col.list">List</th>
+              <th data-i18n="admin.dist.hist.col.station">Station</th>
+              <th data-i18n="admin.dist.hist.col.by">Applied By</th>
+            </tr></thead>
+            <tbody id="distHistoryTbody"></tbody>
+          </table>
+          <div id="distHistEmpty" class="empty-state" style="display:none;">
+            <div class="empty-text" data-i18n="admin.dist.hist.empty">No distributions yet.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -599,7 +696,6 @@
           </div>
           <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:1rem;">
             <button class="btn-save" onclick="saveAdminSettings()"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg> <span data-i18n="common.save">Save Settings</span></button>
-            <button class="btn-danger" onclick="confirmClearData()" style="background:#DC2626;color:white;border:none;padding:11px 20px;border-radius:9px;font-weight:700;cursor:pointer;"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> <span data-i18n="admin.clear_data.btn">Clear Test Data</span></button>
           </div>
           <div id="adminSettingsStatus" style="margin-top:10px;font-size:.85rem;color:var(--success);opacity:0;transition:opacity .3s;"></div>
         </div>
@@ -619,6 +715,21 @@
   .field-label{display:block;font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;}
   .field-input{width:100%;padding:9px 12px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);border-radius:9px;font-family:var(--font-body);font-size:.88rem;color:var(--text);outline:none;}
   .field-input:focus{border-color:rgba(59,130,246,.5);}
+  #templateModal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;pointer-events:none;transition:opacity .2s;}
+  #templateModal.open{opacity:1;pointer-events:all;}
+  #applyModal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;pointer-events:none;transition:opacity .2s;}
+  #applyModal.open{opacity:1;pointer-events:all;}
+  #itemFormModal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;pointer-events:none;transition:opacity .2s;}
+  #itemFormModal.open{opacity:1;pointer-events:all;}
+  .dist-draft-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border2);transition:background .12s;}
+  .dist-draft-row:hover{background:rgba(255,255,255,.02);}
+  .dist-draft-cat{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;flex-shrink:0;color:var(--text2);background:rgba(255,255,255,.03);border:1px solid var(--border);}
+  .dist-draft-btn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid var(--border);background:transparent;cursor:pointer;font-size:.82rem;color:var(--text2);flex-shrink:0;}
+  .dist-draft-btn:hover{background:rgba(255,255,255,.05);}
+  .dist-batch-chip{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:.8rem;color:var(--text);}
+  .dist-batch-remove{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:5px;cursor:pointer;color:var(--text3);font-size:.85rem;border:none;background:transparent;}
+  .dist-batch-remove:hover{color:#FCA5A5;background:rgba(239,68,68,.1);}
+  @media(max-width:800px){.item-form-row{grid-template-columns:1fr !important;}}
 </style>
 
 <!-- Reassign Station Modal -->
@@ -657,14 +768,114 @@
   </div>
 </div>
 
+<!-- Template Editor Modal -->
+<div id="templateModal">
+  <div style="background:#161B22;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:2rem;width:100%;max-width:760px;max-height:92vh;overflow-y:auto;box-shadow:0 40px 80px rgba(0,0,0,.6);">
+    <div style="font-family:var(--font-display);font-size:1.2rem;font-weight:800;margin-bottom:4px;" id="templateModalTitle">New Distribution List</div>
+    <div style="font-size:0.82rem;color:var(--text3);margin-bottom:1.25rem;" data-i18n="admin.dist.modal_sub">Prepare a list of stock, then apply it to selected stations.</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div><label class="field-label" data-i18n="admin.dist.name_label">List Name</label><input type="text" id="distName" class="field-input" placeholder="e.g. Cardiac Care Kit"></div>
+      <div><label class="field-label" data-i18n="admin.dist.active_label">Status</label>
+        <select id="distActive" class="field-input"><option value="true" data-i18n="admin.dist.status_active">Active</option><option value="false" data-i18n="admin.dist.status_archived">Archived</option></select>
+      </div>
+    </div>
+
+    <div style="margin-bottom:8px;"><label class="field-label" data-i18n="admin.dist.desc_label">Description (optional)</label><input type="text" id="distDesc" class="field-input"></div>
+
+    <div class="section" style="margin-bottom:14px;border:none;background:var(--bg3);">
+      <div class="section-head" style="padding:.8rem 1rem;">
+        <div class="section-title" style="font-size:.95rem;" data-i18n="admin.dist.items_label">Items</div>
+        <button onclick="openItemForm()" style="padding:5px 12px;background:rgba(59,130,246,.12);color:#93C5FD;border:1px solid rgba(59,130,246,.25);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.add_item">+ Add Item</button>
+      </div>
+      <div id="distItemsList"></div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:1.25rem;">
+      <button onclick="closeTemplateModal()" style="flex:1;padding:11px;background:rgba(255,255,255,.05);color:var(--text2);border:1px solid rgba(255,255,255,.07);border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:600;cursor:pointer;">Cancel</button>
+      <button onclick="saveTemplate()" style="flex:2;padding:11px;background:linear-gradient(135deg,#10B981,#059669);color:white;border:none;border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.save_btn">Save List</button>
+    </div>
+  </div>
+</div>
+
+<!-- Apply Modal -->
+<div id="applyModal">
+  <div style="background:#161B22;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:2rem;width:100%;max-width:620px;max-height:92vh;overflow-y:auto;box-shadow:0 40px 80px rgba(0,0,0,.6);">
+    <div style="font-family:var(--font-display);font-size:1.2rem;font-weight:800;margin-bottom:4px;" data-i18n="admin.dist.apply_title">Apply List to Stations</div>
+    <div style="font-size:.82rem;color:var(--text3);margin-bottom:1.25rem;">List: <strong id="applyListName"></strong> — <span id="applyListMeta"></span></div>
+
+    <div style="margin-bottom:.9rem;">
+      <input type="text" id="applyStationSearch" class="field-input" placeholder="Filter stations…" oninput="renderApplyStations()" style="margin-bottom:8px;">
+      <div id="applyStationList" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;background:var(--bg3);"></div>
+    </div>
+
+    <div id="distResult" style="display:none;margin-top:.5rem;padding:1rem;background:var(--bg3);border:1px solid var(--border);border-radius:10px;font-size:.84rem;color:var(--text);white-space:pre-line;"></div>
+
+    <div style="display:flex;gap:10px;margin-top:1.25rem;">
+      <button onclick="closeApplyModal()" style="flex:1;padding:11px;background:rgba(255,255,255,.05);color:var(--text2);border:1px solid rgba(255,255,255,.07);border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:600;cursor:pointer;">Cancel</button>
+      <button id="confirmApplyBtn" onclick="confirmApply()" style="flex:2;padding:11px;background:linear-gradient(135deg,#F59E0B,#D97706);color:white;border:none;border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.apply_btn">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Item Form Modal -->
+<div id="itemFormModal">
+  <div style="background:#161B22;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:2rem;width:100%;max-width:720px;max-height:92vh;overflow-y:auto;box-shadow:0 40px 80px rgba(0,0,0,.6);">
+    <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;margin-bottom:1.25rem;" id="itemFormTitle">Add Item</div>
+
+    <div class="item-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div><label class="field-label" data-i18n="modal.item.name">Name *</label><input type="text" id="dist-item-name" class="field-input" data-i18n-placeholder="modal.item.name.ph" placeholder="Enter name" required></div>
+      <div><label class="field-label" data-i18n="modal.item.cat">Category *</label>
+        <select id="dist-item-cat" class="field-input" required>
+          <option value="MEDICATION" data-i18n="modal.item.cat.medication">Medication Bag</option>
+          <option value="LIFEPAK" data-i18n="modal.item.cat.lifepak">Lifepak</option>
+          <option value="RESPONDER" data-i18n="modal.item.cat.responder">Responder Bag</option>
+          <option value="SUCTION" data-i18n="modal.item.cat.suction">Suction Bag</option>
+          <option value="CAREVENT" data-i18n="modal.item.cat.carevent">CAREVENT Bag</option>
+          <option value="STATION_STORE" data-i18n="modal.item.cat.store">Station Store</option>
+          <option value="CAR_CONTENTS" data-i18n="modal.item.cat.car">Car Contents</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="item-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div><label class="field-label" data-i18n="modal.item.location">Location</label><input type="text" id="dist-item-location" class="field-input" data-i18n-placeholder="modal.item.location.ph" placeholder="e.g. Upper cabinet"></div>
+      <div><label class="field-label" data-i18n="modal.item.serial">Serial Number / Store Code</label><input type="text" id="dist-item-serial" class="field-input" data-i18n-placeholder="modal.item.serial.ph" placeholder="e.g. SN-XXXXX or 520-XXXXX" dir="ltr"></div>
+    </div>
+
+    <div class="item-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div><label class="field-label" data-i18n="modal.item.size">Size</label><input type="text" id="dist-item-size" class="field-input" data-i18n-placeholder="modal.item.size.ph" placeholder="e.g. 10FG, Adult, 25cm"></div>
+      <div><label class="field-label" data-i18n="modal.item.dcas">DCAS Code</label><input type="text" id="dist-item-dcas" class="field-input" data-i18n-placeholder="modal.item.dcas.ph" placeholder="e.g. DCAS02273" dir="ltr"></div>
+    </div>
+
+    <div style="margin-bottom:12px;"><label class="field-label" data-i18n="modal.item.notes">General Notes</label><input type="text" id="dist-item-notes" class="field-input" data-i18n-placeholder="modal.item.notes.ph" placeholder="Additional notes..."></div>
+    <div style="margin-bottom:14px;"><label class="field-label" data-i18n="modal.item.technotes">Technical Notes / Warnings</label><textarea id="dist-item-technotes" class="field-input" rows="2" data-i18n-placeholder="modal.item.technotes.ph" placeholder="Technical notes, usage instructions..."></textarea></div>
+
+    <div class="batch-box" style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:.88rem;font-weight:700;color:var(--text);margin-bottom:10px;" data-i18n="modal.item.batches"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Batches (different expiry dates)</div>
+      <div class="batch-row" style="display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:8px;align-items:end;">
+        <div><div class="form-label" data-i18n="modal.item.batchexpiry">Expiry Date</div><input type="date" id="b-expiry-dist" class="field-input"></div>
+        <div><div class="form-label" data-i18n="modal.item.batchno">Batch No.</div><input type="text" id="b-lot-dist" class="field-input" placeholder="LOT-2024-001" dir="ltr"></div>
+        <div><div class="form-label" data-i18n="modal.item.batchqty">Qty</div><input type="number" id="b-qty-dist" class="field-input" min="1" value="1"></div>
+        <div><label class="field-label">&nbsp;</label><button type="button" onclick="addDistBatch()" style="padding:9px 14px;background:linear-gradient(135deg,#22C55E,#16A34A);color:white;border:none;border-radius:8px;font-family:var(--font-body);font-size:.78rem;font-weight:700;cursor:pointer;">+ Add</button></div>
+      </div>
+      <div id="distBatchesList" style="margin-top:10px;"></div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:1rem;">
+      <button onclick="closeItemForm()" style="flex:1;padding:11px;background:rgba(255,255,255,.05);color:var(--text2);border:1px solid rgba(255,255,255,.07);border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:600;cursor:pointer;">Cancel</button>
+      <button onclick="saveDistItem()" style="flex:2;padding:11px;background:linear-gradient(135deg,#3B82F6,#2563EB);color:white;border:none;border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.item_save">Save Item</button>
+    </div>
+  </div>
+</div>
+
 <script type="module">
 
-  import { initI18n, setLanguage, getCurrentLang, t } from './js/i18n.js';
+  import { initI18n, setLanguage, getCurrentLang, t, unitLabel } from './js/i18n.js';
   import { mountSprite } from './js/icons.js';
   import { FIREBASE_CONFIG } from './js/config.js';
-  import { initFirebase, firebaseSignOut, stationKey,
-           watchConnection, reauthenticateAdmin, clearStationOperationalData, clearReports, clearAudit } from './js/services/firebase.js';
-  import { api } from './js/api.js';
+  import { initFirebase, firebaseSignOut, stationKey } from './js/services/firebase.js';
+  import { api, getApiBase } from './js/api.js';
   import { initAppSession, signOutAll, clearSession } from './js/auth.js';
   import { startHealthMonitor } from './js/health.js';
   import { expiryStatus } from './js/ui.js';
@@ -686,6 +897,7 @@
       station: u.station?.code || '',
       stationName: u.station?.name || u.station?.location || '',
       managedStations: u.managedStations?.map(s => s.code) || [],
+      dutyUnitIds: u.dutyUnitIds || [],
       supervisorZone: u.supervisorZone || null,
       badgeNumber: u.badgeNumber || null,
       createdAt: u.createdAt ? new Date(u.createdAt).getTime() : Date.now(),
@@ -701,7 +913,7 @@
     renderAll();
   })();
 
-  // ── Firebase connection status ──────────────────────────────
+  // ── API connection status ───────────────────────────────────
   function updateConnUI(connected) {
     const el = document.getElementById('adminConnStatus');
     const lb = document.getElementById('adminConnLabel');
@@ -717,7 +929,19 @@
       if (dt) dt.textContent = t('app.conn.local_only');
     }
   }
-  watchConnection(connected => updateConnUI(connected));
+  // Reachability of the API + database. This used to read the Firebase
+  // Realtime Database connection, which no longer holds any application data.
+  async function refreshConnUI() {
+    const base = getApiBase();
+    if (!base) { updateConnUI(false); return; }
+    try {
+      const res = await fetch(`${base}/health`, { cache: 'no-store' });
+      const json = await res.json().catch(() => null);
+      updateConnUI(res.ok && json?.data?.database === 'ok');
+    } catch { updateConnUI(false); }
+  }
+  refreshConnUI();
+  setInterval(refreshConnUI, 15000);
   let _users = [];
   let _usersLoaded = false;
   async function refreshUsers() {
@@ -812,7 +1036,7 @@
       <td><code style="background:rgba(255,255,255,.06);padding:2px 7px;border-radius:4px;font-size:0.8rem;">${esc(u.empId)}</code></td>
       <td style="color:var(--text2);font-size:0.8rem;">${esc(u.email)}</td>
       <td>${esc(u.role)}</td>
-      <td style="color:var(--text3);font-size:0.8rem;"><code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:1px 7px;border-radius:4px;font-size:.75rem;">${esc(u.station)}</code><br><span style="font-size:.72rem;">${esc(u.stationName||u.station)}</span></td>
+      <td style="color:var(--text3);font-size:0.8rem;"><code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:1px 7px;border-radius:4px;font-size:.75rem;">${u.station ? esc(unitLabel(u.station)) : '—'}</code></td>
       <td style="color:var(--text3);font-size:0.78rem;">${new Date(u.createdAt).toLocaleDateString()}</td>
       <td><div class="action-row">
         <button class="btn-approve" onclick="openApproveModal('${esc(u.uid)}')">${t('admin.btn.approve')}</button>
@@ -829,14 +1053,14 @@
       <td><code style="background:rgba(255,255,255,.06);padding:2px 7px;border-radius:4px;font-size:0.8rem;">${esc(u.empId)}</code></td>
       <td>${esc(u.role)}</td>
       <td style="font-size:0.8rem;">
-        <code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:1px 7px;border-radius:4px;font-size:.75rem;">${esc(u.station||'—')}</code>
-        <div style="font-size:.68rem;color:var(--text3);margin-top:2px;">${esc(u.stationName||'')}</div>
+        <code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:1px 7px;border-radius:4px;font-size:.75rem;">${u.station ? esc(unitLabel(u.station)) : '—'}</code>
       </td>
       <td><span class="badge ${statusMap[u.status]||'pending'}">${u.status}</span></td>
       <td style="color:var(--text3);font-size:0.78rem;">${new Date(u.createdAt).toLocaleDateString()}</td>
       <td><div class="action-row">
         <button class="btn-deact" onclick="toggleUser('${esc(u.uid)}')">${isActive ? t('admin.btn.deactivate') : t('admin.btn.activate')}</button>
         <button class="btn-approve" onclick="openReassignModal('${esc(u.uid)}')" title="${t('admin.users.reassign_title')}" style="font-size:.7rem;padding:4px 9px;"><svg class="ic" aria-hidden="true"><use href="#i-pin"/></svg> <span data-i18n="admin.users.reassign_btn">Reassign</span></button>
+        ${['admin','supervisor'].includes(u.role) ? '' : `<button class="btn-approve units-btn" onclick="openUnitsModal('${esc(u.uid)}')" title="${t('admin.users.units_title')}" style="font-size:.7rem;padding:4px 9px;background:rgba(245,158,11,.12);color:#FCD34D;border:1px solid rgba(245,158,11,.3);"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg> <span data-i18n="admin.users.units_btn">Units</span></button>`}
         <button class="btn-delete" onclick="deleteUser('${esc(u.uid)}')"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>
       </div></td>
     </tr>`;
@@ -878,7 +1102,7 @@
 
   // ── Equipment Overview (REST / Postgres) ──────────────────
   let _invRows   = [];   // raw inventory rows (with ambulance + batch.medicine)
-  let _invStat   = { total:0, expired:0, warning:0, lowStock:0, loadedAt:null };
+  let _invStat   = { total:0, expired:0, warning:0, loadedAt:null };
 
   /** Backend inventory row → the aggregates renderers understand. */
   function _normInv(r) {
@@ -889,8 +1113,7 @@
       category: m.category || 'OTHER',
       name: m.name || 'Unknown item',
       quantity: r.quantity ?? 0,
-      minimal: m.minimumStock ?? 0,
-      maximal: m.maximumStock ?? null,
+      size: m.size || '',
       expiry: r.batch?.expiryDate || null,
       stationCode: stCode,
       stationName: stName,
@@ -905,16 +1128,15 @@
       const rows = (Array.isArray(data) ? data : (data.items || []));
       _invRows = rows;
       const now = new Date();
-      let total=0, expired=0, warning=0, lowStock=0;
+      let total=0, expired=0, warning=0;
       rows.forEach(r => {
         const it = _normInv(r);
         total++;
         const days = it.expiry ? ((new Date(it.expiry) - now) / 86400000) : null;
         if (days !== null && days < 0) expired++;
         else if (days !== null && days <= 30) warning++;
-        if (it.minimal > 0 && it.quantity < it.minimal) lowStock++;
       });
-      _invStat = { total, expired, warning, lowStock, loadedAt: new Date() };
+      _invStat = { total, expired, warning, loadedAt: new Date() };
     } catch (err) {
       toast(err.message || 'Failed to load inventory', 'error');
     }
@@ -925,27 +1147,26 @@
     if (!_invRows.length) await refreshInventory();
 
     const totalAll = _invStat.total, totalExpired = _invStat.expired,
-          totalWarn = _invStat.warning, totalLow = _invStat.lowStock;
+          totalWarn = _invStat.warning;
 
     const catTotals = {};
     const stTotals  = {};
     _invRows.forEach(r => {
       const it = _normInv(r);
       const cat = (it.category || 'OTHER').toLowerCase();
-      if (!catTotals[cat]) catTotals[cat] = { items: 0, expired: 0, warning: 0, lowStock: 0 };
+      if (!catTotals[cat]) catTotals[cat] = { items: 0, expired: 0, warning: 0 };
       catTotals[cat].items++;
-      if (!stTotals[it.stationCode]) stTotals[it.stationCode] = { items: 0, expired: 0, lowStock: 0, name: it.stationName };
+      if (!stTotals[it.stationCode]) stTotals[it.stationCode] = { items: 0, expired: 0, name: unitLabel(it.stationCode, it.stationName) };
       stTotals[it.stationCode].items++;
       const days = it.expiry ? ((new Date(it.expiry) - Date.now()) / 86400000) : null;
       if (days !== null && days < 0)      { catTotals[cat].expired++; stTotals[it.stationCode].expired++; }
       else if (days !== null && days <= 30) catTotals[cat].warning++;
-      if (it.minimal > 0 && it.quantity < it.minimal) { catTotals[cat].lowStock++; stTotals[it.stationCode].lowStock++; }
     });
 
     // Summary cards
-    ['eq-total','eq-expired','eq-warning','eq-lowstock'].forEach((id, i) => {
+    ['eq-total','eq-expired','eq-warning'].forEach((id, i) => {
       const el = document.getElementById(id);
-      if (el) el.textContent = [totalAll, totalExpired, totalWarn, totalLow][i];
+      if (el) el.textContent = [totalAll, totalExpired, totalWarn][i];
     });
 
     const ts = document.getElementById('equipLastUpdate');
@@ -957,16 +1178,15 @@
     const tbody = document.getElementById('equipTbody');
     const rows  = Object.entries(catTotals).sort((a,b) => b[1].items - a[1].items);
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:1.5rem;">${t('admin.equip.no_data')}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1.5rem;">${t('admin.equip.no_data')}</td></tr>`;
     } else {
       tbody.innerHTML = rows.map(([cat, e]) => {
-        const badge = e.expired > 0 ? t('admin.equip.status.expired') : e.warning > 0 ? t('admin.equip.status.warning') : e.lowStock > 0 ? t('admin.equip.status.low') : t('admin.equip.status.good');
+        const badge = e.expired > 0 ? t('admin.equip.status.expired') : e.warning > 0 ? t('admin.equip.status.warning') : t('admin.equip.status.good');
         return `<tr>
           <td><strong>${esc(cat.replace(/_/g,' ').replace(/\b\w/g, c=>c.toUpperCase()))}</strong></td>
           <td><strong>${e.items}</strong></td>
           <td style="color:${e.expired>0?'#FCA5A5':'var(--text3)'};">${e.expired||'—'}</td>
           <td style="color:${e.warning>0?'#FDE68A':'var(--text3)'};">${e.warning||'—'}</td>
-          <td style="color:${e.lowStock>0?'#FDE68A':'var(--text3)'};">${e.lowStock||'—'}</td>
           <td>${badge}</td>
         </tr>`;
       }).join('');
@@ -976,14 +1196,13 @@
     const stTbody = document.getElementById('stationEquipTbody');
     const stEntries = Object.entries(stTotals).sort((a,b) => b[1].items - a[1].items);
     if (!stEntries.length) {
-      stTbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:1rem;">No stations yet.</td></tr>`;
+      stTbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1rem;">No stations yet.</td></tr>`;
     } else {
       stTbody.innerHTML = stEntries.map(([code, s]) => `<tr>
         <td><code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:2px 8px;border-radius:4px;font-size:.78rem;">${esc(code)}</code></td>
-        <td style="color:var(--text2);">${esc(s.name)}</td>
+        <td style="color:var(--text2);">${esc(unitLabel(code, s.name))}</td>
         <td><strong>${s.items}</strong></td>
         <td style="color:${s.expired>0?'#FCA5A5':'var(--text3)'};">${s.expired||'—'}</td>
-        <td style="color:${s.lowStock>0?'#FDE68A':'var(--text3)'};">${s.lowStock||'—'}</td>
       </tr>`).join('');
     }
   }
@@ -1066,10 +1285,10 @@
     if (!u) return;
     _reassignUserId = id;
     document.getElementById('reassignName').textContent = `${u.name} (${u.role})`;
-    document.getElementById('reassignCurrentStation').textContent = u.station || '—';
+    document.getElementById('reassignCurrentStation').textContent = u.station ? unitLabel(u.station) : '—';
     const sel = document.getElementById('reassignStation');
-    sel.innerHTML = '<option value="">— Select destination station —</option>' +
-      _stations.map(s => `<option value="${esc(s.code)}"${s.code === u.station ? ' selected' : ''}>${esc(s.name)} (${esc(s.code)})</option>`).join('');
+    sel.innerHTML = '<option value="">— Select destination unit —</option>' +
+      _stations.map(s => `<option value="${esc(s.code)}"${s.code === u.station ? ' selected' : ''}>${esc(unitLabel(s.code, s.name))}</option>`).join('');
     document.getElementById('reassignModal').classList.add('open');
   };
 
@@ -1099,6 +1318,100 @@
   };
 
   document.getElementById('reassignModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeReassignModal(); });
+
+  // ── Duty roster (which units a crew member may hold/switch) ──
+  // Opens inline directly under the user's row — the dashboard stays visible
+  // and scrollable behind it (no full-screen overlay).
+  let _unitsUserId = null;
+
+  window.closeUnitsPanel = function() {
+    document.querySelectorAll('.units-panel-row').forEach(r => r.remove());
+    document.querySelectorAll('.units-btn[data-open]').forEach(b => {
+      b.removeAttribute('data-open');
+      b.style.background = '';
+      b.style.color = '';
+      b.style.borderColor = '';
+    });
+    _unitsUserId = null;
+  };
+
+  window.openUnitsModal = function(id) {
+    const existing = document.querySelector('.units-panel-row');
+    if (existing && existing.dataset.for === id) { closeUnitsPanel(); return; }
+    closeUnitsPanel();
+
+    const u = _users.find(x => x.uid === id);
+    const row = document.querySelector(`tr[data-uid="${CSS.escape(id)}"]`);
+    if (!u || !row) return;
+    _unitsUserId = id;
+
+    const ids = new Set(u.dutyUnitIds || []);
+    const panel = document.createElement('tr');
+    panel.className = 'units-panel-row';
+    panel.dataset.for = id;
+    panel.innerHTML = `
+      <td colspan="7">
+        <div class="units-panel">
+          <div class="units-panel-head">
+            <span class="units-panel-title"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg> Duty roster — <strong>${esc(u.name)}</strong></span>
+            <span class="units-panel-hint">Tick the units this crew member may hold. Switching stays free for them — every switch is logged with a reason.</span>
+          </div>
+          <div class="units-chips">
+            ${_stations.map(s => `
+              <label class="unit-chip${ids.has(s.id) ? ' on' : ''}">
+                <input type="checkbox" value="${esc(s.id)}" ${ids.has(s.id) ? 'checked' : ''}>
+                <span class="unit-chip-dot"></span>${esc(unitLabel(s.code, s.name))}
+              </label>`).join('') ||
+              '<span class="units-empty">No units loaded</span>'}
+          </div>
+          <div class="units-panel-foot">
+            <span class="units-count"></span>
+            <span class="units-panel-actions">
+              <button type="button" class="units-cancel" onclick="closeUnitsPanel()">Cancel</button>
+              <button type="button" class="units-save" onclick="confirmUnits()">Save roster</button>
+            </span>
+          </div>
+        </div>
+      </td>`;
+    row.after(panel);
+
+    const btn = row.querySelector('.units-btn');
+    if (btn) {
+      btn.setAttribute('data-open', '1');
+      btn.style.background = 'rgba(245,158,11,.25)';
+      btn.style.color = '#FDE68A';
+      btn.style.borderColor = 'rgba(245,158,11,.5)';
+    }
+
+    const sync = () => {
+      panel.querySelectorAll('.units-chips label').forEach(l =>
+        l.classList.toggle('on', l.querySelector('input').checked));
+      const n = panel.querySelectorAll('.units-chips input:checked').length;
+      const c = panel.querySelector('.units-count');
+      if (c) c.textContent = `${n} unit${n === 1 ? '' : 's'} selected`;
+    };
+    panel.addEventListener('change', sync);
+    sync();
+  };
+
+  window.confirmUnits = async function() {
+    if (!_unitsUserId) return;
+    const panel = document.querySelector('.units-panel-row');
+    if (!panel) return;
+    const ids = [...panel.querySelectorAll('input:checked')].map(i => i.value);
+    if (!ids.length) { toast('Select at least one unit', 'error'); return; }
+    const saveBtn = panel.querySelector('.units-save');
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      await api.setUserUnits(_unitsUserId, ids);
+      closeUnitsPanel();
+      toast('Roster updated', 'success');
+      await refreshUsers();
+    } catch (err) {
+      if (saveBtn) saveBtn.disabled = false;
+      toast(err.message || 'Failed to update roster', 'error');
+    }
+  };
 
   // ── Export Users CSV ──────────────────────────────────────
 window.exportUsersCSV = function() {
@@ -1149,25 +1462,28 @@ window.exportUsersCSV = function() {
   // ── Audit Log (REST / Postgres) ──────────────────────────
   let _auditLogs = [];
 
-  const typeColors = { add:'#10B981', edit:'#4A9BDF', delete:'#EF4444', use:'#F59E0B', check:'#3B82F6', supervisor_edit:'#7C3AED', report:'#0D9488', approve_user:'#10B981', reject_user:'#EF4444', system:'#94A3B8' };
+  const typeColors = { add:'#10B981', edit:'#4A9BDF', delete:'#EF4444', use:'#F59E0B', check:'#3B82F6', supervisor_edit:'#7C3AED', report:'#0D9488', approve_user:'#10B981', reject_user:'#EF4444', system:'#94A3B8', switch:'#0EA5E9' };
 
   /** Backend audit entry → admin-facing shape. */
   function mapAudit(e) {
     const action = e.action || '';
     let type = 'system';
     if (action === 'USE_MEDICINE') type = 'use';
-    else if (action === 'RESTOCK' || action === 'RETURN' || action === 'CREATE_MEDICINE' || action === 'CREATE_BATCH') type = 'add';
-    else if (action === 'ADJUST_INVENTORY' || action === 'UPDATE_MEDICINE' || action === 'CHANGE_ROLE' || action === 'UPDATE_STATION' || action === 'UPDATE_AMBULANCE') type = 'edit';
-    else if (action === 'DELETE_MEDICINE' || action === 'DELETE_STATION' || action === 'DELETE_AMBULANCE' || action === 'DELETE_USER') type = 'delete';
+    else if (action === 'RESTOCK' || action === 'RETURN' || action === 'CREATE_MEDICINE' || action === 'CREATE_BATCH' || action === 'DISTRIBUTE_STOCK') type = 'add';
+    else if (action === 'ADJUST_INVENTORY' || action === 'UPDATE_MEDICINE' || action === 'CHANGE_ROLE' || action === 'UPDATE_STATION' || action === 'UPDATE_AMBULANCE' || action === 'CREATE_DISTRIBUTION_TEMPLATE' || action === 'UPDATE_DISTRIBUTION_TEMPLATE') type = 'edit';
+    else if (action === 'DELETE_MEDICINE' || action === 'DELETE_STATION' || action === 'DELETE_AMBULANCE' || action === 'DELETE_USER' || action === 'DELETE_DISTRIBUTION_TEMPLATE' || action === 'ARCHIVE_DISTRIBUTION_TEMPLATE') type = 'delete';
     else if (action === 'INSPECTION') type = 'check';
     else if (action === 'SUPERVISOR_EDIT') type = 'supervisor_edit';
     else if (action === 'CREATE_REPORT') type = 'report';
+    else if (action === 'DUTY_SWITCH') type = 'switch';
+    else if (action === 'UPDATE_USER_UNITS') type = 'edit';
     else if (action === 'APPROVE_USER') type = 'approve_user';
     else if (action === 'REJECT_USER') type = 'reject_user';
 
     let source = 'app';
-    if (['APPROVE_USER','REJECT_USER','CHANGE_ROLE','DELETE_USER','CREATE_USER','CREATE_STATION','UPDATE_STATION','DELETE_STATION','CREATE_AMBULANCE','UPDATE_AMBULANCE','DELETE_AMBULANCE','CREATE_MEDICINE','UPDATE_MEDICINE','DELETE_MEDICINE','CREATE_BATCH'].includes(action)) source = 'admin';
+    if (['APPROVE_USER','REJECT_USER','CHANGE_ROLE','DELETE_USER','CREATE_USER','CREATE_STATION','UPDATE_STATION','DELETE_STATION','CREATE_AMBULANCE','UPDATE_AMBULANCE','DELETE_AMBULANCE','CREATE_MEDICINE','UPDATE_MEDICINE','DELETE_MEDICINE','CREATE_BATCH','UPDATE_USER_UNITS'].includes(action)) source = 'admin';
     else if (['SUPERVISOR_EDIT','TRANSFER'].includes(action)) source = 'supervisor';
+    else if (['DISTRIBUTE_STOCK','CREATE_DISTRIBUTION_TEMPLATE','UPDATE_DISTRIBUTION_TEMPLATE','DELETE_DISTRIBUTION_TEMPLATE','ARCHIVE_DISTRIBUTION_TEMPLATE'].includes(action)) source = 'admin';
 
     const stationCode = e.station?.code || '';
     return {
@@ -1213,10 +1529,17 @@ window.exportUsersCSV = function() {
       case 'DELETE_USER':      return `User deleted${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
       case 'CREATE_USER':      return `Account created${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
       case 'LOGIN':            return 'Login';
+      case 'DUTY_SWITCH':      return `Unit switched ${m.from ? `${m.from} ` : ''}→ ${m.to ?? '?'}${m.reason ? ` — ${m.reason}` : ''}`;
+      case 'UPDATE_USER_UNITS': return `Roster updated${m.targetEmail ? ` — ${m.targetEmail}` : ''}: ${(m.units || []).join(', ')}`;
       case 'TRANSFER':         return `Transferred${m.quantity ? ` ${m.quantity}×` : ''}`;
       case 'INITIAL_STOCK':    return `Initial stock${m.quantity ? ` ${m.quantity}×` : ''}`;
       case 'DAMAGED':          return `Marked damaged${m.quantity ? ` ${m.quantity}×` : ''}`;
       case 'EXPIRED':          return `Marked expired${m.quantity ? ` ${m.quantity}×` : ''}`;
+      case 'DISTRIBUTE_STOCK': return `Distributed "${m.templateName ?? ''}" +${m.units ?? m.items ?? 0}× (${m.items ?? 0} item${m.items === 1 ? '' : 's'})`;
+      case 'CREATE_DISTRIBUTION_TEMPLATE': return `Distribution list created${m.name ? ` — ${m.name}` : ''}`;
+      case 'UPDATE_DISTRIBUTION_TEMPLATE': return `Distribution list updated${m.name ? ` — ${m.name}` : ''}`;
+      case 'DELETE_DISTRIBUTION_TEMPLATE': return `Distribution list deleted${m.name ? ` — ${m.name}` : ''}`;
+      case 'ARCHIVE_DISTRIBUTION_TEMPLATE': return `Distribution list archived${m.name ? ` — ${m.name}` : ''}`;
       default: return (action || 'event').replace(/_/g, ' ');
     }
   }
@@ -1394,50 +1717,6 @@ window.exportUsersCSV = function() {
     } catch (e) { /* silent */ }
   };
 
-  // ── Clear Operational Data (preserves users + stations) ──
-  window.confirmClearData = async function() {
-    // Step 1: Confirm intent
-    const input = prompt(t('admin.clear_data.confirm'));
-    if (input !== 'DELETE') { toast(t('admin.clear_data.cancelled'), 'error'); return; }
-
-    // Step 2: Re-authenticate with password
-    const password = prompt('Enter your admin password to confirm:');
-    if (!password) { toast('Cancelled — password required', 'error'); return; }
-    try {
-      await reauthenticateAdmin(password);
-    } catch (err) {
-      toast('Authentication failed: ' + (err.message || 'wrong password'), 'error');
-      return;
-    }
-
-    // Step 3: Clear Firebase operational data (NOT users, station_users, stations_directory)
-    const stations = _stations || [];
-    const stationCodes = stations.map(s => s.code);
-    if (stationCodes.length) {
-      await Promise.allSettled(stationCodes.map(code =>
-        clearStationOperationalData(code).catch(() => {})
-      ));
-    }
-    await Promise.allSettled([
-      clearReports().catch(() => {}),
-      clearAudit().catch(() => {}),
-    ]);
-
-    // Step 4: Clear any remaining localStorage cache keys (preferences preserved)
-    try {
-      const tracked = localStorage.getItem('aems_sup_tracked'); // preserve
-      Object.keys(localStorage).forEach(k => {
-        if (k.startsWith('aems_') && k !== 'aems_sup_tracked') {
-          localStorage.removeItem(k);
-        }
-      });
-      if (tracked) localStorage.setItem('aems_sup_tracked', tracked);
-    } catch (e) { /* best effort */ }
-
-    toast('All operational data cleared (users and stations preserved)', 'success');
-    setTimeout(() => window.location.reload(), 2000);
-  };
-
   // ── Export All Stations (Inventory + Staff) ────────────
   window.exportAllStations = async function() {
     const users = _users;
@@ -1446,7 +1725,7 @@ window.exportUsersCSV = function() {
       try { await refreshInventory(); } catch { /* fallthrough */ }
     }
     let csv = '\uFEFF';
-    const h = ['Station Code','Station Name','Staff Name','Staff Role','Staff Email','Staff ID','Item Name','Item Category','Item Qty','Item Min','Item Max','Item Expiry','Item Location','Item Status'];
+    const h = ['Station Code','Station Name','Staff Name','Staff Role','Staff Email','Staff ID','Item Name','Item Category','Item Qty','Item Size','Item Expiry','Item Location','Item Status'];
     csv += h.join(',') + '\n';
 
     for (const st of _stations) {
@@ -1463,7 +1742,7 @@ window.exportUsersCSV = function() {
         });
 
       if (!staff.length && !items.length) {
-        csv += `"${st.code}","${st.name || ''}","—","—","—","—","—","—","—","—","—","—","—","—"\n`;
+        csv += `"${st.code}","${st.name || ''}","—","—","—","—","—","—","—","—","—","—","—"\n`;
         continue;
       }
 
@@ -1477,8 +1756,8 @@ window.exportUsersCSV = function() {
           s ? `"${s.name}"` : '"—"', s ? `"${s.role}"` : '"—"',
           s ? `"${s.email}"` : '"—"', s ? `"${s.empId || ''}"` : '"—"',
           it ? `"${it.name}"` : '"—"', it ? `"${it.category.replace(/_/g, ' ')}"` : '"—"',
-          it ? `"${it.quantity}"` : '"—"', it ? `"${it.minimal || ''}"` : '"—"',
-          it ? `"${it.maximal || ''}"` : '"—"', it ? `"${it.expiry || ''}"` : '"—"',
+          it ? `"${it.quantity}"` : '"—"', it ? `"${it.size || ''}"` : '"—"',
+          it ? `"${it.expiry || ''}"` : '"—"',
           it ? `"${it.location || ''}"` : '"—"', `"${status}"`,
         ].join(',') + '\n';
       }
@@ -1490,6 +1769,359 @@ window.exportUsersCSV = function() {
     a.click();
     toast(t('admin.toast.stations_exported'), 'success');
   };
+
+  // ── Distribution ────────────────────────────────────────────
+  let _distTemplates    = [];
+  let _distHistory      = [];
+  let _distDraftItems   = [];   // items being edited in the template modal
+  let _distTempBatches  = [];   // batches of the item currently in the item form
+  let _distEditItemId   = null; // id of the item being edited in the item form (null = new)
+  let _editTemplateId   = null;
+  let _applyTemplateId  = null;
+
+  const _uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+  const DIST_CATS = {
+    MEDICATION:    { ar: 'حقيبة الأدوية',      en: 'Medication Bag', ic: 'i-pill' },
+    LIFEPAK:       { ar: 'Lifepak',            en: 'Lifepak',        ic: 'i-package' },
+    RESPONDER:     { ar: 'حقيبة المستجيب',     en: 'Responder Bag',  ic: 'i-backpack' },
+    SUCTION:       { ar: 'حقيبة الشفط',        en: 'Suction Bag',    ic: 'i-wind' },
+    CAREVENT:      { ar: 'حقيبة CAREVENT',     en: 'CAREVENT Bag',   ic: 'i-carevent' },
+    STATION_STORE: { ar: 'مخزن المحطة',        en: 'Station Store',  ic: 'i-store' },
+    CAR_CONTENTS:  { ar: 'محتويات المركبة',    en: 'Car Contents',   ic: 'i-ambulance' },
+  };
+  const distCatInfo = c => DIST_CATS[c] || { ar: c || '', en: c || '', ic: 'i-package' };
+  const distCatLabel = c => distCatInfo(c)[getCurrentLang()] || c;
+  const fmtDistDate = d => {
+    if (d == null) return '—';
+    const s = String(d);
+    return s.length >= 10 ? s.slice(0, 10) : s;
+  };
+
+  async function refreshDistTemplates() {
+    try {
+      const data = await api.distributionTemplates();
+      _distTemplates = data || [];
+      renderDistTemplates();
+    } catch (err) {
+      toast(err.message || 'Failed to load distribution lists', 'error');
+    }
+  }
+
+  async function refreshDistHistory() {
+    try {
+      const data = await api.distributions({ pageSize: 200 });
+      _distHistory = data?.distributions || [];
+      renderDistHistory();
+    } catch (err) {
+      toast(err.message || 'Failed to load distribution history', 'error');
+    }
+  }
+
+  function renderDistTemplates() {
+    const tbody = document.getElementById('distTemplatesTbody');
+    const empty = document.getElementById('distTemplatesEmpty');
+    if (!tbody) return;
+    if (!_distTemplates.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    tbody.innerHTML = _distTemplates.map(tpl => {
+      const items = tpl.items || [];
+      const units = items.reduce((s, it) => s + (it.batches || []).reduce((x, b) => x + (b.quantity || 0), 0), 0);
+      const statusBadge = tpl.isActive
+        ? `<span class="badge approved">${t('admin.dist.status_active')}</span>`
+        : `<span class="badge inactive">${t('admin.dist.status_archived')}</span>`;
+      return `<tr>
+        <td><strong>${esc(tpl.name)}</strong>${tpl.description ? `<div style="font-size:.7rem;color:var(--text3);">${esc(tpl.description)}</div>` : ''}</td>
+        <td>${items.length}</td>
+        <td>${units}</td>
+        <td>${tpl._count?.distributions || 0}</td>
+        <td>${statusBadge}</td>
+        <td><div class="action-row">
+          ${tpl.isActive ? `<button class="btn-approve" onclick="openApplyModal('${esc(tpl.id)}')">${t('admin.dist.apply_btn')}</button>` : ''}
+          <button class="btn-deact" onclick="openTemplateModal('${esc(tpl.id)}')" style="color:#93C5FD;background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.2);">${t('admin.dist.edit_btn')}</button>
+          <button class="btn-delete" onclick="deleteDistributionTemplate('${esc(tpl.id)}')"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>
+        </div></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderDistHistory() {
+    const tbody = document.getElementById('distHistoryTbody');
+    const empty  = document.getElementById('distHistEmpty');
+    if (!tbody) return;
+    if (!_distHistory.length) { tbody.innerHTML = ''; empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    tbody.innerHTML = _distHistory.map(d => `<tr>
+      <td style="font-size:.78rem;color:var(--text3);white-space:nowrap;">${new Date(d.appliedAt).toLocaleString()}</td>
+      <td><strong>${esc(d.template?.name || '—')}</strong></td>
+      <td><code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:1px 7px;border-radius:4px;font-size:.75rem;">${esc(d.station?.code || '—')}</code> <span style="font-size:.75rem;color:var(--text3);">${esc(d.station?.name || '')}</span></td>
+      <td style="font-size:.8rem;color:var(--text2);">${esc(d.appliedBy?.displayName || d.appliedBy?.email || '—')}</td>
+    </tr>`).join('');
+  }
+
+  window.openTemplateModal = function(id) {
+    _editTemplateId = id || null;
+    const tpl = _editTemplateId ? _distTemplates.find(t => t.id === _editTemplateId) : null;
+    document.getElementById('templateModalTitle').textContent = tpl ? t('admin.dist.modal_edit') : t('admin.dist.modal_new');
+    document.getElementById('distName').value  = tpl?.name || '';
+    document.getElementById('distDesc').value  = tpl?.description || '';
+    document.getElementById('distActive').value = tpl?.isActive === false ? 'false' : 'true';
+    _distDraftItems = (tpl?.items || []).map(it => ({
+      id: _uuid(),
+      name: it.name || '',
+      category: it.category || 'MEDICATION',
+      location: it.location ?? null,
+      serialNumber: it.serialNumber ?? null,
+      size: it.size ?? null,
+      barcode: it.barcode ?? null,
+      notes: it.notes ?? null,
+      technicalNotes: it.technicalNotes ?? null,
+      batches: (it.batches || []).map(b => ({ id: _uuid(), batchNumber: b.batchNumber ?? null, expiryDate: fmtDistDate(b.expiryDate), quantity: b.quantity ?? 1 })),
+    }));
+    renderDistItems();
+    document.getElementById('templateModal').classList.add('open');
+  };
+  window.closeTemplateModal = function() { document.getElementById('templateModal').classList.remove('open'); _editTemplateId = null; _distDraftItems = []; };
+
+  // Items list inside the template modal
+  function renderDistItems() {
+    const el = document.getElementById('distItemsList');
+    if (!el) return;
+    if (!_distDraftItems.length) {
+      el.innerHTML = `<div style="padding:16px;text-align:center;font-size:.82rem;color:var(--text3);">${t('admin.dist.no_items')}</div>`;
+      return;
+    }
+    el.innerHTML = _distDraftItems.map(it => {
+      const batches = it.batches || [];
+      const units = batches.reduce((s, b) => s + (b.quantity || 0), 0);
+      const ci = distCatInfo(it.category);
+      return `<div class="dist-draft-row">
+        <span class="dist-draft-cat" title="${esc(distCatLabel(it.category))}"><svg class="ic" aria-hidden="true"><use href="#${ci.ic}"/></svg></span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:600;font-size:.86rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(it.name)}</div>
+          <div style="font-size:.72rem;color:var(--text3);margin-top:2px;">${batches.length} ${t('admin.dist.batches_label')} · ${units} ${t('admin.dist.units_label')}</div>
+        </div>
+        <button class="dist-draft-btn" onclick="openEditItem('${esc(it.id)}')" title="${t('admin.dist.edit_item')}">✎</button>
+        <button class="dist-draft-btn" onclick="removeDistItem('${esc(it.id)}')" title="${t('admin.dist.remove_item')}" style="color:#FCA5A5;">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  // Item form (mirrors the app Add-Item form)
+  window.openItemForm = function() {
+    _distEditItemId = null;
+    document.getElementById('itemFormTitle').textContent = t('admin.dist.item_new');
+    ['dist-item-name','dist-item-location','dist-item-serial','dist-item-size','dist-item-dcas','dist-item-notes'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    const tn = document.getElementById('dist-item-technotes'); if (tn) tn.value = '';
+    const cat = document.getElementById('dist-item-cat'); if (cat) cat.value = 'MEDICATION';
+    _distTempBatches = [];
+    renderDistTempBatches();
+    document.getElementById('itemFormModal').classList.add('open');
+  };
+  window.openEditItem = function(id) {
+    const item = _distDraftItems.find(x => x.id === id);
+    if (!item) return;
+    _distEditItemId = id;
+    document.getElementById('itemFormTitle').textContent = t('admin.dist.item_edit');
+    document.getElementById('dist-item-name').value = item.name || '';
+    document.getElementById('dist-item-cat').value = item.category || 'MEDICATION';
+    document.getElementById('dist-item-location').value = item.location || '';
+    document.getElementById('dist-item-serial').value = item.serialNumber || '';
+    document.getElementById('dist-item-size').value = item.size || '';
+    document.getElementById('dist-item-dcas').value = item.barcode || '';
+    document.getElementById('dist-item-notes').value = item.notes || '';
+    document.getElementById('dist-item-technotes').value = item.technicalNotes || '';
+    _distTempBatches = (item.batches || []).map(b => ({ ...b }));
+    renderDistTempBatches();
+    document.getElementById('itemFormModal').classList.add('open');
+  };
+  window.closeItemForm = function() { document.getElementById('itemFormModal').classList.remove('open'); _distEditItemId = null; };
+
+  window.addDistBatch = function() {
+    const expiry = document.getElementById('b-expiry-dist').value;
+    const lot = document.getElementById('b-lot-dist').value.trim();
+    const qty = Math.max(1, parseInt(document.getElementById('b-qty-dist').value, 10) || 1);
+    if (!expiry) { toast(t('batch.required_expiry') || 'Expiry date is required', 'error'); return; }
+    _distTempBatches.push({ id: _uuid(), batchNumber: lot || null, expiryDate: expiry, quantity: qty });
+    renderDistTempBatches();
+    document.getElementById('b-expiry-dist').value = '';
+    document.getElementById('b-lot-dist').value = '';
+    document.getElementById('b-qty-dist').value = '1';
+  };
+  window.removeDistBatch = function(idx) { _distTempBatches.splice(idx, 1); renderDistTempBatches(); };
+
+  function renderDistTempBatches() {
+    const el = document.getElementById('distBatchesList');
+    if (!el) return;
+    if (!_distTempBatches.length) {
+      el.innerHTML = `<div style="font-size:.78rem;color:var(--text3);text-align:center;padding:8px;">${t('ui.batch.no_batches')}</div>`;
+      return;
+    }
+    el.innerHTML = _distTempBatches.map((b, i) => `
+      <div class="dist-batch-chip">
+        <span><strong>${b.quantity}×</strong> — ${t('ui.batch.expiry', { date: fmtDistDate(b.expiryDate) })}${b.batchNumber ? ` &nbsp;| ${esc(b.batchNumber)}` : ''}</span>
+        <button class="dist-batch-remove" onclick="removeDistBatch(${i})" title="${t('admin.dist.remove_item')}">✕</button>
+      </div>`).join('');
+  }
+
+  window.saveDistItem = function() {
+    const name = document.getElementById('dist-item-name').value.trim();
+    const category = document.getElementById('dist-item-cat').value;
+    if (!name) { toast(t('admin.dist.err_name'), 'error'); return; }
+    if (!_distTempBatches.length) { toast(t('admin.dist.err_batch'), 'error'); return; }
+    const item = {
+      id: _distEditItemId || _uuid(),
+      name,
+      category,
+      location: document.getElementById('dist-item-location').value.trim() || null,
+      serialNumber: document.getElementById('dist-item-serial').value.trim() || null,
+      size: document.getElementById('dist-item-size').value.trim() || null,
+      barcode: document.getElementById('dist-item-dcas').value.trim() || null,
+      notes: document.getElementById('dist-item-notes').value.trim() || null,
+      technicalNotes: document.getElementById('dist-item-technotes').value.trim() || null,
+      batches: _distTempBatches.map(b => ({ batchNumber: b.batchNumber, expiryDate: b.expiryDate, quantity: b.quantity })),
+    };
+    const idx = _distDraftItems.findIndex(x => x.id === item.id);
+    if (idx >= 0) _distDraftItems[idx] = item; else _distDraftItems.push(item);
+    renderDistItems();
+    closeItemForm();
+  };
+  window.removeDistItem = function(id) {
+    _distDraftItems = _distDraftItems.filter(x => x.id !== id);
+    renderDistItems();
+  };
+
+  function collectTemplateItems() {
+    return _distDraftItems.map(it => ({
+      name: it.name,
+      category: it.category,
+      location: it.location,
+      serialNumber: it.serialNumber,
+      size: it.size,
+      barcode: it.barcode,
+      notes: it.notes,
+      technicalNotes: it.technicalNotes,
+      batches: it.batches.map(b => ({ batchNumber: b.batchNumber, expiryDate: b.expiryDate, quantity: b.quantity })),
+    }));
+  }
+
+  window.saveTemplate = async function() {
+    const name = document.getElementById('distName').value.trim();
+    if (!name) { toast(t('admin.dist.err_list'), 'error'); return; }
+    const items = collectTemplateItems();
+    if (!items.length) { toast(t('admin.dist.err_items'), 'error'); return; }
+
+    const payload = {
+      name,
+      description: document.getElementById('distDesc').value.trim() || null,
+      isActive: document.getElementById('distActive').value !== 'false',
+      items,
+    };
+
+    try {
+      if (_editTemplateId) {
+        await api.updateDistributionTemplate(_editTemplateId, payload);
+        toast(t('admin.dist.toast.updated'), 'success');
+      } else {
+        await api.createDistributionTemplate(payload);
+        toast(t('admin.dist.toast.created'), 'success');
+      }
+      closeTemplateModal();
+      await refreshDistTemplates();
+    } catch (err) {
+      toast(err.message || 'Save failed', 'error');
+    }
+  };
+
+  window.deleteDistributionTemplate = async function(id) {
+    if (!confirm(t('admin.dist.remove_confirm'))) return;
+    try {
+      await api.deleteDistributionTemplate(id);
+      toast(t('admin.dist.toast.deleted'), 'success');
+      await refreshDistTemplates();
+    } catch (err) {
+      toast(err.message || 'Delete failed', 'error');
+    }
+  };
+
+  window.openApplyModal = function(id) {
+    _applyTemplateId = id;
+    const tpl = _distTemplates.find(t => t.id === id);
+    if (!tpl) return;
+    const items = tpl.items || [];
+    const units = items.reduce((s, it) => s + (it.batches || []).reduce((x, b) => x + (b.quantity || 0), 0), 0);
+    document.getElementById('applyListName').textContent = tpl.name;
+    document.getElementById('applyListMeta').textContent = `${items.length} item${items.length === 1 ? '' : 's'} · ${units} unit${units === 1 ? '' : 's'}`;
+    document.getElementById('distResult').style.display = 'none';
+    const btn = document.getElementById('confirmApplyBtn');
+    btn.disabled = false;
+    btn.textContent = t('admin.dist.apply_btn');
+    renderApplyStations();
+    document.getElementById('applyModal').classList.add('open');
+  };
+  window.closeApplyModal = function() { document.getElementById('applyModal').classList.remove('open'); _applyTemplateId = null; };
+
+  window.renderApplyStations = function() {
+    const search = (document.getElementById('applyStationSearch')?.value || '').toLowerCase();
+    const el = document.getElementById('applyStationList');
+    const filtered = _stations.filter(s => !search || s.code.toLowerCase().includes(search) || s.name.toLowerCase().includes(search));
+    el.innerHTML = `<label style="display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--border);cursor:pointer;font-weight:600;">
+      <input type="checkbox" id="applyAllCheck" onchange="document.querySelectorAll('.apply-station-cb').forEach(c=>c.checked=this.checked)" style="width:16px;height:16px;">
+      <span>${t('admin.dist.apply_all')}</span>
+    </label>` +
+    filtered.map(s => `<label style="display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--border2);cursor:pointer;">
+      <input type="checkbox" class="apply-station-cb" value="${esc(s.id)}" style="width:16px;height:16px;">
+      <code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:1px 7px;border-radius:4px;font-size:.75rem;">${esc(unitLabel(s.code))}</code>
+    </label>`).join('');
+  };
+
+  window.confirmApply = async function() {
+    const ids = [...document.querySelectorAll('.apply-station-cb:checked')].map(c => c.value);
+    if (!ids.length) { toast(t('admin.dist.select_one'), 'error'); return; }
+    const tpl = _distTemplates.find(t => t.id === _applyTemplateId);
+    if (!tpl) return;
+    if (!confirm(t('admin.dist.apply_confirm', { n: ids.length, plur: ids.length === 1 ? '' : 's' }))) return;
+    const btn = document.getElementById('confirmApplyBtn');
+    btn.disabled = true;
+    btn.textContent = 'Applying…';
+    try {
+      const result = await api.applyDistribution({ templateId: _applyTemplateId, stationIds: ids });
+      const ap = result?.applied || [];
+      const sk = result?.skipped || [];
+      const units = result?.totals?.units ?? 0;
+      const stations = result?.totals?.stations ?? 0;
+      const resEl = document.getElementById('distResult');
+      let resText = t('admin.dist.applied_done', {
+        n: ap.length, plur: ap.length === 1 ? '' : 's',
+        stations, stationsPlur: stations === 1 ? '' : 's', units,
+      });
+      // Per-vehicle breakdown, so the admin can see exactly which cars were filled.
+      const byStation = new Map();
+      ap.forEach(a => {
+        const key = unitLabel(a.stationCode, a.stationName);
+        if (!byStation.has(key)) byStation.set(key, []);
+        byStation.get(key).push(a);
+      });
+      resText += '\n' + [...byStation.entries()].map(([k, list]) =>
+        `${k}: ${list.map(a => `${a.vehicleNumber} (${a.unitsAdded})`).join(', ')}`).join('\n');
+      if (sk.length) {
+        resText += `\n${t('admin.dist.skipped')}: ` + sk
+          .map(s => `${s.vehicleNumber || s.stationCode || s.stationId} — ${s.reason}`)
+          .join('; ');
+      }
+      resEl.textContent = resText;
+      resEl.style.display = 'block';
+      btn.textContent = t('admin.dist.apply_btn');
+      await Promise.all([refreshDistTemplates(), refreshDistHistory()]);
+    } catch (err) {
+      toast(err.message || 'Apply failed', 'error');
+      btn.disabled = false;
+      btn.textContent = t('admin.dist.apply_btn');
+    }
+  };
+
+  document.getElementById('templateModal')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeTemplateModal(); });
+  document.getElementById('applyModal')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeApplyModal(); });
+  document.getElementById('itemFormModal')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeItemForm(); });
 
   // Nav
   window.navTo = function(page) {
@@ -1506,6 +2138,7 @@ window.exportUsersCSV = function() {
     if (page==='equipment') renderEquipment();
     if (page==='logs')      { renderFbLogs(); renderLogs('logsList'); }
     if (page==='stations')  renderStations();
+    if (page==='distributions') { refreshDistTemplates(); refreshDistHistory(); }
     document.getElementById('sidebar').classList.remove('open');
   };
 

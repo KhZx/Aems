@@ -43,14 +43,17 @@ const USER_SELECT = {
   stationId: true,
   station: { select: { id: true, code: true, name: true, location: true } },
   managedStations: { select: { station: { select: { id: true, code: true, name: true } } } },
+  dutyRoster: { select: { stationId: true } },
 } satisfies Prisma.UserSelect;
 
 /** Raw shape straight out of Prisma (managedStations nested under station). */
 type RawUser = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
 
-export type PublicUser = Omit<RawUser, 'station' | 'managedStations'> & {
+export type PublicUser = Omit<RawUser, 'station' | 'managedStations' | 'dutyRoster'> & {
   station: { id: string; code: string; name: string; location: string | null } | null;
   managedStations: { id: string; code: string; name: string }[];
+  /** Roster allow-list: ids of the units this user may hold as duty unit. */
+  dutyUnitIds: string[];
 };
 
 function publicUser(user: RawUser): PublicUser {
@@ -58,6 +61,7 @@ function publicUser(user: RawUser): PublicUser {
     ...user,
     station: user.station ?? null,
     managedStations: user.managedStations.map((m) => m.station),
+    dutyUnitIds: user.dutyRoster.map((r) => r.stationId),
   };
 }
 
@@ -225,6 +229,17 @@ export async function approveUser(
       await tx.managedStation.createMany({ data: managed, skipDuplicates: true });
     }
 
+    // Crew get a roster allow-list (their assigned unit to start) and begin
+    // on it; supervisors/admins have global scope and no duty unit.
+    const isCrewRole = input.role !== 'ADMIN' && input.role !== 'SUPERVISOR';
+    await tx.dutyRoster.deleteMany({ where: { userId: target.id } });
+    if (isCrewRole && stationId) {
+      await tx.dutyRoster.createMany({
+        data: [{ userId: target.id, stationId, createdBy: actorId }],
+        skipDuplicates: true,
+      });
+    }
+
     return tx.user.update({
       where: { id: target.id },
       data: {
@@ -333,13 +348,45 @@ export async function changeRole(
   }
 
   const before = { role: target.role, stationId: target.stationId };
+  // No stationCode in the payload → the unit stays where it is (role edits
+  // must not silently clear someone's station).
+  const effectiveStationId = input.stationCode ? stationId : target.stationId;
+  const stationChanged = effectiveStationId !== before.stationId;
+  const isCrewRole = input.role !== 'ADMIN' && input.role !== 'SUPERVISOR';
 
   const user = await prisma.$transaction(async (tx) => {
     await tx.managedStation.deleteMany({ where: { userId: target.id } });
     if (managed.length) await tx.managedStation.createMany({ data: managed, skipDuplicates: true });
+
+    if (!isCrewRole) {
+      // Staff hold no duty roster.
+      await tx.dutyRoster.deleteMany({ where: { userId: target.id } });
+    } else if (stationChanged) {
+      // Unit moved: the roster restarts from the new unit; admin can widen it later.
+      await tx.dutyRoster.deleteMany({ where: { userId: target.id } });
+      if (effectiveStationId) {
+        await tx.dutyRoster.createMany({
+          data: [{ userId: target.id, stationId: effectiveStationId, createdBy: actorId }],
+          skipDuplicates: true,
+        });
+      }
+    } else if (
+      effectiveStationId &&
+      (await tx.dutyRoster.count({ where: { userId: target.id } })) === 0
+    ) {
+      await tx.dutyRoster.createMany({
+        data: [{ userId: target.id, stationId: effectiveStationId, createdBy: actorId }],
+        skipDuplicates: true,
+      });
+    }
+
     return tx.user.update({
       where: { id: target.id },
-      data: { role: input.role, stationId, status: target.status === 'PENDING' ? 'ACTIVE' : target.status },
+      data: {
+        role: input.role,
+        stationId: effectiveStationId,
+        status: target.status === 'PENDING' ? 'ACTIVE' : target.status,
+      },
       select: USER_SELECT,
     });
   });
@@ -349,13 +396,13 @@ export async function changeRole(
     action: 'CHANGE_ROLE',
     entityType: 'User',
     entityId: target.id,
-    stationId: stationId ?? undefined,
+    stationId: effectiveStationId ?? undefined,
     metadata: {
       targetUserId: target.id,
       fromRole: before.role,
       toRole: input.role,
       fromStationId: before.stationId,
-      toStationId: stationId,
+      toStationId: effectiveStationId,
     },
     ...meta,
   });
@@ -388,11 +435,14 @@ export async function deleteUser(actorId: string, targetId: string, meta: AuditE
 }
 
 /**
- * Replaces the supervisor's own managed-station list (self-service from the
- * supervisor dashboard). Only called for SUPERVISORS (enforced in the
- * controller). Throws if any code is unknown or the station is inactive.
+ * Replaces a user's managed-station list. Administrator-only (enforced by the
+ * `station:assign` permission in the route). Throws if any code is unknown or
+ * the station is inactive.
  */
-export async function setMyManagedStations(actorId: string, codes: string[]): Promise<{ id: string; code: string; name: string }[]> {
+export async function setManagedStationsForUser(
+  userId: string,
+  codes: string[],
+): Promise<{ id: string; code: string; name: string }[]> {
   const unique = [...new Set(codes.map((c) => c.trim()).filter(Boolean))];
   if (unique.length > 50) throw AppError.badRequest('Too many stations (max 50)');
 
@@ -404,17 +454,88 @@ export async function setMyManagedStations(actorId: string, codes: string[]): Pr
     const known = new Set(found.map((s) => s.code));
     throw AppError.badRequest(`Unknown station code(s): ${unique.filter((c) => !known.has(c)).join(', ')}`);
   }
-  if (!found.length) return [];
 
-  await prisma.$transaction([
-    prisma.managedStation.deleteMany({ where: { userId: actorId } }),
-    prisma.managedStation.createMany({
-      data: found.map((s) => ({ userId: actorId, stationId: s.id })),
+  await prisma.managedStation.deleteMany({ where: { userId } });
+  if (found.length) {
+    await prisma.managedStation.createMany({
+      data: found.map((s) => ({ userId, stationId: s.id })),
       skipDuplicates: true,
-    }),
-  ]);
+    });
+  }
 
   return found;
+}
+
+/**
+ * Admin-only: replaces a user's roster allow-list (the units they may hold
+ * as duty unit). If their active unit drops off the list, they are moved to
+ * the first remaining unit (or cleared). Fully audited.
+ */
+export async function setUserUnits(
+  actorId: string,
+  targetId: string,
+  stationIds: string[],
+  meta: AuditEntryInput = {},
+): Promise<{ id: string; code: string; name: string; status: string }[]> {
+  const unique = [...new Set(stationIds.map((id) => id.trim()).filter(Boolean))];
+  if (!unique.length) throw AppError.badRequest('At least one unit is required');
+  if (unique.length > 50) throw AppError.badRequest('Too many units (max 50)');
+
+  const target = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { id: true, email: true, role: true, stationId: true, station: { select: { code: true } } },
+  });
+  if (!target) throw AppError.notFound('User not found');
+  if (target.role === 'ADMIN' || target.role === 'SUPERVISOR') {
+    throw AppError.badRequest('Staff accounts do not hold duty units');
+  }
+
+  const stations = await prisma.station.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, code: true, name: true, status: true },
+  });
+  if (stations.length !== unique.length) {
+    const known = new Set(stations.map((s) => s.id));
+    throw AppError.badRequest(`Unknown unit(s): ${unique.filter((id) => !known.has(id)).join(', ')}`);
+  }
+
+  // If their current unit drops off the roster, move them to the first unit on it.
+  const currentStillOn = target.stationId != null && stations.some((s) => s.id === target.stationId);
+  const nextActive = currentStillOn
+    ? target.stationId
+    : (stations.find((s) => s.status === 'ACTIVE')?.id ?? stations[0].id);
+
+  const previous = await prisma.dutyRoster.count({ where: { userId: targetId } });
+
+  await prisma.$transaction([
+    prisma.dutyRoster.deleteMany({ where: { userId: targetId } }),
+    prisma.dutyRoster.createMany({
+      data: stations.map((s) => ({ userId: targetId, stationId: s.id, createdBy: actorId })),
+      skipDuplicates: true,
+    }),
+    prisma.user.update({ where: { id: targetId }, data: { stationId: nextActive } }),
+  ]);
+
+  await createAudit(prisma, {
+    userId: actorId,
+    action: 'UPDATE_USER_UNITS',
+    entityType: 'User',
+    entityId: targetId,
+    metadata: {
+      targetUserId: targetId,
+      targetEmail: target.email,
+      units: stations.map((s) => s.code).sort(),
+      unitCount: stations.length,
+      previousCount: previous,
+      moved: !currentStillOn,
+      fromStation: currentStillOn ? null : (target.station?.code ?? null),
+      toStation:
+        stations.find((s) => s.id === nextActive)?.code ?? null,
+    },
+    ...meta,
+  });
+
+  return stations.sort((a, b) => a.code.localeCompare(b.code));
 }
 
 /** Records a login event (invoked after successful Firebase sign-in). */

@@ -6,6 +6,7 @@ import { canAccessAmbulance } from '../middleware/authorize.js';
 export interface ScopeUser {
   id: string;
   role: Role;
+  /** Active duty unit for crew; staff roles see null and use managed/home scope. */
   stationId: string | null;
 }
 
@@ -26,10 +27,8 @@ export async function requireAmbulanceAccess(
 ): Promise<Ambulance> {
   const ambulance = await prisma.ambulance.findUnique({ where: { id: ambulanceId } });
   if (!ambulance) throw AppError.notFound('Ambulance not found');
-  if (!canAccessAmbulance(user, ambulance, managedIds)) {
-    throw AppError.forbidden('You do not have access to this ambulance');
-  }
-  return ambulance;
+  if (canAccessAmbulance(user, ambulance, managedIds)) return ambulance;
+  throw AppError.forbidden('You do not have access to this ambulance');
 }
 
 /** Verifies the user may read/write inventory within a station. */

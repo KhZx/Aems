@@ -61,7 +61,7 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
     ambulanceB = ambB.id;
 
     const med = await prisma.medicine.create({
-      data: { name: 'Test Med', category: 'MEDICATION', minimumStock: 5, maximumStock: 100 },
+      data: { name: 'Test Med', category: 'MEDICATION' },
     });
     medicineId = med.id;
 
@@ -311,8 +311,6 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
         notes: 'Handle gently',
         technicalNotes: 'Keep dry',
         barcode: '520-9001',
-        minimumStock: 4,
-        maximumStock: 12,
       })
       .expect(201);
     expect(med.body.data.location).toBe('Upper cabinet');
@@ -337,4 +335,444 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
     const row = await prisma.inventory.findUniqueOrThrow({ where: { ambulanceId_batchId: { ambulanceId: ambulanceA, batchId } } });
     return row.id;
   }
+
+  // ─────────────────────────────────────────────────────────────
+  //  Security boundaries — the "rogue crew member" scenarios.
+  // ─────────────────────────────────────────────────────────────
+  describe('cross-unit and privilege boundaries', () => {
+    let stationB: string;
+    let ambulanceBUnit: string;
+    let paramedicToken: string;
+    let otherMedicToken: string;
+    let supervisorToken: string;
+
+    beforeAll(async () => {
+      // A second unit the field crew has no access to.
+      const b = await prisma.station.create({ data: { code: '200', name: 'Other Unit' } });
+      stationB = b.id;
+      const amb = await prisma.ambulance.create({ data: { stationId: b.id, vehicleNumber: 'TST-AMB-200' } });
+      ambulanceBUnit = amb.id;
+      const otherBatch = await prisma.medicineBatch.create({
+        data: { medicineId, batchNumber: 'TB-200', expiryDate: new Date('2027-01-01') },
+      });
+      await prisma.inventory.create({ data: { ambulanceId: amb.id, batchId: otherBatch.id, quantity: 5 } });
+
+      await prisma.user.create({
+        data: { firebaseUid: 'uid-emt', email: 'emt@test.dev', displayName: 'EMT', role: 'EMT', status: 'ACTIVE', stationId },
+      });
+      await prisma.user.create({
+        data: { firebaseUid: 'uid-emt-b', email: 'emtb@test.dev', displayName: 'EMT B', role: 'EMT', status: 'ACTIVE', stationId: b.id },
+      });
+      // Supervises unit 100 only.
+      await prisma.user.create({
+        data: {
+          firebaseUid: 'uid-sup', email: 'sup@test.dev', displayName: 'Sup', role: 'SUPERVISOR', status: 'ACTIVE',
+          managedStations: { create: [{ stationId }] },
+        },
+      });
+
+      paramedicToken = 'token-paramedic';
+      otherMedicToken = 'token-emt-b';
+      supervisorToken = 'token-sup';
+      mockTokens.addToken('token-emt', 'uid-emt', 'emt@test.dev');
+      mockTokens.addToken(otherMedicToken, 'uid-emt-b', 'emtb@test.dev');
+      mockTokens.addToken(supervisorToken, 'uid-sup', 'sup@test.dev');
+    });
+
+    it('blocks a crew member from deleting a medicine from the whole fleet', async () => {
+      await request(app).delete(`/api/medicines/${medicineId}`).set(auth('token-emt')).expect(403);
+
+      // Untouched: the medicine and its stock on both cars survive.
+      const med = await prisma.medicine.findUniqueOrThrow({ where: { id: medicineId } });
+      expect(med.deletedAt).toBeNull();
+      const stock = await prisma.inventory.count({ where: { batchId, deletedAt: null } });
+      expect(stock).toBe(2);
+    });
+
+    it('refuses a fleet-wide medicine delete unless it is confirmed, then allows a supervisor', async () => {
+      const med = await prisma.medicine.findUniqueOrThrow({ where: { id: medicineId } });
+
+      const refused = await request(app)
+        .delete(`/api/medicines/${med.id}`)
+        .set(auth(supervisorToken))
+        .send({ force: false })
+        .expect(409);
+      expect(refused.body.error.message).toMatch(/ambulance/i);
+
+      await request(app)
+        .delete(`/api/medicines/${med.id}`)
+        .set(auth(supervisorToken))
+        .send({ force: true })
+        .expect(200);
+
+      const after = await prisma.medicine.findUniqueOrThrow({ where: { id: med.id } });
+      expect(after.deletedAt).not.toBeNull();
+      expect(await prisma.inventory.count({ where: { batchId, deletedAt: null } })).toBe(0);
+
+      // Put it back for the remaining tests (the delete cascaded to batches and stock).
+      await prisma.medicine.update({ where: { id: med.id }, data: { deletedAt: null, barcode: null } });
+      await prisma.medicineBatch.updateMany({ where: { medicineId: med.id }, data: { deletedAt: null } });
+      await prisma.inventory.updateMany({ where: { batch: { medicineId: med.id } }, data: { deletedAt: null } });
+    });
+
+    it('blocks a crew member from reaching another unit’s records', async () => {
+      // Shift note on unit 200 — the EMT of unit 100 must not touch it.
+      const noteB = await prisma.shiftNote.create({
+        data: { stationId: stationB, title: 'Unit 200 note', content: 'not yours', createdById: null },
+      });
+
+      await request(app).delete(`/api/shift-notes/${noteB.id}`).set(auth('token-emt')).expect(403);
+      expect((await prisma.shiftNote.findUniqueOrThrow({ where: { id: noteB.id } })).deletedAt).toBeNull();
+
+      // Same for that unit's stock and vehicle.
+      const invB = await prisma.inventory.findFirstOrThrow({ where: { ambulanceId: ambulanceBUnit, deletedAt: null } });
+      await request(app).delete(`/api/inventory/${invB.id}`).set(auth('token-emt')).expect(403);
+      expect((await prisma.inventory.findUniqueOrThrow({ where: { id: invB.id } })).deletedAt).toBeNull();
+
+      await request(app).patch(`/api/ambulances/${ambulanceBUnit}`).set(auth('token-emt')).send({ status: 'MAINTENANCE' }).expect(403);
+    });
+
+    it('stops a supervisor from reaching units they do not manage', async () => {
+      // Supervisors are read-only on vehicles and only see their own units.
+      await request(app).patch(`/api/ambulances/${ambulanceBUnit}`).set(auth(supervisorToken)).send({ status: 'MAINTENANCE' }).expect(403);
+      await request(app).delete(`/api/ambulances/${ambulanceBUnit}`).set(auth(supervisorToken)).expect(403);
+      await request(app).get(`/api/ambulances/${ambulanceBUnit}`).set(auth(supervisorToken)).expect(403);
+
+      await request(app).get(`/api/ambulances/${ambulanceA}`).set(auth(supervisorToken)).expect(200);
+      await request(app).get('/api/ambulances').set(auth(supervisorToken)).expect(200);
+
+      const listed = await request(app).get('/api/ambulances').set(auth(supervisorToken)).expect(200);
+      expect(listed.body.data.every((a: { stationId: string }) => a.stationId === stationId)).toBe(true);
+
+      // Admin-driven changes still work.
+      await request(app).patch(`/api/ambulances/${ambulanceBUnit}`).set(auth(adminToken)).send({ status: 'MAINTENANCE' }).expect(200);
+      await request(app).patch(`/api/ambulances/${ambulanceBUnit}`).set(auth(adminToken)).send({ status: 'ACTIVE' }).expect(200);
+    });
+
+    it('only lets an administrator assign units to a supervisor', async () => {
+      const sup = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-sup' } });
+
+      // The supervisor's old self-service route is gone entirely.
+      await request(app)
+        .put('/api/auth/me/managed-stations')
+        .set(auth(supervisorToken))
+        .send({ stationCodes: ['100', '200'] })
+        .expect(404);
+
+      // …and the admin route is closed to everyone else.
+      await request(app)
+        .put(`/api/users/${sup.id}/managed-stations`)
+        .set(auth(supervisorToken))
+        .send({ stationCodes: ['100', '200'] })
+        .expect(403);
+      await request(app)
+        .put(`/api/users/${sup.id}/managed-stations`)
+        .set(auth('token-emt'))
+        .send({ stationCodes: ['100'] })
+        .expect(403);
+
+      let row = await prisma.user.findUniqueOrThrow({ where: { id: sup.id }, include: { managedStations: true } });
+      expect(row.managedStations.map((m) => m.stationId)).toEqual([stationId]);
+
+      // An administrator can widen it.
+      await request(app)
+        .put(`/api/users/${sup.id}/managed-stations`)
+        .set(auth(adminToken))
+        .send({ stationCodes: ['100', '200'] })
+        .expect(200);
+
+      row = await prisma.user.findUniqueOrThrow({ where: { id: sup.id }, include: { managedStations: true } });
+      expect(row.managedStations.map((m) => m.stationId).sort()).toEqual([stationId, stationB].sort());
+
+      // Put it back.
+      await request(app)
+        .put(`/api/users/${sup.id}/managed-stations`)
+        .set(auth(adminToken))
+        .send({ stationCodes: ['100'] })
+        .expect(200);
+    });
+
+    it('soft-deletes a shift note: author within 12h, supervisor for the rest', async () => {
+      const emt = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-emt' } });
+
+      const mine = await prisma.shiftNote.create({
+        data: { stationId, title: 'Mine', content: 'typo', createdById: emt.id },
+      });
+      const res = await request(app)
+        .delete(`/api/shift-notes/${mine.id}`)
+        .set(auth('token-emt'))
+        .send({ reason: 'posted in the wrong place' })
+        .expect(200);
+
+      // The row survives — nothing is destroyed.
+      const row = await prisma.shiftNote.findUniqueOrThrow({ where: { id: mine.id } });
+      expect(row.deletedAt).not.toBeNull();
+      expect(row.deleteReason).toBe('posted in the wrong place');
+      expect(res.body.data.id).toBe(mine.id);
+
+      // Gone from the normal list, visible to a supervisor who opts in.
+      const list = await request(app).get(`/api/shift-notes?stationId=${stationId}`).set(auth('token-emt')).expect(200);
+      expect(list.body.data.notes.find((n: { id: string }) => n.id === mine.id)).toBeUndefined();
+      const supList = await request(app)
+        .get(`/api/shift-notes?stationId=${stationId}&includeDeleted=true`)
+        .set(auth(supervisorToken))
+        .expect(200);
+      expect(supList.body.data.notes.find((n: { id: string }) => n.id === mine.id)).toBeTruthy();
+
+      // Someone else's note is off limits to a crew member…
+      const other = await prisma.shiftNote.create({
+        data: { stationId, title: 'Theirs', content: 'not yours', createdById: null },
+      });
+      await request(app).delete(`/api/shift-notes/${other.id}`).set(auth('token-emt')).expect(403);
+      expect((await prisma.shiftNote.findUniqueOrThrow({ where: { id: other.id } })).deletedAt).toBeNull();
+
+      // …and an author's note older than the window needs a supervisor.
+      const stale = await prisma.shiftNote.create({
+        data: { stationId, title: 'Stale', content: 'yesterday', createdById: emt.id, createdAt: new Date(Date.now() - 20 * 3600_000) },
+      });
+      await request(app).delete(`/api/shift-notes/${stale.id}`).set(auth('token-emt')).expect(403);
+      await request(app).delete(`/api/shift-notes/${stale.id}`).set(auth(supervisorToken)).expect(200);
+
+      // Only a supervisor can undo it.
+      await request(app).post(`/api/shift-notes/${mine.id}/restore`).set(auth('token-emt')).expect(403);
+      await request(app).post(`/api/shift-notes/${mine.id}/restore`).set(auth(supervisorToken)).expect(200);
+      expect((await prisma.shiftNote.findUniqueOrThrow({ where: { id: mine.id } })).deletedAt).toBeNull();
+    });
+
+    it('stops a crew member cancelling someone else’s supply request', async () => {
+      const creator = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-emt' } });
+      const req = await prisma.supplyRequest.create({
+        data: { ambulanceId: ambulanceA, medicineId, quantity: 2, createdById: creator.id },
+      });
+
+      await request(app).post(`/api/supply-requests/${req.id}/cancel`).set(auth(paramedicToken)).expect(403);
+      expect((await prisma.supplyRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe('PENDING');
+
+      // The requester can cancel their own.
+      await request(app).post(`/api/supply-requests/${req.id}/cancel`).set(auth('token-emt')).expect(200);
+      expect((await prisma.supplyRequest.findUniqueOrThrow({ where: { id: req.id } })).status).toBe('CANCELLED');
+    });
+
+    it('writes an audit entry when access is denied', async () => {
+      const before = await prisma.auditLog.count({ where: { action: 'SECURITY_SCOPE_DENIED' } });
+      await request(app).delete(`/api/medicines/${medicineId}`).set(auth('token-emt')).expect(403);
+      const after = await prisma.auditLog.count({ where: { action: 'SECURITY_SCOPE_DENIED' } });
+      expect(after).toBeGreaterThan(before);
+
+      const entry = await prisma.auditLog.findFirstOrThrow({
+        where: { action: 'SECURITY_SCOPE_DENIED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      const meta = entry.metadata as { method: string; path: string };
+      expect(meta.method).toBe('DELETE');
+      expect(meta.path).toContain('/medicines/');
+    });
+
+    // ───────────────────────────────────────────────────────────
+    //  Admin bulk stocking: one list → every car in the unit.
+    // ───────────────────────────────────────────────────────────
+    it('stocks every active vehicle in the selected units, and can be reused', async () => {
+      // Unit 100 already has two cars (A, B); give unit 200 a third car on standby.
+      const standby = await prisma.ambulance.create({
+        data: { stationId: stationB, vehicleNumber: 'TST-AMB-200-STANDBY', status: 'MAINTENANCE' },
+      });
+      await prisma.ambulance.update({ where: { id: ambulanceBUnit }, data: { status: 'ACTIVE' } });
+
+      const created = await request(app)
+        .post('/api/distributions/templates')
+        .set(auth(adminToken))
+        .send({
+          name: 'Standard Load-out',
+          items: [
+            {
+              name: 'Fleet Gloves',
+              category: 'CAR_CONTENTS',
+              batches: [{ batchNumber: 'LOT-FLEET-1', expiryDate: '2028-01-31', quantity: 4 }],
+            },
+          ],
+        })
+        .expect(201);
+      const templateId = created.body.data.id;
+
+      const run = async () =>
+        request(app)
+          .post('/api/distributions/apply')
+          .set(auth(adminToken))
+          .send({ templateId, stationIds: [stationId, stationB] })
+          .expect(200);
+
+      const first = await run();
+      const totals = first.body.data.totals;
+      // Three active cars across the two units; the standby car is reported, not stocked.
+      expect(totals.ambulances).toBe(3);
+      expect(totals.stations).toBe(2);
+      expect(totals.units).toBe(12);
+      expect(first.body.data.applied.every((a: { unitsAdded: number }) => a.unitsAdded === 4)).toBe(true);
+      expect(
+        first.body.data.skipped.some((s: { vehicleNumber: string; reason: string }) =>
+          s.vehicleNumber === 'TST-AMB-200-STANDBY' && /maintenance/i.test(s.reason)),
+      ).toBe(true);
+
+      const gloves = await prisma.medicine.findFirstOrThrow({ where: { name: 'Fleet Gloves' } });
+      const stocked = await prisma.inventory.findMany({
+        where: { batch: { medicineId: gloves.id }, deletedAt: null },
+        include: { ambulance: true },
+      });
+      expect(stocked).toHaveLength(3);
+      expect(stocked.every((s) => s.quantity === 4)).toBe(true);
+      expect(stocked.some((s) => s.ambulanceId === standby.id)).toBe(false);
+
+      // Reusable: applying again tops every car up instead of failing.
+      const second = await run();
+      expect(second.body.data.totals.ambulances).toBe(3);
+      const topped = await prisma.inventory.findMany({
+        where: { batch: { medicineId: gloves.id }, deletedAt: null },
+      });
+      expect(topped.every((s) => s.quantity === 8)).toBe(true);
+      expect((await prisma.distributionTemplate.findUniqueOrThrow({ where: { id: templateId } })).isActive).toBe(true);
+    });
+
+    it('keeps fleet stocking out of reach of crew', async () => {
+      const template = await prisma.distributionTemplate.findFirstOrThrow({ where: { name: 'Standard Load-out' } });
+      await request(app).post('/api/distributions/apply').set(auth('token-emt')).send({ templateId: template.id, stationIds: [stationId] }).expect(403);
+      await request(app).post('/api/distributions/apply').set(auth(supervisorToken)).send({ templateId: template.id, stationIds: [stationId] }).expect(403);
+      await request(app).get('/api/distributions/templates').set(auth('token-emt')).expect(403);
+    });
+  });
+
+  describe('duty unit switching', () => {
+    let unitA: string; // roster: yes
+    let unitB: string; // roster: yes
+    let unitC: string; // roster: no
+    let crewId: string;
+
+    beforeAll(async () => {
+      const a = await prisma.station.create({ data: { code: '300', name: 'Unit 300' } });
+      const b = await prisma.station.create({ data: { code: '301', name: 'Unit 301' } });
+      const c = await prisma.station.create({ data: { code: '302', name: 'Unit 302' } });
+      unitA = a.id;
+      unitB = b.id;
+      unitC = c.id;
+
+      const crew = await prisma.user.create({
+        data: {
+          firebaseUid: 'uid-duty',
+          email: 'duty@test.dev',
+          displayName: 'Duty Crew',
+          role: 'PARAMEDIC',
+          status: 'ACTIVE',
+          stationId: unitA,
+          dutyRoster: { create: [{ stationId: unitA }, { stationId: unitB }] },
+        },
+      });
+      crewId = crew.id;
+      mockTokens.addToken('token-duty', 'uid-duty', 'duty@test.dev');
+    });
+
+    it('returns the active unit and the roster allow-list', async () => {
+      const duty = await request(app).get('/api/me/duty').set(auth('token-duty')).expect(200);
+      expect(duty.body.data.active.id).toBe(unitA);
+      expect(duty.body.data.units.map((u: { id: string }) => u.id).sort()).toEqual([unitA, unitB].sort());
+
+      const me = await request(app).get('/api/auth/me').set(auth('token-duty')).expect(200);
+      expect(me.body.data.dutyRoster.map((s: { id: string }) => s.id).sort()).toEqual([unitA, unitB].sort());
+      expect(me.body.data.accessibleStationIds).toEqual([unitA]);
+    });
+
+    it('rejects a switch with a missing or too-short reason (400)', async () => {
+      await request(app).post('/api/me/duty/switch').set(auth('token-duty')).send({ stationId: unitB }).expect(400);
+      await request(app).post('/api/me/duty/switch').set(auth('token-duty')).send({ stationId: unitB, reason: 'x' }).expect(400);
+    });
+
+    it('forbids switching to a unit outside the roster (403)', async () => {
+      const res = await request(app)
+        .post('/api/me/duty/switch')
+        .set(auth('token-duty'))
+        .send({ stationId: unitC, reason: 'off-roster attempt' })
+        .expect(403);
+      expect(res.body.error.message).toMatch(/roster/i);
+
+      const still = await prisma.user.findUniqueOrThrow({ where: { id: crewId } });
+      expect(still.stationId).toBe(unitA);
+    });
+
+    it('switches units with a reason and audits it (scope follows the unit)', async () => {
+      const res = await request(app)
+        .post('/api/me/duty/switch')
+        .set(auth('token-duty'))
+        .send({ stationId: unitB, reason: 'covering sick leave' })
+        .expect(200);
+      expect(res.body.data.active.id).toBe(unitB);
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { id: crewId } });
+      expect(user.stationId).toBe(unitB);
+
+      const log = await prisma.auditLog.findFirst({
+        where: { action: 'DUTY_SWITCH', userId: crewId },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(log).toBeTruthy();
+      const meta = log!.metadata as Record<string, unknown>;
+      expect(meta.reason).toBe('covering sick leave');
+      expect(meta.from).toBe('300');
+      expect(meta.to).toBe('301');
+
+      const me = await request(app).get('/api/auth/me').set(auth('token-duty')).expect(200);
+      expect(me.body.data.accessibleStationIds).toEqual([unitB]);
+    });
+
+    it('treats a same-unit switch as a no-op (no extra audit row)', async () => {
+      const before = await prisma.auditLog.count({ where: { action: 'DUTY_SWITCH', userId: crewId } });
+      await request(app)
+        .post('/api/me/duty/switch')
+        .set(auth('token-duty'))
+        .send({ stationId: unitB, reason: 'already here' })
+        .expect(200);
+      const after = await prisma.auditLog.count({ where: { action: 'DUTY_SWITCH', userId: crewId } });
+      expect(after).toBe(before);
+    });
+
+    it('lets admins replace a roster and moves a user whose unit dropped off', async () => {
+      const res = await request(app)
+        .put(`/api/users/${crewId}/units`)
+        .set(auth(adminToken))
+        .send({ stationIds: [unitC] })
+        .expect(200);
+      expect(res.body.data.units.map((u: { id: string }) => u.id)).toEqual([unitC]);
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { id: crewId } });
+      expect(user.stationId).toBe(unitC);
+
+      const roster = await prisma.dutyRoster.findMany({ where: { userId: crewId } });
+      expect(roster.map((r) => r.stationId)).toEqual([unitC]);
+
+      const log = await prisma.auditLog.findFirst({
+        where: { action: 'UPDATE_USER_UNITS', entityId: crewId },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(log).toBeTruthy();
+      expect((log!.metadata as Record<string, unknown>).moved).toBe(true);
+    });
+
+    it('refuses duty switches and roster edits for staff accounts', async () => {
+      await request(app)
+        .post('/api/me/duty/switch')
+        .set(auth(adminToken))
+        .send({ stationId: unitA, reason: 'nope' })
+        .expect(403);
+
+      const admin = await prisma.user.findFirstOrThrow({ where: { firebaseUid: 'uid-admin' } });
+      await request(app)
+        .put(`/api/users/${admin.id}/units`)
+        .set(auth(adminToken))
+        .send({ stationIds: [unitA] })
+        .expect(400);
+    });
+
+    it('seeds a roster on approval and exposes it in the session', async () => {
+      const me = await request(app).get('/api/auth/me').set(auth('token-pending')).expect(200);
+      expect(me.body.data.dutyRoster).toHaveLength(1);
+      expect(me.body.data.dutyRoster[0].code).toBe('100');
+    });
+  });
 });

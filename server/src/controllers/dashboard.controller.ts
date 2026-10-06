@@ -22,7 +22,6 @@ export const overview = asyncHandler(async (_req: Request, res: Response) => {
     totalUnits,
     expiredUnits,
     warningUnits,
-    lowStockUnits,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { status: 'PENDING' } }),
@@ -58,20 +57,6 @@ export const overview = asyncHandler(async (_req: Request, res: Response) => {
       },
       _sum: { quantity: true },
     }).then((r) => r._sum.quantity ?? 0),
-    prisma.$queryRaw<{ total: bigint }[]>`
-      SELECT COALESCE(SUM(i."quantity"), 0) AS total
-      FROM "Inventory" i
-      JOIN "MedicineBatch" b ON b."id" = i."batchId"
-      JOIN "Medicine" m ON m."id" = b."medicineId"
-      WHERE i."quantity" > 0
-        AND i."deletedAt" IS NULL
-        AND b."deletedAt" IS NULL
-        AND b."isActive" = true
-        AND m."deletedAt" IS NULL
-        AND m."isActive" = true
-        AND m."minimumStock" > 0
-        AND i."quantity" < m."minimumStock"
-    `.then(([r]) => Number(r?.total ?? 0)),
   ]);
 
   res.json({
@@ -86,7 +71,6 @@ export const overview = asyncHandler(async (_req: Request, res: Response) => {
         totalUnits,
         expiredUnits,
         warningUnits,
-        lowStockUnits,
       },
       recentLogs,
     },

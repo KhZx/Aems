@@ -8,6 +8,7 @@ export interface AuthedUser {
   displayName: string;
   role: Role;
   status: UserStatus;
+  /** Active duty unit (switchable by crew via /me/duty/switch; staff ignore). */
   stationId: string | null;
 }
 

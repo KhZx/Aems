@@ -47,7 +47,7 @@ export const setUserStatusSchema = z.object({
   status: z.enum(['SUSPENDED', 'DISABLED']),
 });
 
-export const updateMyManagedStationsSchema = z.object({
+export const setManagedStationsSchema = z.object({
   stationCodes: z.array(z.string().trim().max(20)).max(50),
 });
 

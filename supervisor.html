@@ -325,6 +325,47 @@
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* ── Duty board (crew by unit + recent switches) ──────────── */
+.duty-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
+.duty-unit-card {
+  background: rgba(255,255,255,.03);
+  border: 1px solid var(--border2, rgba(255,255,255,.08));
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.duty-unit-card.mine { border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.05); }
+.duty-unit-card.empty { opacity: .7; }
+.duty-unit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.duty-unit-label { font-family: var(--font-display); font-weight: 800; font-size: .92rem; }
+.duty-unit-count {
+  font-size: .64rem; font-weight: 800; padding: 2px 8px;
+  border-radius: 999px; background: rgba(255,255,255,.07); color: var(--text3);
+}
+.duty-unit-card.mine .duty-unit-count { background: rgba(16,185,129,.16); color: #6EE7B7; }
+.duty-crew-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 7px 0; border-top: 1px solid rgba(255,255,255,.06);
+}
+.duty-crew-name { font-size: .84rem; font-weight: 700; }
+.duty-crew-sub { font-size: .66rem; color: var(--text3); margin-top: 2px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.duty-crew-roster { font-size: .63rem; color: var(--text3); text-align: right; flex-shrink: 0; max-width: 48%; }
+.duty-empty { font-size: .78rem; color: var(--text3); padding: 4px 0 2px; }
+.duty-role-tag {
+  font-size: .58rem; font-weight: 800; letter-spacing: .05em;
+  padding: 1px 6px; border-radius: 4px; text-transform: uppercase;
+  background: rgba(192,132,252,.12); color: #C4B5FD;
+}
+.duty-available { margin-top: 4px; }
+.duty-available-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.06);
+}
+.duty-switch-row { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+.duty-switch-time { font-size: .68rem; color: var(--text3); white-space: nowrap; min-width: 118px; }
+.duty-switch-main { flex: 1; font-size: .82rem; }
+.duty-switch-arrow { color: #F59E0B; font-weight: 800; margin: 0 6px; }
+.duty-switch-reason { font-size: .7rem; color: var(--text3); margin-top: 2px; }
+
 </style>
 </head>
 <body>
@@ -335,11 +376,7 @@
 <aside class="sidebar">
   <div class="sidebar-header">
     <a href="/" style="display:flex;align-items:center;text-decoration:none;margin-bottom:9px;">
-      <svg viewBox="0 0 205 48" xmlns="http://www.w3.org/2000/svg" dir="ltr" style="height:32px;width:auto;direction:ltr;">
-        <polyline points="2,34 13,34 17,38 23,6 31,46 37,28 43,34 56,34" fill="none" stroke="#C8102E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-        <text x="198" y="32" font-family="'Cairo',sans-serif" font-size="27" font-weight="900" fill="#C8102E" text-anchor="end" direction="ltr">إسعاف</text>
-        <text x="62" y="46" font-family="'Barlow Condensed',sans-serif" font-size="17" font-weight="700" letter-spacing="1.2" fill="#4A9BDF" direction="ltr">Ambulance</text>
-      </svg>
+      <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" style="height:32px;width:auto;display:block" decoding="async">
     </a>
     <div class="sup-badge" data-i18n="sup.badge"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Supervisor</div>
   </div>
@@ -358,6 +395,7 @@
   <div class="nav-label" data-i18n="sup.nav.label.nav">Navigation</div>
   <button class="nav-item active" onclick="showPage('overview')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg></span> <span data-i18n="sup.nav.overview">Overview</span></button>
   <button class="nav-item" onclick="showPage('stations')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg></span> <span data-i18n="sup.nav.stations">Stations</span> <span class="nav-badge" id="alertNavBadge" style="display:none;">0</span></button>
+  <button class="nav-item" onclick="showPage('duty')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg></span> <span data-i18n="sup.nav.duty">Duty Board</span></button>
   <button class="nav-item" onclick="showPage('reports')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg></span> <span data-i18n="sup.nav.reports">Reports</span></button>
   <button class="nav-item" onclick="showPage('supply')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></span> <span data-i18n="sup.nav.supply">Supply Requests</span> <span class="nav-badge" id="supSupplyBadge" style="display:none;">0</span></button>
   <button class="nav-item" onclick="showPage('audit')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span> <span data-i18n="sup.nav.audit">Audit Log</span></button>
@@ -437,15 +475,6 @@
         <div class="section-head"><div class="section-title" data-i18n="sup.section.alerts"><svg class="ic" aria-hidden="true"><use href="#i-siren"/></svg> Urgent Alerts</div></div>
         <div class="section-body"><div id="overviewAlerts"></div></div>
       </div>
-
-      <!-- Low Stock Panel (shown only when there are low-stock items) -->
-      <div class="section" id="lowStockSection" style="display:none;">
-        <div class="section-head">
-          <div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-trending"/></svg> Low Stock Items</div>
-          <span id="lowStockCount" style="font-size:.75rem;color:var(--text3);"></span>
-        </div>
-        <div class="section-body" style="padding:0 1.25rem;"><div id="lowStockList"></div></div>
-      </div>
     </div>
 
     <!-- ══ STATIONS (expandable full detail) ═════════════ -->
@@ -456,7 +485,6 @@
           <option value="" data-i18n="sup.filter.all">All Stations</option>
           <option value="expired" data-i18n="sup.filter.expired">Has Expired Items</option>
           <option value="warning" data-i18n="sup.filter.warning">Has Expiry Warnings</option>
-          <option value="low" data-i18n="sup.filter.low">Has Low Stock</option>
           <option value="ok" data-i18n="sup.filter.ok">All Good</option>
         </select>
         <button class="big-btn ghost" onclick="showPage('reports')" data-i18n="sup.btn.generate"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg> Generate Report</button>
@@ -484,6 +512,36 @@
       <div id="reportActions" style="display:none;margin-bottom:1rem;">
         <button class="big-btn green-btn" onclick="exportReportCSV()" data-i18n="sup.btn.export_csv">⬇ Export CSV</button>
         <button class="big-btn ghost" onclick="window.print()" style="margin-left:8px;" data-i18n="sup.btn.print"><svg class="ic" aria-hidden="true"><use href="#i-print"/></svg> Print</button>
+      </div>
+    </div>
+
+    <!-- ══ DUTY BOARD ═════════════════════════════════════ -->
+    <div class="page" id="page-duty">
+      <div class="filter-row">
+        <input class="filter-input" id="dutySearch" data-i18n-placeholder="sup.duty.search_ph" placeholder="Search crew or unit..." style="max-width:260px;" oninput="renderDuty()">
+        <span class="pill" id="dutyManagedPill" style="display:none;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.32);color:#6EE7B7;padding:4px 10px;border-radius:999px;font-size:.72rem;font-weight:800;"></span>
+        <button class="btn-sm" onclick="refreshDutyBoard()" style="margin-left:auto;" data-i18n="sup.duty.refresh">Refresh</button>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-title" data-i18n="sup.duty.crew_title"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg> Crew by Unit</div>
+          <span id="dutyCrewCount" style="font-size:.76rem;color:var(--text3);"></span>
+        </div>
+        <div class="section-body">
+          <div class="duty-grid" id="dutyUnitGrid"></div>
+          <div id="dutyAvailableWrap" style="margin-top:14px;"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-title" data-i18n="sup.duty.switches"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Recent Unit Switches</div>
+          <span id="dutySwitchCount" style="font-size:.76rem;color:var(--text3);"></span>
+        </div>
+        <div class="section-body" style="padding:0 1.25rem;">
+          <div id="dutySwitchList"></div>
+        </div>
       </div>
     </div>
 
@@ -572,7 +630,7 @@
       <input type="text" id="editName" readonly style="opacity:.5;cursor:not-allowed;">
     </div>
     <div class="modal-field">
-      <label><span data-i18n="sup.tbl.qty">Qty</span> · <span data-i18n="sup.tbl.min">Min</span></label>
+      <label><span data-i18n="sup.tbl.qty">Qty</span><span data-i18n="sup.tbl.size" style="margin-left:6px;">Size</span></label>
       <div id="editQtyLine" class="rm-modal-stat" style="font-size:1.1rem;font-weight:800;"></div>
     </div>
     <div class="modal-field">

@@ -15,23 +15,45 @@ async function sessionPayload(userId: string) {
     accessibleStationIds = stations.map((s) => s.id);
   } else if (user.role === 'SUPERVISOR') {
     accessibleStationIds = user.managedStations.map((s) => s.id);
-  } else if (user.station) {
-    accessibleStationIds = [user.station.id];
+  } else {
+    // Crew: stationId IS their active duty unit.
+    accessibleStationIds = user.stationId ? [user.stationId] : [];
   }
 
-  const ambulances = await prisma.ambulance.findMany({
-      where:
-        user.role === 'ADMIN' || user.role === 'SUPERVISOR'
-          ? { stationId: { in: accessibleStationIds } }
-          : { stationId: user.stationId ?? '__none__' },
-      select: {
-        id: true,
-        vehicleNumber: true,
-        status: true,
-        station: { select: { id: true, code: true, name: true } },
-      },
-      orderBy: { vehicleNumber: 'asc' },
-    });
+  const isStaff = user.role === 'ADMIN' || user.role === 'SUPERVISOR';
+  const ambulances = isStaff
+    ? await prisma.ambulance.findMany({
+        where: { stationId: { in: accessibleStationIds } },
+        select: {
+          id: true,
+          vehicleNumber: true,
+          status: true,
+          station: { select: { id: true, code: true, name: true } },
+        },
+        orderBy: { vehicleNumber: 'asc' },
+      })
+    : // Crew: the cars of the unit they currently hold.
+      await prisma.ambulance.findMany({
+        where: { stationId: user.stationId ?? '__none__' },
+        select: {
+          id: true,
+          vehicleNumber: true,
+          status: true,
+          station: { select: { id: true, code: true, name: true } },
+        },
+        orderBy: { vehicleNumber: 'asc' },
+      });
+
+  // Crew roster: the units (stations) they may switch to. Staff get null.
+  const dutyRoster = isStaff
+    ? null
+    : (
+        await prisma.dutyRoster.findMany({
+          where: { userId: user.id },
+          orderBy: { station: { code: 'asc' } },
+          include: { station: { select: { id: true, code: true, name: true, status: true } } },
+        })
+      ).map((r) => r.station);
 
   return {
     user,
@@ -39,6 +61,7 @@ async function sessionPayload(userId: string) {
     managedStations,
     accessibleStationIds,
     ambulances,
+    dutyRoster,
   };
 }
 

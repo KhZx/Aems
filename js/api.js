@@ -95,9 +95,19 @@ export const api = {
   // ── Auth ────────────────────────────────────────────────
   login: (token) => request('/auth/login', { method: 'POST', body: {}, token }),
   me: () => request('/auth/me'),
-  setManagedStations: (stationCodes) => request('/auth/me/managed-stations', { method: 'PUT', body: { stationCodes } }),
+  // Administrator-only: assign which units a supervisor is responsible for.
+  setManagedStations: (userId, stationCodes) =>
+    request(`/users/${userId}/managed-stations`, { method: 'PUT', body: { stationCodes } }),
   register: (data, token) => request('/auth/register', { method: 'POST', body: data, token }),
   publicStations: () => request('/public/stations'),
+
+  // 🗺️ Duty unit (crew: current unit + roster allow-list)
+  dutyState: () => request('/me/duty'),
+  // Switching is unlimited; the reason is mandatory and lands in the audit trail.
+  switchDutyUnit: (data) => request('/me/duty/switch', { method: 'POST', body: data }),
+  // Administrator-only: replace a user's roster allow-list.
+  setUserUnits: (userId, stationIds) =>
+    request(`/users/${userId}/units`, { method: 'PUT', body: { stationIds } }),
 
   // ── Inventory ───────────────────────────────────────────
   inventory: (params) => request('/inventory' + qs(params)),
@@ -106,12 +116,14 @@ export const api = {
   adjust: (body) => request('/inventory/adjust', { method: 'POST', body }),
   updateItemNotes: (inventoryId, notes, reason) => request('/inventory/notes', { method: 'POST', body: { inventoryId, notes, reason } }),
   updateItemExpiry: (inventoryId, expiryDate) => request('/inventory/expiry', { method: 'POST', body: { inventoryId, expiryDate } }),
+  deleteStock: (inventoryId) => request('/inventory/' + inventoryId, { method: 'DELETE' }),
+  importInventory: (body) => request('/inventory/import', { method: 'POST', body }),
 
   // ── Medicines / Batches ─────────────────────────────────
   medicines: (params) => request('/medicines' + qs(params)),
   batches: (params) => request('/batches' + qs(params)),
   createMedicine: (body) => request('/medicines', { method: 'POST', body }),
-  deleteMedicine: (id) => request(`/medicines/${id}`, { method: 'DELETE' }),
+  deleteMedicine: (id, force) => request(`/medicines/${id}`, { method: 'DELETE', body: { force: !!force } }),
   createBatch: (body) => request('/batches', { method: 'POST', body }),
 
   // ── Inspections ─────────────────────────────────────────
@@ -122,7 +134,8 @@ export const api = {
   // ── Shift Notes ─────────────────────────────────────────
   shiftNotes: (params) => request('/shift-notes' + qs(params)),
   createShiftNote: (body) => request('/shift-notes', { method: 'POST', body }),
-  deleteShiftNote: (id) => request('/shift-notes/' + id, { method: 'DELETE' }),
+  deleteShiftNote: (id, reason) => request('/shift-notes/' + id, { method: 'DELETE', body: { reason } }),
+  restoreShiftNote: (id) => request('/shift-notes/' + id + '/restore', { method: 'POST' }),
 
   // ── Handovers ───────────────────────────────────────────
   handovers: (params) => request('/handovers' + qs(params)),
@@ -154,4 +167,12 @@ export const api = {
   stations: (params) => request('/stations' + qs(params)),
   createStation: (body) => request('/stations', { method: 'POST', body }),
   deleteStation: (id) => request(`/stations/${id}`, { method: 'DELETE' }),
+
+  // ── Admin: Distribution ─────────────────────────────────
+  distributionTemplates: () => request('/distributions/templates'),
+  createDistributionTemplate: (body) => request('/distributions/templates', { method: 'POST', body }),
+  updateDistributionTemplate: (id, body) => request(`/distributions/templates/${id}`, { method: 'PATCH', body }),
+  deleteDistributionTemplate: (id) => request(`/distributions/templates/${id}`, { method: 'DELETE' }),
+  applyDistribution: (body) => request('/distributions/apply', { method: 'POST', body }),
+  distributions: (params) => request('/distributions' + qs(params)),
 };

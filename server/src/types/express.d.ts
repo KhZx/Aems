@@ -1,19 +1,11 @@
-import type { Role, UserStatus } from '@prisma/client';
 import type { Permission } from '../utils/rbac.js';
+import type { AuthedUser } from './index.js';
 
 declare global {
   namespace Express {
     interface Request {
       /** The authenticated application user (loaded from PostgreSQL). */
-      authUser?: {
-        id: string;
-        firebaseUid: string;
-        email: string;
-        displayName: string;
-        role: Role;
-        status: UserStatus;
-        stationId: string | null;
-      };
+      authUser?: AuthedUser;
       /** Permissions granted to the authenticated user for this request. */
       permissions?: ReadonlySet<Permission>;
       /** Raw Firebase UID from the verified ID token. */

@@ -1,7 +1,7 @@
 // js/supervisor.js — Supervisor dashboard backed by the REST API (no Firebase RTDB).
 // Multi-station: shows ONLY the units assigned to the caller (ManagedStation).
 
-import { initI18n, setLanguage, getCurrentLang, t, onLanguageChanged } from './i18n.js';
+import { initI18n, setLanguage, getCurrentLang, t, onLanguageChanged, unitLabel } from './i18n.js';
 import { initAppSession, setSession, renewSession, roleRedirectPath, clearSession, signOutAll } from './auth.js';
 import { api } from './api.js';
 import { icon, mountSprite } from './icons.js';
@@ -81,6 +81,9 @@ const AUDIT_ACTION_KEYS = {
   REJECT_SUPPLY_REQUEST: 'sup.audit.action.supply_reject',
   FULFIL_SUPPLY_REQUEST: 'sup.audit.action.supply_fulfil',
   CANCEL_SUPPLY_REQUEST: 'sup.audit.action.supply_cancel',
+  DISTRIBUTE_STOCK: 'sup.audit.action.distribution',
+  DUTY_SWITCH: 'sup.audit.action.duty_switch',
+  UPDATE_USER_UNITS: 'sup.audit.action.units',
 };
 function auditActionLabel(action) { return t(AUDIT_ACTION_KEYS[action] || 'sup.audit.action.generic', { action: action || '—' }); }
 
@@ -92,6 +95,7 @@ let _stationMeta = new Map(); // id -> { code, name }
 let _directory = [];          // publicStations() listing
 let _rawInventory = [];
 let _rawAudit = [];
+let _crew = [];               // approved users, for the duty board
 let _auditPage = 0;
 const AUDIT_PAGE_SIZE = 50;
 const _expanded = new Set();
@@ -119,16 +123,15 @@ function itemStatusKey(i) {
   return 'ok';
 }
 function stationStats(items) {
-  let expired = 0, warning = 0, ok = 0, low = 0;
+  let expired = 0, warning = 0, ok = 0;
   (items || []).forEach((i) => {
     const k = itemStatusKey(i);
     if (k === 'expired') expired++;
     else if (k === 'warning') warning++;
     else ok++;
-    if (i.lowStock) low++;
   });
   const total = (items || []).length;
-  return { expired, warning, ok, low, total };
+  return { expired, warning, ok, total };
 }
 
 function normalizeItem(r) {
@@ -139,9 +142,9 @@ function normalizeItem(r) {
     id: r.id,
     name: b.medicine?.name || 'Unknown',
     category: b.medicine?.category || '',
+    size: b.medicine?.size || null,
     quantity: Number(r.quantity) || 0,
     notes: r.notes || '',
-    minimal: b.medicine?.minimumStock ?? null,
     unit: b.medicine?.unit || '',
     strength: b.medicine?.strength || '',
     batchNumber: b.batchNumber || '',
@@ -153,7 +156,6 @@ function normalizeItem(r) {
     ambulanceId: r.ambulanceId || null,
     stationId: st.id || null,
     expiryStatus: r.expiryStatus || expiryFromISO(b.expiryDate),
-    lowStock: !!r.lowStock,
   };
 }
 
@@ -180,6 +182,158 @@ async function loadDirectory() {
   } catch { _directory = []; }
 }
 
+// ── Duty board ──────────────────────────────────────────────
+/** Pages through GET /users (max 200/page) so the board sees every crew member. */
+async function refreshCrew() {
+  try {
+    const users = [];
+    let page = 1;
+    for (;;) {
+      const res = await api.users({ page, pageSize: 200 });
+      const rows = (res && res.users) || [];
+      users.push(...rows);
+      const total = (res && res.total) || 0;
+      if (!rows.length || users.length >= total || page >= 50) break;
+      page += 1;
+    }
+    _crew = users;
+  } catch { /* keep the previous snapshot */ }
+}
+
+/** id -> {code,name} for every known unit (directory + units seen on users). */
+function unitIndex() {
+  const map = new Map();
+  _directory.forEach((s) => map.set(s.id, { code: s.code, name: s.name }));
+  _crew.forEach((u) => {
+    if (u.station && !map.has(u.station.id)) map.set(u.station.id, { code: u.station.code, name: u.station.name });
+  });
+  return map;
+}
+
+window.renderDuty = function () {
+  const q = ($('dutySearch')?.value || '').trim().toLowerCase();
+  const managed = new Set(stations);
+  const idx = unitIndex();
+  const unitName = (id) => { const m = idx.get(id); return m ? unitLabel(m.code, m.name) : '—'; };
+  const CREW_ROLES = new Set(['PARAMEDIC', 'SUPERVISOR']);
+
+  const crew = _crew.filter((u) => u.status === 'active' && CREW_ROLES.has(String(u.role || '').toUpperCase()));
+  const haystack = (u) => [
+    u.displayName, u.email, u.empId, u.role,
+    u.station ? unitLabel(u.station.code, u.station.name) : '',
+    ...(u.dutyUnitIds || []).map((id) => unitName(id)),
+  ].filter(Boolean).join(' ').toLowerCase();
+  const matches = (u) => !q || haystack(u).includes(q);
+
+  const byUnit = new Map();
+  const unassigned = [];
+  const available = [];
+  crew.forEach((u) => {
+    const rosterHit = (u.dutyUnitIds || []).some((id) => managed.has(id));
+    if (managed.size && rosterHit && (!u.stationId || !managed.has(u.stationId))) available.push(u);
+    if (u.stationId) {
+      if (!byUnit.has(u.stationId)) byUnit.set(u.stationId, []);
+      byUnit.get(u.stationId).push(u);
+    } else {
+      unassigned.push(u);
+    }
+  });
+
+  const rosterLabel = (u) => {
+    const ids = (u.dutyUnitIds || []).filter((id) => idx.has(id));
+    if (ids.length < 2) return '';
+    return `<div class="duty-crew-roster">${t('sup.duty.roster')}: ${ids.map((id) => unitName(id)).join(' · ')}</div>`;
+  };
+  const crewRows = (list) => {
+    const shown = list.filter(matches);
+    if (!shown.length) return `<div class="duty-empty">${t('sup.duty.empty_unit')}</div>`;
+    return shown.map((u) => `
+      <div class="duty-crew-row">
+        <div>
+          <div class="duty-crew-name">${esc(u.displayName || u.email)}</div>
+          <div class="duty-crew-sub"><span class="duty-role-tag">${esc(u.role)}</span>${u.empId ? esc(u.empId) : ''}</div>
+        </div>
+        ${rosterLabel(u)}
+      </div>`).join('');
+  };
+
+  const unitIds = [...new Set([...managed, ...byUnit.keys()])];
+  unitIds.sort((a, b) => {
+    const am = managed.has(a) ? 0 : 1;
+    const bm = managed.has(b) ? 0 : 1;
+    if (am !== bm) return am - bm;
+    return String(idx.get(a)?.code || '').localeCompare(String(idx.get(b)?.code || ''), undefined, { numeric: true });
+  });
+
+  const cards = unitIds.map((id) => {
+    const mine = managed.has(id);
+    const list = byUnit.get(id) || [];
+    return `<div class="duty-unit-card${mine ? ' mine' : ''}${list.filter(matches).length ? '' : ' empty'}">
+      <div class="duty-unit-head">
+        <span class="duty-unit-label">${esc(unitName(id))}</span>
+        <span class="duty-unit-count">${t('sup.duty.crew_count', { n: list.length })}</span>
+      </div>
+      ${crewRows(list)}
+    </div>`;
+  });
+  if (unassigned.length) {
+    cards.push(`<div class="duty-unit-card empty">
+      <div class="duty-unit-head">
+        <span class="duty-unit-label">${t('sup.duty.unassigned')}</span>
+        <span class="duty-unit-count">${t('sup.duty.crew_count', { n: unassigned.length })}</span>
+      </div>
+      ${crewRows(unassigned)}
+    </div>`);
+  }
+  $('dutyUnitGrid').innerHTML = cards.join('') ||
+    `<div class="duty-empty">${t('sup.duty.empty_unit')}</div>`;
+  $('dutyCrewCount').textContent = `${crew.length} ${t('sup.duty.total')}`;
+
+  const pill = $('dutyManagedPill');
+  pill.style.display = managed.size ? '' : 'none';
+  pill.textContent = `${managed.size} ${t('sup.manage.units')}`;
+
+  const availShown = available.filter(matches);
+  $('dutyAvailableWrap').innerHTML = availShown.length ? `
+    <div class="section-head" style="margin-bottom:4px;">
+      <div class="section-title" style="font-size:.85rem;">${t('sup.duty.available')}</div>
+      <span style="font-size:.7rem;color:var(--text3);">${availShown.length}</span>
+    </div>
+    <div class="duty-available">
+      ${availShown.map((u) => `
+        <div class="duty-available-row">
+          <div>
+            <div class="duty-crew-name">${esc(u.displayName || u.email)}</div>
+            <div class="duty-crew-sub"><span class="duty-role-tag">${esc(u.role)}</span>${u.empId ? esc(u.empId) : ''}</div>
+          </div>
+          ${rosterLabel(u)}
+        </div>`).join('')}
+    </div>
+    <div style="font-size:.68rem;color:var(--text3);margin-top:6px;">${t('sup.duty.available_sub')}</div>` : '';
+
+  const switches = _rawAudit.filter((e) => e.action === 'DUTY_SWITCH').slice(0, 30);
+  $('dutySwitchCount').textContent = `${switches.length}`;
+  $('dutySwitchList').innerHTML = switches.length ? switches.map((e) => {
+    const m = (e.metadata && typeof e.metadata === 'object') ? e.metadata : {};
+    const from = unitLabel(m.from, m.fromName);
+    const to = unitLabel(m.to, m.toName);
+    const who = e.userName || e.userEmail || '—';
+    const reason = e.reason || m.reason || '';
+    return `<div class="duty-switch-row">
+      <div class="duty-switch-time">${fmtDateTime(e.createdAt)}</div>
+      <div class="duty-switch-main">
+        <div><strong>${esc(who)}</strong><span class="duty-switch-arrow">→</span>${esc(from)}<span class="duty-switch-arrow">→</span>${esc(to)}</div>
+        ${reason ? `<div class="duty-switch-reason">"${esc(String(reason))}"</div>` : ''}
+      </div>
+    </div>`;
+  }).join('') : `<div class="duty-empty" style="padding:14px 0;">${t('sup.duty.no_switches')}</div>`;
+};
+
+window.refreshDutyBoard = async function () {
+  await Promise.all([refreshCrew(), refreshAudit()]);
+  renderDuty();
+};
+
 function rebuildStations() {
   _supData = {};
   stations.forEach((id) => {
@@ -187,7 +341,7 @@ function rebuildStations() {
     _supData[id] = {
       id,
       code: meta.code || id,
-      name: meta.name || meta.code || id,
+      name: meta.code ? unitLabel(meta.code, meta.name) : (meta.name || id),
       items: _rawInventory
         .filter((r) => (r.ambulance?.station?.id) === id)
         .map(normalizeItem)
@@ -203,6 +357,7 @@ async function boot() {
     if (!sess) { window.location.href = '/login.html'; return; }
     if (sess.user?.role !== 'SUPERVISOR') { window.location.href = roleRedirectPath(sess); return; }
     _session = sess;
+    window.AEMS_PERMS = sess.permissions || [];
 
     try {
       const me = await api.me();
@@ -226,7 +381,7 @@ async function boot() {
     wireLangToggle();
     wireShiftControls();
 
-    await Promise.all([loadDirectory(), refreshInventory(), refreshAudit(), loadSupply()]);
+    await Promise.all([loadDirectory(), refreshInventory(), refreshAudit(), refreshCrew(), loadSupply()]);
     $('pageLoader')?.classList.add('hide');
     applyAll();
     toast(t('sup.toast.data_refreshed'), 'success');
@@ -284,7 +439,7 @@ window.showPage = function (id) {
   const titles = {
     overview: t('sup.page.overview'), stations: t('sup.page.stations'),
     reports: t('sup.page.reports'), audit: t('sup.page.audit'), manage: t('sup.page.manage'),
-    supply: t('sup.page.supply'),
+    supply: t('sup.page.supply'), duty: t('sup.page.duty'),
   };
   $('pageTitle').textContent = titles[id] || id;
   if (id === 'overview') renderOverview();
@@ -293,6 +448,7 @@ window.showPage = function (id) {
   if (id === 'audit') renderAudit();
   if (id === 'manage') renderManage();
   if (id === 'supply') renderSupplyReview();
+  if (id === 'duty') { renderDuty(); if (!_crew.length) refreshDutyBoard(); }
 };
 
 function applyAll() {
@@ -309,6 +465,7 @@ function applyAll() {
   else if (p === 'audit') renderAudit();
   else if (p === 'manage') renderManage();
   else if (p === 'supply') renderSupplyReview();
+  else if (p === 'duty') renderDuty();
 }
 
 function wireLangToggle() {
@@ -417,9 +574,8 @@ window.goStation = function (code) {
 
 // ── Overview ───────────────────────────────────────────────
 function renderOverview() {
-  let totalItems = 0, totalExpired = 0, totalWarning = 0, totalLow = 0;
+  let totalItems = 0, totalExpired = 0, totalWarning = 0;
   const allAlerts = [];
-  const lowStockItems = [];
   const ambCount = Array.isArray(_session?.ambulances) ? _session.ambulances.length : stations.length;
 
   stations.forEach((id) => {
@@ -429,11 +585,9 @@ function renderOverview() {
     totalItems += st.total;
     totalExpired += st.expired;
     totalWarning += st.warning;
-    totalLow += st.low;
     d.items.forEach((i) => {
       const k = itemStatusKey(i);
       if (k === 'expired' || k === 'warning') allAlerts.push({ sev: k, item: i, stName: d.name });
-      if (i.lowStock) lowStockItems.push({ item: i, stName: d.name });
     });
   });
 
@@ -464,7 +618,6 @@ function renderOverview() {
         <span class="chip ok">${st.ok} ${t('sup.col.valid')}</span>
         ${st.warning ? `<span class="chip warn">${st.warning} <svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg> ${t('sup.col.warning')}</span>` : ''}
         ${st.expired ? `<span class="chip exp">${st.expired} ${icon('xCircle')} ${t('sup.col.expired')}</span>` : ''}
-        ${st.low ? `<span class="chip low">${st.low} ${t('sup.col.low')}</span>` : ''}
       </div>
     </div>`;
   }).join('') : `<div class="empty"><div class="empty-icon">${icon('building')}</div><div class="empty-text">${t('sup.empty.no_stations')}</div></div>`;
@@ -485,40 +638,7 @@ function renderOverview() {
     </div>`;
   }).join('') : `<div class="empty"><div class="empty-icon">${icon('checkCircle')}</div><div class="empty-text">${t('sup.empty.all_good')}</div></div>`;
 
-  renderLowStock(lowStockItems);
   renderSupCharts();
-}
-
-function renderLowStock(lowStockItems) {
-  const lsSection = $('lowStockSection');
-  if (!lsSection) return;
-  const lsList = $('lowStockList');
-  const lsCount = $('lowStockCount');
-  if (lowStockItems.length) {
-    lsSection.style.display = 'block';
-    if (lsCount) lsCount.textContent = `${lowStockItems.length} ${t('sup.items_count')}`;
-    const ratio = (item) => (item.minimal > 0 ? item.quantity / item.minimal : item.quantity === 0 ? Infinity : 1);
-    const sorted = lowStockItems.slice().sort((a, b) => ratio(a.item) - ratio(b.item));
-    lsList.innerHTML = sorted.slice(0, 25).map(({ item, stName }) => {
-      const pct = item.minimal > 0 ? Math.max(0, Math.round(item.quantity / item.minimal * 100)) : 0;
-      const barW = Math.min(pct, 100);
-      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border2);">
-        <span style="font-size:1rem;">${icon('trending')}</span>
-        <div style="flex:1;min-width:0;">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;">
-            <div style="font-size:.83rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.name)}</div>
-            <div style="font-size:.8rem;font-weight:700;color:#FDE68A;flex-shrink:0;margin-left:8px;">${item.quantity} <span style="font-size:.65rem;font-weight:400;color:var(--text3);">/ min ${item.minimal}</span></div>
-          </div>
-          <div style="font-size:.68rem;color:var(--text3);margin:.2rem 0 .4rem;">${esc(stName)} · ${catLabel(item.category)}</div>
-          <div style="height:4px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;">
-            <div style="height:100%;width:${barW}%;background:${pct < 25 ? '#EF4444' : pct < 50 ? '#F59E0B' : '#D97706'};border-radius:2px;transition:width .4s;"></div>
-          </div>
-        </div>
-      </div>`;
-    }).join('');
-  } else {
-    lsSection.style.display = 'none';
-  }
 }
 
 // ── Charts ─────────────────────────────────────────────────
@@ -674,7 +794,6 @@ function renderStationsPage() {
         <span class="chip ok">${st.ok} ${t('sup.col.valid')}</span>
         ${st.warning ? `<span class="chip warn">${st.warning} ${t('sup.col.warning')}</span>` : ''}
         ${st.expired ? `<span class="chip exp">${st.expired} ${t('sup.col.expired')}</span>` : ''}
-        ${st.low ? `<span class="chip low">${st.low} ${t('sup.col.low')}</span>` : ''}
       </div>
       <div class="st-card-foot">
         <button class="btn-sm primary" onclick="toggleExpand('${esc(d.code)}')" id="expandBtn-${esc(d.code)}">
@@ -748,13 +867,12 @@ function renderItemsTableHTML(code, allItems) {
 
   return `<table>
     <thead><tr>
-      <th>${t('sup.tbl.item')}</th><th>${t('sup.tbl.category')}</th><th>${t('sup.tbl.qty')}</th><th>${t('sup.tbl.min')}</th><th>${t('sup.tbl.location')}</th><th>${t('sup.tbl.expiry')}</th><th>${t('sup.tbl.status')}</th><th>${t('sup.tbl.lastcheck')}</th><th></th>
+      <th>${t('sup.tbl.item')}</th><th>${t('sup.tbl.category')}</th><th>${t('sup.tbl.qty')}</th><th>${t('sup.tbl.size')}</th><th>${t('sup.tbl.location')}</th><th>${t('sup.tbl.expiry')}</th><th>${t('sup.tbl.status')}</th><th>${t('sup.tbl.lastcheck')}</th><th></th>
     </tr></thead>
     <tbody>${items.map((item) => {
       const s = itemStatusKey(item);
       const rowStyle = s === 'expired' ? 'background:rgba(239,68,68,.04);' : s === 'warning' ? 'background:rgba(245,158,11,.03);' : '';
       const qty = item.quantity;
-      const isLow = item.lowStock;
       return `<tr style="${rowStyle}">
         <td style="font-weight:600;max-width:180px;">
           <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(item.name)}</div>
@@ -763,10 +881,9 @@ function renderItemsTableHTML(code, allItems) {
         </td>
         <td style="font-size:.75rem;color:var(--text2);">${catLabel(item.category)}</td>
         <td>
-          <span style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;${isLow ? 'color:#FCA5A5;' : ''}">${qty}</span>
-          ${isLow && item.minimal != null ? `<div style="font-size:.62rem;color:#FCA5A5;">${t('sup.items_low')} ${item.minimal})</div>` : ''}
+          <span style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;">${qty}</span>
         </td>
-        <td style="font-size:.75rem;color:var(--text3);">${item.minimal ?? '—'}</td>
+        <td style="font-size:.75rem;color:var(--text3);">${item.size ? esc(item.size) : '—'}</td>
         <td style="font-size:.75rem;color:var(--text3);">${item.location || '—'}</td>
         <td style="font-size:.78rem;">
           ${item.expiry ? `<div>${fmtDate(item.expiry)}</div><div style="font-size:.65rem;color:${s === 'expired' ? '#FCA5A5' : s === 'warning' ? '#FDE68A' : 'var(--text3)'};">${daysLabel(item.expiry)}</div>` : '<span style="color:var(--text3);">—</span>'}
@@ -847,13 +964,12 @@ function renderReportOutput(results) {
             <span class="chip grey">${st.total} ${t('sup.items')}</span>
             ${st.expired ? `<span class="chip exp">${st.expired} ${t('sup.col.expired')}</span>` : ''}
             ${st.warning ? `<span class="chip warn">${st.warning} ${t('sup.col.warning')}</span>` : ''}
-            ${st.low ? `<span class="chip low">${st.low} ${t('sup.col.low')}</span>` : ''}
             ${!st.expired && !st.warning ? `<span class="chip ok">✓ ${t('sup.col.valid')}</span>` : ''}
           </div>
         </div>
         ${sorted.length ? `<div class="tbl-wrap">
           <table>
-            <thead><tr><th>${t('sup.tbl.station')}</th><th>${t('sup.tbl.item')}</th><th>${t('sup.tbl.category')}</th><th>${t('sup.tbl.qty')}</th><th>${t('sup.tbl.min')}</th><th>${t('sup.tbl.location')}</th><th>${t('sup.tbl.expiry')}</th><th>${t('sup.tbl.status')}</th><th>${t('sup.tbl.lastcheck')}</th></tr></thead>
+            <thead><tr><th>${t('sup.tbl.station')}</th><th>${t('sup.tbl.item')}</th><th>${t('sup.tbl.category')}</th><th>${t('sup.tbl.qty')}</th><th>${t('sup.tbl.size')}</th><th>${t('sup.tbl.location')}</th><th>${t('sup.tbl.expiry')}</th><th>${t('sup.tbl.status')}</th><th>${t('sup.tbl.lastcheck')}</th></tr></thead>
             <tbody>${sorted.map((item) => {
               const s = itemStatusKey(item);
               const rowStyle = s === 'expired' ? 'background:rgba(239,68,68,.06);' : s === 'warning' ? 'background:rgba(245,158,11,.04);' : '';
@@ -862,7 +978,7 @@ function renderReportOutput(results) {
                 <td style="font-weight:600;">${esc(item.name)}</td>
                 <td style="font-size:.75rem;color:var(--text2);">${catLabel(item.category)}</td>
                 <td><span style="font-family:var(--font-display);font-size:1.05rem;font-weight:800;">${item.quantity}</span></td>
-                <td style="font-size:.75rem;color:var(--text3);">${item.minimal ?? '—'}</td>
+                <td style="font-size:.75rem;color:var(--text3);">${item.size ? esc(item.size) : '—'}</td>
                 <td style="font-size:.75rem;color:var(--text3);">${item.location || '—'}</td>
                 <td style="font-size:.78rem;">${item.expiry ? `${fmtDate(item.expiry)}<div style="font-size:.65rem;color:${s === 'expired' ? '#FCA5A5' : s === 'warning' ? '#FDE68A' : 'var(--text3)'};">${daysLabel(item.expiry)}</div>` : '—'}</td>
                 <td><span class="badge ${s}">${s === 'ok' ? t('sup.status.valid') : s === 'expired' ? t('sup.status.expired') : s === 'warning' ? t('sup.status.warning') : '—'}</span></td>
@@ -878,14 +994,14 @@ function renderReportOutput(results) {
 
 window.exportReportCSV = function () {
   if (!_reportData) return;
-  const headers = ['Station', 'Code', 'Item', 'Category', 'Quantity', 'Min', 'Location', 'Expiry', 'Status', 'Last Check'];
+  const headers = ['Station', 'Code', 'Item', 'Category', 'Quantity', 'Size', 'Location', 'Expiry', 'Status', 'Last Check'];
   let csv = '\ufeff' + headers.join(',') + '\n';
   _reportData.forEach((r) => {
     r.items.forEach((item) => {
       const s = itemStatusKey(item);
       const row = [
         r.name, r.code, item.name, item.category || '',
-        item.quantity, item.minimal == null ? '' : item.minimal,
+        item.quantity, item.size || '',
         item.vehicleNumber || '', fmtDate(item.expiry),
         s === 'expired' ? 'Expired' : s === 'warning' ? 'Warning' : 'Valid',
         fmtDate(item.lastCheck),
@@ -957,7 +1073,7 @@ function renderAudit() {
       <div>
         <div class="audit-text"><strong>${esc(who)}</strong> — ${esc(auditActionLabel(e.action))} <span class="badge none" style="font-size:.6rem;color:#C4B5FD;border-color:#C4B5FD40;">${esc(e.action || '—')}</span></div>
         <div class="audit-station">${icon('pin')} ${esc(stName)}</div>
-        ${e.reason ? `<div class="audit-reason">${icon('message')} "${esc(e.reason)}"</div>` : ''}
+        ${(() => { const r = e.reason || (e.metadata && typeof e.metadata === 'object' ? e.metadata.reason : ''); return r ? `<div class="audit-reason">${icon('message')} "${esc(String(r))}"</div>` : ''; })()}
         ${meta}
       </div>
     </div>`;
@@ -1011,7 +1127,7 @@ function renderSupplyReview() {
   const order = ['PENDING', 'APPROVED', 'FULFILLED', 'REJECTED', 'CANCELLED'];
   const sorted = [...rows].sort((a, b) =>
     order.indexOf(a.status) - order.indexOf(b.status) || new Date(b.createdAt) - new Date(a.createdAt));
-  const stName = (r) => { const s = r.ambulance?.station; return s ? `${s.name} (${s.code})` : '—'; };
+  const stName = (r) => { const s = r.ambulance?.station; return s ? unitLabel(s.code, s.name) : '—'; };
   el.innerHTML = sorted.map((r) => {
     const color = SUPPLY_STATUS_COLOR[r.status] || '#999';
     const label = t(SUPPLY_STATUS_KEY[r.status] || '');
@@ -1092,6 +1208,7 @@ async function refreshAssignment() {
   try {
     const me2 = await api.me();
     _session = { ..._session, ...me2 };
+    window.AEMS_PERMS = _session.permissions || [];
     setSession(_session);
     applyAssignment(me2.user || {});
     await Promise.all([loadDirectory(), refreshInventory()]);
@@ -1102,20 +1219,29 @@ async function refreshAssignment() {
 }
 window.refreshAssignment = refreshAssignment;
 
+// Assignment is made by an administrator from the admin console (user approval
+// / edit). This page only ever edits the signed-in session user, so it must not
+// attempt to write the list itself.
+function canAssignStations() {
+  return false;
+}
+
 window.trackStation = async function (code) {
+  if (!canAssignStations()) { toast(t('sup.manage.assign_admin_only'), 'error'); return; }
   const cur = Array.isArray(_session.user?.managedStations) ? _session.user.managedStations.map((m) => m.code) : [];
   if (cur.includes(code)) return;
   try {
-    await api.setManagedStations([...cur, code]);
+    await api.setManagedStations(_session.user.id, [...cur, code]);
     await refreshAssignment();
     toast(t('sup.toast.changes_saved'), 'success');
   } catch (err) { toast(err && err.message || String(err), 'error'); }
 };
 
 window.untrackStation = async function (code) {
+  if (!canAssignStations()) { toast(t('sup.manage.assign_admin_only'), 'error'); return; }
   const cur = Array.isArray(_session.user?.managedStations) ? _session.user.managedStations.map((m) => m.code) : [];
   try {
-    await api.setManagedStations(cur.filter((c) => c !== code));
+    await api.setManagedStations(_session.user.id, cur.filter((c) => c !== code));
     await refreshAssignment();
     toast(t('sup.toast.changes_saved'), 'success');
   } catch (err) { toast(err && err.message || String(err), 'error'); }
@@ -1123,6 +1249,7 @@ window.untrackStation = async function (code) {
 
 function renderManage() {
   const trackedEl = $('trackedList');
+  const assignable = canAssignStations();
   $('trackedCount').textContent = `${stations.length} ${t('sup.manage.units')}`;
   trackedEl.innerHTML = stations.length ? stations.map((id) => {
     const d = _supData[id]; if (!d) return '';
@@ -1133,17 +1260,18 @@ function renderManage() {
         <div class="dir-item-name">${esc(d.name)}</div>
         <div class="dir-item-code">${esc(d.code)} · ${st.total} ${t('sup.items')}${st.expired ? ` · <span style="color:#FCA5A5;">${st.expired} ${t('sup.col.expired')}</span>` : ''}${st.warning ? ` · <span style="color:#FDE68A;">${st.warning} ${t('sup.col.warning')}</span>` : ''}</div>
       </div>
-      <button class="btn-sm" onclick="untrackStation('${esc(d.code)}')">${t('sup.btn.untrack')}</button>
+      ${assignable ? `<button class="btn-sm" onclick="untrackStation('${esc(d.code)}')">${t('sup.btn.untrack')}</button>` : ''}
     </div>`;
   }).join('') : `<div style="color:var(--text3);font-size:.82rem;padding:8px 0;">${t('sup.manage.no_tracked')}</div>`;
 
   $('dirCount').textContent = `${stations.filter((id) => _directory.some((s) => s.id === id)).length}/${_directory.length}`;
   renderDirectory();
-  trackedEl.insertAdjacentHTML('beforeend', `<div style="margin-top:10px;font-size:.7rem;color:var(--text3);border-top:1px solid var(--border2);padding-top:10px;">${t('sup.manage.note')}</div>`);
+  trackedEl.insertAdjacentHTML('beforeend', `<div style="margin-top:10px;font-size:.7rem;color:var(--text3);border-top:1px solid var(--border2);padding-top:10px;">${t(assignable ? 'sup.manage.note' : 'sup.manage.assign_admin_only')}</div>`);
 }
 
 window.renderDirectory = function () {
   const search = ($('dirSearch')?.value || '').toLowerCase();
+  const assignable = canAssignStations();
   const filtered = _directory.filter((s) => !search || s.name?.toLowerCase().includes(search) || s.code?.toLowerCase().includes(search));
   const el = $('directoryList');
   if (!filtered.length) {
@@ -1155,10 +1283,14 @@ window.renderDirectory = function () {
     return `<div class="dir-item">
       <span class="dir-dot ${assigned ? 'tracked' : ''}"></span>
       <div style="flex:1;">
-        <div class="dir-item-name">${esc(s.name || s.code)}</div>
-        <div class="dir-item-code">${esc(s.code)}</div>
+        <div class="dir-item-name">${esc(unitLabel(s.code, s.name))}</div>
+        <div class="dir-item-code">${esc(s.location || '')}</div>
       </div>
-      ${assigned ? `<span class="chip ok" style="font-size:.62rem;">✓ ${t('sup.manage.assigned')}</span>` : `<button class="btn-sm" onclick="trackStation('${esc(s.code)}')">${t('sup.btn.track')}</button>`}
+      ${assigned
+        ? `<span class="chip ok" style="font-size:.62rem;">✓ ${t('sup.manage.assigned')}</span>`
+        : assignable
+          ? `<button class="btn-sm" onclick="trackStation('${esc(s.code)}')">${t('sup.btn.track')}</button>`
+          : ''}
     </div>`;
   }).join('');
 };
@@ -1173,7 +1305,7 @@ window.openEdit = function (code, itemId) {
     _editTarget = item;
     const fill = (el, prop, val) => { if (el) el[prop] = val; };
     fill($('editName'), 'value', item.name);
-    fill($('editQtyLine'), 'textContent', `${item.quantity} ${t('sup.items')} · ${t('sup.tbl.min')} ${item.minimal ?? '—'}`);
+    fill($('editQtyLine'), 'textContent', `${item.quantity} ${t('sup.items')}${item.size ? ' · ' + t('sup.tbl.size') + ' ' + item.size : ''}`);
     fill($('editNotes'), 'value', item.notes || '');
     fill($('editReason'), 'value', '');
     if ($('reasonWarn')) $('reasonWarn').style.display = 'none';
@@ -1213,7 +1345,7 @@ window.confirmEdit = function () {
 // ── Refresh / logout ───────────────────────────────────────
 window.refreshData = async function (showToast = true) {
   try {
-    await Promise.all([refreshInventory(), refreshAudit(), loadDirectory(), loadSupply()]);
+    await Promise.all([refreshInventory(), refreshAudit(), refreshCrew(), loadDirectory(), loadSupply()]);
     updateAlertBadge();
     updateTopbarPill();
     updateConnectionPill();
@@ -1232,6 +1364,7 @@ function applyCurrent() {
   else if (p === 'audit') renderAudit();
   else if (p === 'manage') renderManage();
   else if (p === 'supply') renderSupplyReview();
+  else if (p === 'duty') renderDuty();
 }
 
 window.doLogout = async function () {
