@@ -26,6 +26,20 @@ export type AuditEntry = AuditEntryInput & { action: string };
  * atomically with the operation it records.
  */
 export async function createAudit(db: Db, entry: AuditEntry): Promise<void> {
+  // Attribute the event to a station so it shows up in that station's log:
+  //   - an explicit stationId (inventory / ambulance / inspection / …) wins;
+  //   - otherwise fall back to the acting user's current station, so catalogue
+  //     and account events performed by crew are filed under their unit too.
+  // Admins have no station, so their fleet-wide actions stay untagged.
+  let stationId = entry.stationId ?? null;
+  if (!stationId && entry.userId) {
+    const actor = await db.user.findUnique({
+      where: { id: entry.userId },
+      select: { stationId: true },
+    });
+    stationId = actor?.stationId ?? null;
+  }
+
   await db.auditLog.create({
     data: {
       userId: entry.userId ?? null,
@@ -33,7 +47,7 @@ export async function createAudit(db: Db, entry: AuditEntry): Promise<void> {
       entityType: entry.entityType ?? null,
       entityId: entry.entityId ?? null,
       ambulanceId: entry.ambulanceId ?? null,
-      stationId: entry.stationId ?? null,
+      stationId,
       metadata: (entry.metadata as Prisma.InputJsonValue) ?? Prisma.JsonNull,
       ipAddress: entry.ipAddress ?? null,
       userAgent: entry.userAgent ?? null,

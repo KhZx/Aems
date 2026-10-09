@@ -21,23 +21,53 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: var(--font-body); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
 
+    /* ── Banner2 cinematic interactive background ── */
+    .banner {
+      position: fixed; inset: -60px; z-index: 0; pointer-events: none;
+      background: url('assets/Banner2.jpg') center center / cover no-repeat;
+      will-change: transform; transform: scale(1.02);
+      transition: transform .1s linear;
+    }
+    @keyframes kens {
+      from { transform: scale(1)    translate(0, 0); }
+      to   { transform: scale(1.12) translate(1.4%, -1%); }
+    }
     .page-bg {
-      position: fixed; inset: 0;
+      position: fixed; inset: 0; pointer-events: none;
       background:
-        radial-gradient(ellipse at 10% 30%, rgba(200,16,46,.18) 0%, transparent 50%),
-        radial-gradient(ellipse at 90% 80%, rgba(30,37,50,.6) 0%, transparent 50%),
-        linear-gradient(160deg, #080B10 0%, #0C0F18 100%);
+        linear-gradient(180deg, rgba(6,8,15,.72) 0%, rgba(6,8,15,.16) 32%, rgba(6,8,15,.22) 58%, rgba(6,8,15,.84) 100%),
+        radial-gradient(130% 100% at 50% 40%, transparent 55%, rgba(6,8,15,.55) 100%),
+        radial-gradient(ellipse 70% 60% at 78% 36%, rgba(200,16,46,.16) 0%, transparent 58%),
+        radial-gradient(ellipse 45% 50% at 16% 64%, rgba(0,61,165,.12) 0%, transparent 55%);
     }
     .page-bg::after {
-      content:''; position:fixed; inset:0; pointer-events:none;
+      content:''; position: absolute; inset: 0;
       background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
     }
-    .orb { position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:0; opacity:.14; }
+    /* Cursor-following emergency glow */
+    .glow {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background: radial-gradient(780px 560px at var(--mx, 72%) var(--my, 30%), rgba(200,16,46,.15), transparent 62%);
+      opacity: 0; transition: opacity .4s;
+    }
+    body.has-glow .glow { opacity:1; }
+    /* Slow CRT scan sweep */
+    .scanline {
+      position: fixed; left:0; right:0; height:120px; z-index:1; pointer-events:none;
+      background: linear-gradient(180deg, transparent, rgba(6,8,15,.14), transparent);
+      animation: scan 10s linear infinite;
+    }
+    @keyframes scan { 0%{ top:-18%; } 100%{ top:112%; } }
+    .orb { position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:1; opacity:.10; }
 
     /* Header bar */
     .top-bar {
       position: relative; z-index: 10;
       padding: 1.2rem 2rem; display: flex; justify-content: space-between; align-items: center;
+    }
+    .top-bar::after {
+      content:''; position:absolute; left:0; right:0; bottom:0; height:1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.10) 30%, rgba(255,255,255,.10) 70%, transparent);
     }
     .logo { display:flex; align-items:center; gap:9px; text-decoration:none; }
     .cross { width:28px; height:28px; position:relative; flex-shrink:0; }
@@ -62,11 +92,25 @@
     }
     .card {
       width: 100%; max-width: 440px;
-      background: rgba(15,19,24,0.96);
-      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(9,12,20,0.42);
+      border: 1px solid rgba(255,255,255,0.12);
       border-radius: 24px; padding: 2.5rem;
-      box-shadow: 0 2px 8px rgba(0,0,0,.15), 0 20px 60px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
+      box-shadow: 0 2px 8px rgba(0,0,0,.25), 0 24px 70px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.10);
+      backdrop-filter: blur(22px) saturate(150%);
+      -webkit-backdrop-filter: blur(22px) saturate(150%);
       animation: cardIn .5s ease forwards;
+      position: relative;
+      transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+    }
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(200,16,46,.35);
+      box-shadow: 0 2px 8px rgba(0,0,0,.25), 0 30px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.12), 0 0 44px rgba(200,16,46,.14);
+    }
+    .card::before {
+      content:''; position:absolute; inset:0; border-radius:24px; pointer-events:none;
+      background: linear-gradient(160deg, rgba(255,255,255,.10) 0%, transparent 32%);
+      opacity:.7;
     }
     @keyframes cardIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
 
@@ -86,10 +130,11 @@
     .field { margin-bottom:1rem; }
     .field label { display:block; font-size:0.72rem; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px; }
     .field input {
-      width:100%; padding:11px 14px;
-      background:rgba(255,255,255,.04); border:1.5px solid rgba(255,255,255,.1);
+      width:100%; padding:12px 14px;
+      background:rgba(255,255,255,.06); border:1.5px solid rgba(255,255,255,.14);
       border-radius:10px; font-family:var(--font-body); font-size:0.92rem; color:var(--text);
       outline:none; transition:border-color .2s,box-shadow .2s,background .2s;
+      backdrop-filter: blur(6px);
     }
     .field input::placeholder { color:var(--text3); }
     .field input:focus { border-color:var(--red); background:rgba(200,16,46,.04); box-shadow:0 0 0 3px rgba(200,16,46,.12); }
@@ -155,9 +200,12 @@
 </style>
 </head>
 <body>
+  <div class="banner"></div>
   <div class="page-bg"></div>
+  <div class="glow"></div>
   <div class="orb" style="width:350px;height:350px;background:#C8102E;top:5%;right:3%;"></div>
   <div class="orb" style="width:250px;height:250px;background:#7C3AED;bottom:8%;left:5%;animation-delay:2s;"></div>
+  <div class="scanline"></div>
 
   <div class="top-bar">
     <a href="/" style="display:flex;align-items:center;text-decoration:none;">
@@ -315,6 +363,29 @@
         showErr(friendlyLoginError(err) || t('login.err.invalid'));
       }
     });
+  </script>
+
+  <script>
+    // Interactive Banner2 background - cursor-following glow + parallax drift
+    (function () {
+      const root = document.documentElement;
+      const glow = document.querySelector('.glow');
+      const banner = document.querySelector('.banner');
+      let px = 0, py = 0, tx = 0, ty = 0;
+      window.addEventListener('pointermove', (e) => {
+        document.body.classList.add('has-glow');
+        const rx = e.clientX / innerWidth, ry = e.clientY / innerHeight;
+        root.style.setProperty('--mx', (rx * 100).toFixed(1) + '%');
+        root.style.setProperty('--my', (ry * 100).toFixed(1) + '%');
+        tx = (rx - 0.5) * -18;
+        ty = (ry - 0.5) * -12;
+      });
+      (function drift() {
+        px += (tx - px) * 0.06; py += (ty - py) * 0.06;
+        if (banner) banner.style.transform = 'translate3d(' + px.toFixed(2) + 'px,' + py.toFixed(2) + 'px,0)';
+        requestAnimationFrame(drift);
+      })();
+    })();
   </script>
 </body>
 </html>

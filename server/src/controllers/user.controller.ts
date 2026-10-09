@@ -67,13 +67,23 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * PUT /api/users/:id/managed-stations — administrator assigns the units a
- * supervisor is responsible for. Crew cannot reach this (station:assign is
- * admin-only), which is what stops a supervisor from granting themselves
- * extra units.
+ * supervisor is responsible for (station:assign, admin-only). To change their
+ * own list a supervisor uses PUT /api/me/managed-stations instead.
  */
 export const setManagedStations = asyncHandler(async (req: Request, res: Response) => {
   const targetId = reqParam(req, 'id');
-  const managedStations = await userService.setManagedStationsForUser(targetId, req.body.stationCodes);
+  const managedStations = await userService.setManagedStationsForUser(actor(req), targetId, req.body.stationCodes, requestMeta(req));
+  res.json({ success: true, data: { managedStations } });
+});
+
+/**
+ * PUT /api/me/managed-stations — a supervisor edits the units on their OWN
+ * managed list (station:selfAssign). The target is always the caller, so this
+ * cannot be used to grant anyone else access.
+ */
+export const setMyManagedStations = asyncHandler(async (req: Request, res: Response) => {
+  const me = actor(req);
+  const managedStations = await userService.setManagedStationsForUser(me, me, req.body.stationCodes, requestMeta(req));
   res.json({ success: true, data: { managedStations } });
 });
 

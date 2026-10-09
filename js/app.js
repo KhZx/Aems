@@ -782,6 +782,9 @@ const AUDIT_STYLE = {
   CANCEL_SUPPLY_REQUEST: { key: 'ui.audit.supply_cancel', color: '#64748B' },
   DISTRIBUTE_STOCK: { key: 'ui.audit.distribution', color: '#10B981' },
   DELETE_MEDICINE: { key: 'ui.audit.delete_medicine', color: 'var(--danger)' },
+  CREATE_MEDICINE: { key: 'ui.audit.medicine_added', color: 'var(--success)' },
+  UPDATE_MEDICINE: { key: 'ui.audit.medicine_updated', color: 'var(--info)' },
+  CREATE_BATCH: { key: 'ui.audit.batch_added', color: 'var(--success)' },
   DELETE_STOCK: { key: 'ui.audit.delete_lot', color: 'var(--danger)' },
   LOGIN: { key: 'ui.audit.login', color: '#64748B' },
 };
@@ -790,7 +793,7 @@ const PRIORITY_LBL = { HIGH: 'modal.note.prio.high', MEDIUM: 'modal.note.prio.me
 
 function auditDetails(log) {
   const m = log.metadata || {};
-  const name = m.medicineName || m.title || m.itemName || '';
+  const name = m.medicineName || m.name || m.title || m.itemName || '';
   switch (log.action) {
     case 'USE_MEDICINE': return t('ui.audit.use_d', { name: name || t('ui.medicine'), qty: m.quantity ?? '' });
     case 'RESTOCK': return t('ui.audit.restock_d', { name: name || t('ui.item'), qty: m.quantity ?? '', batch: m.batchNumber ? ` (${m.batchNumber})` : '' });
@@ -813,9 +816,72 @@ function auditDetails(log) {
     case 'DISTRIBUTE_STOCK': return t('ui.audit.distribution_d', { template: m.templateName || '', units: m.units ?? m.items ?? '' });
     case 'DELETE_MEDICINE': return t('ui.audit.delete_medicine_d', { name: name || t('ui.medicine'), batches: m.batches ?? '', stock: m.totalUnits ?? '' });
     case 'DELETE_STOCK': return t('ui.audit.delete_lot_d', { name: name || t('ui.item'), lot: m.batchNumber || '', qty: m.quantity ?? '' });
+    case 'CREATE_MEDICINE': return name;
+    case 'UPDATE_MEDICINE': return name;
+    case 'CREATE_BATCH': return `${name}${m.batchNumber ? ` — ${m.batchNumber}` : ''}`.trim();
     case 'LOGIN': return t('ui.audit.login_d');
     default: return '';
   }
+}
+
+/** Small detail "chips" under the main line — the fields actually filled in. */
+function auditChips(log) {
+  const m = log.metadata || {};
+  const chips = [];
+  const add = (text) => { if (text) chips.push(esc(String(text))); };
+  const d = (v) => (v == null || v === '' ? null : v);
+  switch (log.action) {
+    case 'CREATE_MEDICINE':
+      add(d(m.category));
+      add(d(m.strength && m.dosageForm ? `${m.strength} ${m.dosageForm}` : m.strength || m.dosageForm));
+      add(d(m.size));
+      add(d(m.barcode ? `${t('ui.pill.batch', { no: '' }).replace(/:?\s*$/, '')}: ${m.barcode}` : ''));
+      add(d(m.location ? `${t('ui.pill.location')} ${m.location}` : ''));
+      if (d(m.notes)) add(m.notes);
+      break;
+    case 'UPDATE_MEDICINE':
+      for (const [field, diff] of Object.entries(m.changed || {})) {
+        add(t('ui.audit.field_changed', { field, from: fmtVal(diff.from), to: fmtVal(diff.to) }));
+      }
+      break;
+    case 'CREATE_BATCH':
+      add(d(m.batchNumber));
+      add(d(m.expiryDate ? `${t('ui.pill.expiry')} ${fmtDate(m.expiryDate)}` : ''));
+      add(d(m.supplier ? `${t('ui.pill.supplier')} ${m.supplier}` : ''));
+      add(d(m.receivedDate ? `${t('ui.pill.received')} ${fmtDate(m.receivedDate)}` : ''));
+      break;
+    case 'DELETE_MEDICINE':
+      if (m.stockRows !== undefined) add(`${m.stockRows} stock rows`);
+      if (m.totalUnits !== undefined) add(`${m.totalUnits} units`);
+      if (m.expiredUnits) add(`${m.expiredUnits} expired`);
+      if (m.affectedAmbulances) add(`${m.affectedAmbulances} ambulances`);
+      break;
+    case 'RESTOCK':
+      add(d(m.batchNumber));
+      if (m.quantity !== undefined) add(`+${m.quantity}`);
+      add(d(m.reason));
+      break;
+    case 'USE_MEDICINE':
+      if (m.quantity !== undefined) add(`−${m.quantity}`);
+      add(d(m.reason));
+      break;
+    case 'ADJUST_INVENTORY':
+    case 'ADJUST':
+      if (m.field) add(t('ui.audit.field_changed', { field: m.field, from: fmtVal(m.from), to: fmtVal(m.to) }));
+      else if (m.from !== undefined && m.to !== undefined) add(`${fmtVal(m.from)} → ${fmtVal(m.to)}`);
+      add(d(m.reason));
+      break;
+    case 'INSPECTION':
+      if (m.corrections?.length) add(`${m.corrections.length} corrected`);
+      break;
+  }
+  return chips;
+}
+
+function fmtVal(v) {
+  if (v == null || v === '') return '—';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
 }
 
 function renderAuditEvent(log) {
@@ -838,6 +904,14 @@ function renderAuditEvent(log) {
       <div style="font-size:0.78rem;color:var(--text-muted);display:flex;gap:14px;flex-wrap:wrap;">
         <span>${icon('user')} ${esc(who)}</span>${station}${vehicle}
       </div>
+      ${
+        (() => {
+          const chips = auditChips(log);
+          return chips.length
+            ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${chips.map(c => `<span style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);padding:2px 8px;border-radius:6px;font-size:.68rem;color:var(--text-muted);">${c}</span>`).join('')}</div>`
+            : '';
+        })()
+      }
     </div>`;
 }
 
@@ -1789,45 +1863,127 @@ async function onSaveItem(e) {
 }
 
 // ── Inspections ────────────────────────────────────────────────
-async function checkItem(id) {
-  if (!requireAmbulance()) return;
-  const group = findGroup(id);
-  const single = S.items.find(i => i.id === id);
-  if (!group && !single) return;
-  const name = group ? group.name : single.name;
-  const items = group
-    ? group.batches.map(b => ({ inventoryId: b.id, actualQuantity: b.quantity }))
-    : [{ inventoryId: single.id, actualQuantity: single.quantity }];
-  try {
-    await api.createInspection({
-      ambulanceId: S.activeAmbulanceId,
-      notes: t('app.inspect.quick_note', { name: me().name }),
-      items,
-    });
-    toast(t('app.toast.checked', { name }));
-  } catch (err) { toast(err.message, 'error'); }
+/**
+ * Opens the count sheet. The crew types the quantity they actually counted
+ * (a blank field keeps the current quantity); any difference is corrected on
+ * the car the moment the sheet is submitted. `focusId` limits the sheet to a
+ * single item (tap-to-check), `null` means the whole car.
+ */
+/** Resolves a tap-to-check target: a medicine group expands to its lots. */
+function resolveInspectRows(focusId) {
+  if (!focusId) return S.items;
+  const group = findGroup(focusId);
+  if (group) {
+    return group.batches.map((b) => ({
+      id: b.id,
+      name: group.name,
+      size: group.size,
+      quantity: b.quantity,
+      expiry: b.expiry,
+    }));
+  }
+  const single = S.items.find((i) => i.id === focusId);
+  return single ? [single] : [];
 }
 
-async function startInspection() {
-  if (!S.activeAmbulanceId) { toast(t('app.inspect.no_car'), 'error'); return; }
+function openCountSheet(focusId) {
+  if (!requireAmbulance()) return;
   if (!S.items.length) { toast(t('app.inspect.no_items'), 'error'); return; }
+  const rows = resolveInspectRows(focusId);
+  if (!rows.length) return;
+
+  const sheet = document.getElementById('inspectSheet');
+  const count = document.getElementById('inspSheetCount');
+  if (!sheet) return;
+
+  sheet.innerHTML = rows.map((i) => `
+    <div class="insp-row" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,.03);">
+      <div style="flex:1;min-width:180px;">
+        <div style="font-size:.9rem;font-weight:600;">${esc(i.name)}${i.size ? ` <span style="font-weight:500;font-size:.75rem;color:var(--text-muted);">(${esc(i.size)})</span>` : ''}</div>
+        <div style="font-size:.72rem;color:var(--text-muted);">${t('app.insp.sheet.col.current')} <strong>${esc(i.quantity)}</strong>${i.expiry ? ` · ${t('ui.pill.expiry')} ${fmtDate(i.expiry)}` : ''}</div>
+      </div>
+      <input type="number" min="0" step="1" class="form-control insp-count" data-id="${esc(i.id)}" data-cur="${esc(i.quantity)}" data-name="${esc(i.name)}"
+             style="width:96px;text-align:center;" aria-label="${t('app.insp.sheet.col.counted')}" oninput="App.markInspectRow(this)">
+      <div class="insp-state" style="font-size:.72rem;font-weight:700;width:96px;text-align:center;color:var(--text3);"></div>
+      <input type="text" class="form-control insp-note" style="width:130px;display:none;" placeholder="${t('app.insp.sheet.col.note')}" aria-label="${t('app.insp.sheet.col.note')}">
+    </div>`).join('');
+
+  if (count) {
+    count.textContent = focusId ? rows[0].name : t('app.insp.sheet.shown', { shown: rows.length, total: S.items.length });
+    count.style.color = focusId ? 'var(--text)' : 'var(--text3)';
+  }
+  openModal('modal-inspect');
+}
+
+function markInspectRow(input) {
+  const row = input.parentElement;
+  const cur = parseInt(input.dataset.cur, 10);
+  const raw = input.value.trim();
+  const different = raw !== '' && parseInt(raw, 10) !== cur;
+  const state = row.querySelector('.insp-state');
+  const note = row.querySelector('.insp-note');
+  if (state) {
+    if (raw === '') { state.textContent = ''; state.style.color = 'var(--text3)'; }
+    else if (!different) { state.textContent = t('app.insp.sheet.same'); state.style.color = '#22C55E'; }
+    else { const v = parseInt(raw, 10); state.textContent = `Δ${v > cur ? '+' : ''}${v - cur}`; state.style.color = 'var(--warning)'; }
+  }
+  if (note) note.style.display = different ? 'block' : 'none';
+  updateInspCount();
+}
+
+function updateInspCount() {
+  const count = document.getElementById('inspSheetCount');
+  if (!count) return;
+  let mism = 0;
+  document.querySelectorAll('.insp-count').forEach((inp) => {
+    const cur = parseInt(inp.dataset.cur, 10);
+    const raw = inp.value.trim();
+    if (raw !== '' && parseInt(raw, 10) !== cur) mism++;
+  });
+  if (mism) { count.textContent = t('app.insp.sheet.mismatches', { n: mism }); count.style.color = 'var(--warning)'; }
+  else { count.textContent = t('app.insp.sheet.same'); count.style.color = '#22C55E'; }
+}
+
+async function submitCountSheet() {
+  if (!S.activeAmbulanceId) { toast(t('app.inspect.no_car'), 'error'); return; }
+  const items = [];
+  const corrections = [];
+  document.querySelectorAll('.insp-count').forEach((inp) => {
+    const id = inp.dataset.id;
+    const name = inp.dataset.name || '—';
+    const cur = parseInt(inp.dataset.cur, 10) || 0;
+    const raw = inp.value.trim();
+    const v = raw === '' ? null : parseInt(raw, 10);
+    const qty = (v === null || isNaN(v)) ? cur : v;
+    const noteEl = inp.parentElement.querySelector('.insp-note');
+    const note = noteEl && noteEl.value.trim() ? noteEl.value.trim() : null;
+    if (v !== null && !isNaN(v) && v !== cur) corrections.push(`${name}: ${cur} → ${v}${note ? ` (${note})` : ''}`);
+    items.push({ inventoryId: id, actualQuantity: qty, notes: note });
+  });
+  if (!items.length) return;
+
+  if (corrections.length && !window.confirm(t('app.insp.sheet.confirm', { n: corrections.length, list: corrections.join('\n') }))) return;
+
   const inspType = document.getElementById('inspType')?.value || 'daily';
   const inspNotes = document.getElementById('inspNotes')?.value.trim() || null;
   const notes = [inspType.toUpperCase(), inspNotes].filter(Boolean).join(' — ');
-  const items = S.items.map(i => ({ inventoryId: i.id, actualQuantity: i.quantity }));
   try {
     for (let i = 0; i < items.length; i += 400) {
       await api.createInspection({
         ambulanceId: S.activeAmbulanceId,
-        notes: i === 0 ? notes : null,
+        notes: i === 0 ? (notes || t('app.inspect.quick_note', { name: me().name })) : null,
         items: items.slice(i, i + 400),
       });
     }
+    closeModal('modal-inspect');
     await loadLastInspection();
     renderDashboard();
-    toast(t('app.inspect.started'), 'success');
+    toast(corrections.length ? t('app.inspect.started') : t('app.insp.sheet.same'), corrections.length ? 'success' : 'info');
   } catch (err) { toast(err.message, 'error'); }
 }
+
+function startInspection() { openCountSheet(null); }
+function checkItem(id) { openCountSheet(id); }
 
 // ── Use ────────────────────────────────────────────────────────
 function openUseModal(id) {
@@ -2517,6 +2673,8 @@ window.App = {
   showAllBatches,
   checkItem,
   markChecked: checkItem,
+  markInspectRow,
+  submitCountSheet,
   openUseModal,
   confirmUse,
   openSupplyModal,

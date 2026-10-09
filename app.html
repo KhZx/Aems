@@ -146,7 +146,7 @@
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <div>
               <div style="font-size:1rem;font-weight:700;margin-bottom:2px;" data-i18n="app.insp.title">▶ Start New Inspection Session</div>
-              <div style="font-size:0.78rem;color:rgba(255,255,255,0.5);" data-i18n="app.insp.subtitle">A snapshot of current quantities will be taken for comparison</div>
+              <div style="font-size:0.78rem;color:rgba(255,255,255,0.5);" data-i18n="app.insp.subtitle">Enter the quantity you actually count for each item. Any difference is corrected on the car immediately when you submit.</div>
             </div>
             <button class="btn btn-success" onclick="App.startInspection()" data-i18n="app.insp.btn">Start Inspection & Log Changes</button>
           </div>
@@ -724,6 +724,25 @@
     <div class="modal-footer">
       <button type="button" class="btn btn-ghost" onclick="closeModal('modal-use')" data-i18n="modal.cancel">Cancel</button>
       <button type="button" class="btn btn-warning btn-lg" onclick="App.confirmUse()" data-i18n="modal.use.confirm">✓ Confirm Usage</button>
+    </div>
+  </div>
+</div>
+
+<!-- Inspection Count Sheet -->
+<div id="modal-inspect" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-inspect')">
+  <div class="modal-box" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" data-i18n="app.insp.sheet.title">Count & Inspect — enter what you actually counted</div>
+      <button class="modal-close" onclick="closeModal('modal-inspect')">✕</button>
+    </div>
+    <div class="modal-body" style="overflow:auto;">
+      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;" data-i18n="app.insp.sheet.sub">Only items whose counted number differs will be corrected.</div>
+      <div id="inspSheetCount" style="font-size:.78rem;font-weight:700;margin-bottom:10px;"></div>
+      <div id="inspectSheet"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeModal('modal-inspect')" data-i18n="modal.cancel">Cancel</button>
+      <button type="button" class="btn btn-success btn-lg" onclick="App.submitCountSheet()" data-i18n="app.insp.sheet.submit">✓ Submit Count</button>
     </div>
   </div>
 </div>

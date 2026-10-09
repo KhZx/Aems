@@ -96,8 +96,18 @@ let _directory = [];          // publicStations() listing
 let _rawInventory = [];
 let _rawAudit = [];
 let _crew = [];               // approved users, for the duty board
-let _auditPage = 0;
-const AUDIT_PAGE_SIZE = 50;
+let _auditPage = 0;           // server pages of audit already loaded
+let _auditTotal = 0;          // total audit rows the backend holds for this scope
+const AUDIT_PAGE_SIZE = 100;
+
+/** Metadata keys that are bookkeeping, not "details the user filled in". */
+const INTERNAL_META_KEYS = new Set(['userId', 'userEmail', 'medicineId', 'referenceId', 'ipAddress', 'userAgent', 'templateId', 'ambulanceId']);
+
+function fmtMetaVal(v) {
+  if (v == null || v === '') return '—';
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
 const _expanded = new Set();
 let _reportSet = new Set();
 let _reportData = null;
@@ -171,9 +181,12 @@ async function refreshInventory() {
   rebuildStations();
 }
 async function refreshAudit() {
-  const res = await api.auditLogs({ pageSize: 200 });
+  // Page 1: the backend auto-scopes this to the units the supervisor manages,
+  // so a freshly tracked unit's entire history shows up immediately.
+  const res = await api.auditLogs({ page: 1, pageSize: AUDIT_PAGE_SIZE });
   _rawAudit = Array.isArray(res) ? res : (res?.logs || []);
-  _auditPage = 0;
+  _auditTotal = (res && res.total) || _rawAudit.length;
+  _auditPage = 1;
 }
 async function loadDirectory() {
   try {
@@ -317,7 +330,7 @@ window.renderDuty = function () {
     const m = (e.metadata && typeof e.metadata === 'object') ? e.metadata : {};
     const from = unitLabel(m.from, m.fromName);
     const to = unitLabel(m.to, m.toName);
-    const who = e.userName || e.userEmail || '—';
+    const who = e.user?.displayName || e.user?.email || e.userName || e.userEmail || '—';
     const reason = e.reason || m.reason || '';
     return `<div class="duty-switch-row">
       <div class="duty-switch-time">${fmtDateTime(e.createdAt)}</div>
@@ -1025,9 +1038,14 @@ function renderAudit() {
   const stSel = $('auditStationFilter');
   if (stSel) {
     const current = stSel.value;
-    stSel.innerHTML = `<option value="">${t('sup.filter.all')}</option>` + stations.map((id) => {
-      const d = _supData[id]; if (!d) return '';
-      return `<option value="${esc(id)}" ${current === id ? 'selected' : ''}>${esc(d.name)}</option>`;
+    // Offer every unit this supervisor can see: managed units plus any unit
+    // that appears in the (historical) audit rows, even if it holds no stock.
+    const ids = new Set(stations);
+    _rawAudit.forEach((e) => { if (e.stationId) ids.add(e.stationId); });
+    stSel.innerHTML = `<option value="">${t('sup.filter.all')}</option>` + [...ids].map((id) => {
+      const d = _supData[id] || _stationMeta.get(id) || {};
+      const label = d.name || d.code || id;
+      return `<option value="${esc(id)}" ${current === id ? 'selected' : ''}>${esc(label)}</option>`;
     }).join('');
   }
   stSel.onchange = renderAudit;
@@ -1051,19 +1069,29 @@ function renderAudit() {
   });
 
   $('auditCount').textContent = `${entries.length} ${t('sup.items_count')}`;
-  const page = entries.slice(0, (_auditPage + 1) * AUDIT_PAGE_SIZE);
 
-  $('auditList').innerHTML = page.length ? page.map((e) => {
-    const d = e.stationId ? _supData[e.stationId] : null;
-    const stName = d ? d.name : '—';
-    const who = e.userName || e.userEmail || '—';
+  $('auditList').innerHTML = entries.length ? entries.map((e) => {
+    const d = e.stationId ? (_supData[e.stationId] || _stationMeta.get(e.stationId)) : null;
+    const stName = d ? (d.name || d.code) : '—';
+    const who = e.user?.displayName || e.user?.email || e.userName || e.userEmail || '—';
     let meta = '';
     try {
       if (e.metadata && typeof e.metadata === 'object') {
-        meta = '<div style="font-size:.68rem;color:var(--text3);margin-top:2px;">' +
-          Object.entries(e.metadata).filter(([k]) => !['userId', 'userEmail'].includes(k)).map(([k, v]) =>
-            `<span style="display:inline-block;margin-right:6px;">${esc(k)}: ${esc(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span>`
-          ).join('') + '</div>';
+        const items = [];
+        for (const [k, v] of Object.entries(e.metadata)) {
+          if (INTERNAL_META_KEYS.has(k)) continue;
+          if (k === 'changed' && v && typeof v === 'object') {
+            for (const [field, diff] of Object.entries(v)) {
+              items.push(`${field}: ${fmtMetaVal(diff.from)} → ${fmtMetaVal(diff.to)}`);
+            }
+            continue;
+          }
+          items.push(`${k}: ${fmtMetaVal(v)}`);
+        }
+        if (items.length) {
+          meta = '<div style="font-size:.68rem;color:var(--text3);margin-top:2px;">' +
+            items.map(i => `<span style="display:inline-block;margin-right:6px;">${esc(i)}</span>`).join('') + '</div>';
+        }
       }
     } catch { meta = ''; }
     return `<div class="audit-row">
@@ -1080,10 +1108,21 @@ function renderAudit() {
   }).join('') : `<div class="empty"><div class="empty-icon">${icon('list')}</div><div class="empty-text">${t('sup.audit.empty')}</div></div>`;
 
   const loadMore = $('auditLoadMore');
-  loadMore.style.display = entries.length > (_auditPage + 1) * AUDIT_PAGE_SIZE ? 'block' : 'none';
+  loadMore.style.display = _rawAudit.length < _auditTotal ? 'block' : 'none';
 }
 
-window.loadMoreAudit = function () { _auditPage++; renderAudit(); };
+window.loadMoreAudit = async function () {
+  if (_rawAudit.length >= _auditTotal) return;
+  try {
+    const res = await api.auditLogs({ page: _auditPage + 1, pageSize: AUDIT_PAGE_SIZE });
+    _rawAudit = _rawAudit.concat((res && res.logs) || []);
+    _auditTotal = (res && res.total) || _auditTotal;
+    _auditPage += 1;
+    renderAudit();
+  } catch (err) {
+    toast(err && err.message || String(err), 'error');
+  }
+};
 
 // ── Supply request review queue ────────────────────────────
 async function loadSupply() {
@@ -1211,7 +1250,8 @@ async function refreshAssignment() {
     window.AEMS_PERMS = _session.permissions || [];
     setSession(_session);
     applyAssignment(me2.user || {});
-    await Promise.all([loadDirectory(), refreshInventory()]);
+    // Reload the audit too: the newly tracked unit brings its full history.
+    await Promise.all([loadDirectory(), refreshInventory(), refreshAudit()]);
     applyAll();
   } catch (err) {
     toast(err && err.message || String(err), 'error');
@@ -1219,11 +1259,11 @@ async function refreshAssignment() {
 }
 window.refreshAssignment = refreshAssignment;
 
-// Assignment is made by an administrator from the admin console (user approval
-// / edit). This page only ever edits the signed-in session user, so it must not
-// attempt to write the list itself.
+// Supervisors manage their OWN unit list here (self-assignment, no admin
+// approval). The endpoint always targets the caller, so it cannot be used to
+// change anyone else's access.
 function canAssignStations() {
-  return false;
+  return !!window.AEMS_PERMS?.includes('station:selfAssign');
 }
 
 window.trackStation = async function (code) {
@@ -1231,7 +1271,7 @@ window.trackStation = async function (code) {
   const cur = Array.isArray(_session.user?.managedStations) ? _session.user.managedStations.map((m) => m.code) : [];
   if (cur.includes(code)) return;
   try {
-    await api.setManagedStations(_session.user.id, [...cur, code]);
+    await api.setMyManagedStations([...cur, code]);
     await refreshAssignment();
     toast(t('sup.toast.changes_saved'), 'success');
   } catch (err) { toast(err && err.message || String(err), 'error'); }
@@ -1241,7 +1281,7 @@ window.untrackStation = async function (code) {
   if (!canAssignStations()) { toast(t('sup.manage.assign_admin_only'), 'error'); return; }
   const cur = Array.isArray(_session.user?.managedStations) ? _session.user.managedStations.map((m) => m.code) : [];
   try {
-    await api.setManagedStations(_session.user.id, cur.filter((c) => c !== code));
+    await api.setMyManagedStations(cur.filter((c) => c !== code));
     await refreshAssignment();
     toast(t('sup.toast.changes_saved'), 'success');
   } catch (err) { toast(err && err.message || String(err), 'error'); }

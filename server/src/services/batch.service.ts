@@ -55,6 +55,8 @@ export async function createBatch(actorId: string, input: CreateBatchInput, meta
       medicineName: medicine.name,
       batchNumber,
       expiryDate: batch.expiryDate.toISOString(),
+      receivedDate: batch.receivedDate ? batch.receivedDate.toISOString() : null,
+      supplier: batch.supplier ?? null,
     },
     ...meta,
   });

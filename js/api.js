@@ -95,9 +95,12 @@ export const api = {
   // ── Auth ────────────────────────────────────────────────
   login: (token) => request('/auth/login', { method: 'POST', body: {}, token }),
   me: () => request('/auth/me'),
-  // Administrator-only: assign which units a supervisor is responsible for.
+  // Administrator-only: assign which units another supervisor is responsible for.
   setManagedStations: (userId, stationCodes) =>
     request(`/users/${userId}/managed-stations`, { method: 'PUT', body: { stationCodes } }),
+  // Supervisor self-service: edit the units on your OWN managed list.
+  setMyManagedStations: (stationCodes) =>
+    request('/me/managed-stations', { method: 'PUT', body: { stationCodes } }),
   register: (data, token) => request('/auth/register', { method: 'POST', body: data, token }),
   publicStations: () => request('/public/stations'),
 

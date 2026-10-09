@@ -97,12 +97,16 @@ router.get('/auth/me', authenticate, auth.me);
 // 🗺️ Duty unit (crew switching — unlimited, reason required, audited)
 router.get('/me/duty', authenticate, duty.state);
 router.post('/me/duty/switch', authenticate, validate(switchDutySchema), duty.switchUnit);
-/**
- * Supervisor station assignments are an ADMIN decision: a supervisor used to be
- * able to set this list for themselves and hand themselves any unit in the
- * fleet, which defeated the whole station-scoping model. The assignment now
- * lives with the users routes (PUT /users/:id/managed-stations).
- */
+// Supervisor self-assignment: a supervisor may add/remove the units on their
+// OWN managed list without admin approval (station:selfAssign). Admins can
+// still assign any supervisor's list via PUT /users/:id/managed-stations.
+router.put(
+  '/me/managed-stations',
+  authenticate,
+  requirePermission('station:selfAssign'),
+  validate(setManagedStationsSchema),
+  users.setMyManagedStations,
+);
 
 // ── Users ───────────────────────────────────────────────────────
 router.get('/users', authenticate, requirePermission('user:read'), validate(listUsersQuerySchema, 'query'), users.list);

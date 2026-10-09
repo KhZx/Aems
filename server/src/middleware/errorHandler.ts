@@ -126,6 +126,7 @@ function logScopeDenial(req: Request, code: string, message: string): void {
       const { prisma } = await import('../config/prisma.js');
       await createAudit(prisma, {
         userId: user.id,
+        stationId: user.stationId ?? null,
         action: 'SECURITY_SCOPE_DENIED',
         entityType: 'HttpRequest',
         metadata: {

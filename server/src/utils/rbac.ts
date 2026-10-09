@@ -17,6 +17,8 @@ export type Permission =
   | 'station:delete'
   /** ADMIN only: hand out/revoke supervisor station assignments. */
   | 'station:assign'
+  /** SUPERVISOR: add/remove stations on their own managed list. */
+  | 'station:selfAssign'
   | 'ambulance:read'
   | 'ambulance:create'
   | 'ambulance:update'
@@ -65,6 +67,7 @@ const ALL_PERMISSIONS: Permission[] = [
   'station:update',
   'station:delete',
   'station:assign',
+  'station:selfAssign',
   'ambulance:read',
   'ambulance:create',
   'ambulance:update',
@@ -111,6 +114,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPERVISOR: [
     'user:read',
     'station:read',
+    'station:selfAssign',
     'ambulance:read',
     'medicine:read',
     'medicine:delete',

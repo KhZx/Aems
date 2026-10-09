@@ -449,17 +449,27 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
       await request(app).patch(`/api/ambulances/${ambulanceBUnit}`).set(auth(adminToken)).send({ status: 'ACTIVE' }).expect(200);
     });
 
-    it('only lets an administrator assign units to a supervisor', async () => {
+    it('lets a supervisor self-assign units but not touch anyone else', async () => {
       const sup = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-sup' } });
 
-      // The supervisor's old self-service route is gone entirely.
+      // The supervisor may widen their own managed list (no admin needed).
       await request(app)
-        .put('/api/auth/me/managed-stations')
+        .put('/api/me/managed-stations')
         .set(auth(supervisorToken))
         .send({ stationCodes: ['100', '200'] })
-        .expect(404);
+        .expect(200);
 
-      // …and the admin route is closed to everyone else.
+      let row = await prisma.user.findUniqueOrThrow({ where: { id: sup.id }, include: { managedStations: true } });
+      expect(row.managedStations.map((m) => m.stationId).sort()).toEqual([stationId, stationB].sort());
+
+      // Crew cannot reach the self-service route at all.
+      await request(app)
+        .put('/api/me/managed-stations')
+        .set(auth('token-emt'))
+        .send({ stationCodes: ['100'] })
+        .expect(403);
+
+      // …and nobody but an admin may edit ANOTHER user's list.
       await request(app)
         .put(`/api/users/${sup.id}/managed-stations`)
         .set(auth(supervisorToken))
@@ -471,25 +481,15 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
         .send({ stationCodes: ['100'] })
         .expect(403);
 
-      let row = await prisma.user.findUniqueOrThrow({ where: { id: sup.id }, include: { managedStations: true } });
-      expect(row.managedStations.map((m) => m.stationId)).toEqual([stationId]);
-
-      // An administrator can widen it.
-      await request(app)
-        .put(`/api/users/${sup.id}/managed-stations`)
-        .set(auth(adminToken))
-        .send({ stationCodes: ['100', '200'] })
-        .expect(200);
-
-      row = await prisma.user.findUniqueOrThrow({ where: { id: sup.id }, include: { managedStations: true } });
-      expect(row.managedStations.map((m) => m.stationId).sort()).toEqual([stationId, stationB].sort());
-
-      // Put it back.
+      // An administrator can still set it directly.
       await request(app)
         .put(`/api/users/${sup.id}/managed-stations`)
         .set(auth(adminToken))
         .send({ stationCodes: ['100'] })
         .expect(200);
+
+      row = await prisma.user.findUniqueOrThrow({ where: { id: sup.id }, include: { managedStations: true } });
+      expect(row.managedStations.map((m) => m.stationId)).toEqual([stationId]);
     });
 
     it('soft-deletes a shift note: author within 12h, supervisor for the rest', async () => {

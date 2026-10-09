@@ -68,11 +68,36 @@ export async function createMedicine(actorId: string, input: CreateMedicineInput
     action: 'CREATE_MEDICINE',
     entityType: 'Medicine',
     entityId: medicine.id,
-    metadata: { name: medicine.name, category: medicine.category },
+    metadata: {
+      name: medicine.name,
+      ...filledDetails({
+        category: medicine.category,
+        genericName: medicine.genericName,
+        strength: medicine.strength,
+        dosageForm: medicine.dosageForm,
+        size: medicine.size,
+        unit: medicine.unit,
+        barcode: medicine.barcode,
+        location: medicine.location,
+        serialNumber: medicine.serialNumber,
+        notes: medicine.notes,
+        technicalNotes: medicine.technicalNotes,
+      }),
+    },
     ...meta,
   });
 
   return medicine;
+}
+
+/** Keeps only the fields the user actually filled in, so the audit entry is a
+ * faithful list of what was on the form rather than a wall of nulls. */
+function filledDetails(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== null && value !== undefined && value !== '') out[key] = value;
+  }
+  return out;
 }
 
 export async function updateMedicine(
@@ -110,12 +135,27 @@ export async function updateMedicine(
     },
   });
 
+  const FIELDS = [
+    'name', 'genericName', 'category', 'strength', 'dosageForm', 'size',
+    'unit', 'barcode', 'location', 'serialNumber', 'notes', 'technicalNotes', 'isActive',
+  ] as const;
+
+  // Record exactly what changed, value-wise, so the audit trail shows the
+  // before → after of every edited field instead of a bare name.
+  const changed: Record<string, { from: unknown; to: unknown }> = {};
+  for (const field of FIELDS) {
+    if (input[field] === undefined) continue;
+    const from = (before as unknown as Record<string, unknown>)[field];
+    const to = (medicine as unknown as Record<string, unknown>)[field];
+    if (JSON.stringify(from) !== JSON.stringify(to)) changed[field] = { from, to };
+  }
+
   await createAudit(prisma, {
     userId: actorId,
     action: 'UPDATE_MEDICINE',
     entityType: 'Medicine',
     entityId: medicine.id,
-    metadata: { name: medicine.name },
+    metadata: { name: medicine.name, changed },
     ...meta,
   });
 

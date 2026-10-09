@@ -287,6 +287,7 @@ export async function rejectUser(actorId: string, targetId: string, meta: AuditE
     action: 'REJECT_USER',
     entityType: 'User',
     entityId: targetId,
+    stationId: user.stationId ?? undefined,
     metadata: { targetUserId: targetId, targetEmail: user.email },
     ...meta,
   });
@@ -314,6 +315,7 @@ export async function setUserStatus(
     action: status === 'DISABLED' ? 'DISABLE_USER' : 'SUSPEND_USER',
     entityType: 'User',
     entityId: targetId,
+    stationId: user.stationId ?? undefined,
     metadata: { targetUserId: targetId, targetEmail: user.email },
     ...meta,
   });
@@ -429,19 +431,23 @@ export async function deleteUser(actorId: string, targetId: string, meta: AuditE
     action: 'DELETE_USER',
     entityType: 'User',
     entityId: targetId,
+    stationId: target.stationId ?? undefined,
     metadata: { targetUserId: targetId, targetEmail: target.email },
     ...meta,
   });
 }
 
 /**
- * Replaces a user's managed-station list. Administrator-only (enforced by the
- * `station:assign` permission in the route). Throws if any code is unknown or
- * the station is inactive.
+ * Replaces a user's managed-station list. Administrators reach this through
+ * `station:assign`; a supervisor may only edit their OWN list via
+ * `station:selfAssign`. Throws if any code is unknown or the station is
+ * inactive. Every change is audited (`self` marks a supervisor self-assignment).
  */
 export async function setManagedStationsForUser(
+  actorId: string,
   userId: string,
   codes: string[],
+  meta: AuditEntryInput = {},
 ): Promise<{ id: string; code: string; name: string }[]> {
   const unique = [...new Set(codes.map((c) => c.trim()).filter(Boolean))];
   if (unique.length > 50) throw AppError.badRequest('Too many stations (max 50)');
@@ -462,6 +468,26 @@ export async function setManagedStationsForUser(
       skipDuplicates: true,
     });
   }
+
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { stationId: true },
+  });
+
+  await createAudit(prisma, {
+    userId: actorId,
+    action: 'SET_MANAGED_STATIONS',
+    entityType: 'User',
+    entityId: userId,
+    stationId: target?.stationId ?? undefined,
+    metadata: {
+      targetUserId: userId,
+      self: actorId === userId,
+      stationCodes: found.map((s) => s.code).sort(),
+      stationCount: found.length,
+    },
+    ...meta,
+  });
 
   return found;
 }
@@ -521,6 +547,7 @@ export async function setUserUnits(
     action: 'UPDATE_USER_UNITS',
     entityType: 'User',
     entityId: targetId,
+    stationId: nextActive,
     metadata: {
       targetUserId: targetId,
       targetEmail: target.email,

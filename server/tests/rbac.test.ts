@@ -40,7 +40,7 @@ describe('RBAC permission model', () => {
     }
   });
 
-  it('supervisors may adjust/inspect/transfer and manage the catalogue, but not roles or assignments', () => {
+  it('supervisors may adjust/inspect/transfer and manage the catalogue, but not roles', () => {
     const p = permissionsFor('SUPERVISOR');
     expect(p.has('inventory:adjust')).toBe(true);
     expect(p.has('inventory:transfer')).toBe(true);
@@ -50,14 +50,24 @@ describe('RBAC permission model', () => {
     expect(p.has('shiftnote:restore')).toBe(true);
     expect(p.has('user:approve')).toBe(false);
     expect(p.has('user:changeRole')).toBe(false);
-    // A supervisor must not be able to grant themselves more units.
+    // A supervisor may only edit their OWN managed list, never anyone else's.
     expect(p.has('station:assign')).toBe(false);
+    expect(p.has('station:selfAssign')).toBe(true);
   });
 
-  it('only ADMIN may assign stations', () => {
+  it('only ADMIN may assign stations to other users', () => {
     expect(permissionsFor('ADMIN').has('station:assign')).toBe(true);
     for (const role of ['PARAMEDIC', 'EMT', 'TECHNICIAN', 'DOCTOR', 'SUPERVISOR'] as const) {
       expect(permissionsFor(role).has('station:assign')).toBe(false);
+    }
+  });
+
+  it('only SUPERVISOR and ADMIN may self-assign their own managed stations', () => {
+    for (const role of ['SUPERVISOR', 'ADMIN'] as const) {
+      expect(permissionsFor(role).has('station:selfAssign')).toBe(true);
+    }
+    for (const role of ['PARAMEDIC', 'EMT', 'TECHNICIAN', 'DOCTOR'] as const) {
+      expect(permissionsFor(role).has('station:selfAssign')).toBe(false);
     }
   });
 

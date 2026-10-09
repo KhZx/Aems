@@ -630,6 +630,10 @@
     <div id="page-logs" class="page">
       <!-- Filter bar -->
       <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;">
+        <select id="logStationFilter" onchange="loadStationLog()"
+          style="padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-family:var(--font-body);font-size:.8rem;outline:none;cursor:pointer;">
+          <option value="" data-i18n="admin.log.station_all">All Stations</option>
+        </select>
         <select id="logSourceFilter" onchange="filterLogs()"
           style="padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-family:var(--font-body);font-size:.8rem;outline:none;cursor:pointer;">
           <option value="" data-i18n="admin.log.source_all">All Sources</option>
@@ -648,8 +652,6 @@
           <option value="supervisor_edit" data-i18n="admin.log.action_sup_edit">Supervisor Edit</option>
           <option value="report" data-i18n="admin.log.action_report">Report</option>
         </select>
-        <input type="text" id="logStationFilter" data-i18n-placeholder="admin.log.filter_ph" placeholder="Filter by station code…" oninput="filterLogs()"
-          style="padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:var(--font-body);font-size:.8rem;outline:none;width:180px;">
       </div>
       <!-- Firebase live log -->
       <div class="section">
@@ -1448,11 +1450,22 @@ window.exportUsersCSV = function() {
       toast(err.message || 'Failed to load stations', 'error');
     }
     renderStations();
+    populateStationLogFilter();
     document.getElementById('statStations').textContent = _stations.length;
     updateEquipStat();
     if (document.getElementById('page-equipment').classList.contains('active')) {
       renderEquipment();
     }
+  }
+
+  /** Fills the audit station picker; choosing one loads that unit's full history. */
+  function populateStationLogFilter() {
+    const sel = document.getElementById('logStationFilter');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = `<option value="" data-i18n="admin.log.station_all">${esc(t('admin.log.station_all'))}</option>` +
+      _stations.map(s => `<option value="${esc(s.id)}" ${current === s.id ? 'selected' : ''}>${esc(s.code)} — ${esc(s.name || '')}</option>`).join('');
+    if (current && _stations.some(s => s.id === current)) sel.value = current;
   }
 
   function updateEquipStat() {
@@ -1497,6 +1510,12 @@ window.exportUsersCSV = function() {
     };
   }
 
+  function fmtLog(v) {
+    if (v == null || v === '') return '—';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
   function auditDetails(action, e) {
     const m = e.metadata || {};
     switch (action) {
@@ -1513,10 +1532,22 @@ window.exportUsersCSV = function() {
       case 'CREATE_SHIFT_NOTE': return `Shift note created${m.title ? ` — ${m.title}` : ''}`;
       case 'DELETE_SHIFT_NOTE':  return `Shift note deleted${m.title ? ` — ${m.title}` : ''}`;
       case 'CREATE_REPORT':    return `Report created${m.title ? ` — ${m.title}` : ''}`;
-      case 'CREATE_MEDICINE':  return `Medicine added${m.name ? ` — ${m.name}` : ''}`;
-      case 'UPDATE_MEDICINE':  return `Medicine updated${m.name ? ` — ${m.name}` : ''}`;
-      case 'DELETE_MEDICINE':  return `Medicine deleted${m.name ? ` — ${m.name}` : ''}`;
-      case 'CREATE_BATCH':     return `Batch added${m.batchNumber ? ` — ${m.batchNumber}` : ''}${m.expiryDate ? ` (exp ${new Date(m.expiryDate).toLocaleDateString()})` : ''}`;
+      case 'CREATE_MEDICINE': {
+        const parts = [m.name, m.category, m.strength && m.dosageForm ? `${m.strength} ${m.dosageForm}` : m.strength, m.size].filter(Boolean);
+        return `Medicine added — ${parts.join(' · ') || '—'}`;
+      }
+      case 'UPDATE_MEDICINE': {
+        const diffs = Object.entries(m.changed || {}).map(([k, d]) => `${k}: ${fmtLog(d.from)} → ${fmtLog(d.to)}`).join('; ');
+        return `Medicine updated${m.name ? ` — ${m.name}` : ''}${diffs ? ` | ${diffs}` : ''}`;
+      }
+      case 'DELETE_MEDICINE': {
+        const impact = [m.stockRows ? `${m.stockRows} stock rows` : '', m.totalUnits !== undefined ? `${m.totalUnits} units` : '', m.expiredUnits ? `${m.expiredUnits} expired` : '', m.affectedAmbulances ? `${m.affectedAmbulances} ambulances` : '', m.forcedFleetWide ? 'fleet-wide' : ''].filter(Boolean).join(', ');
+        return `Medicine deleted${m.name ? ` — ${m.name}` : ''}${impact ? ` | ${impact}` : ''}`;
+      }
+      case 'CREATE_BATCH': {
+        const parts = [m.batchNumber, m.expiryDate ? `exp ${new Date(m.expiryDate).toLocaleDateString()}` : '', m.supplier ? `supplier: ${m.supplier}` : '', m.receivedDate ? `received ${new Date(m.receivedDate).toLocaleDateString()}` : ''].filter(Boolean);
+        return `Batch added — ${parts.join(' · ') || '—'}`;
+      }
       case 'CREATE_STATION':   return `Station created${m.code ? ` — ${m.code}` : ''}`;
       case 'UPDATE_STATION':   return `Station updated${m.code ? ` — ${m.code}` : ''}`;
       case 'DELETE_STATION':   return `Station deleted${m.code ? ` — ${m.code}` : ''}`;
@@ -1546,7 +1577,10 @@ window.exportUsersCSV = function() {
 
   async function refreshAuditLogs() {
     try {
-      const data = await api.auditLogs({ pageSize: 200 });
+      // When a station is picked the backend returns that unit's *entire*
+      // history (past and future), not just what fits in the recent 200.
+      const stationId = document.getElementById('logStationFilter')?.value || undefined;
+      const data = await api.auditLogs({ pageSize: 200, ...(stationId ? { stationId } : {}) });
       _auditLogs = (data.logs || []).map(mapAudit);
       renderAuditViews();
     } catch (err) {
@@ -1554,30 +1588,34 @@ window.exportUsersCSV = function() {
     }
   }
 
+  window.loadStationLog = function () { refreshAuditLogs(); };
+
   function renderAuditViews() {
     if (!_auditLogs.length) return;
     if (document.getElementById('page-logs').classList.contains('active')) renderFbLogs();
+    // Keep the dashboard's "recent activity" global: don't narrow it to a
+    // single station when the logs page has a station selected.
     const dashEl = document.getElementById('dashLogs');
-    if (dashEl) renderLogs('dashLogs');
+    if (dashEl && !document.getElementById('logStationFilter')?.value) renderLogs('dashLogs');
   }
 
   function renderFbLogs() {
     const sourceF  = document.getElementById('logSourceFilter')?.value  || '';
     const typeF    = document.getElementById('logTypeFilter')?.value    || '';
-    const stationF = (document.getElementById('logStationFilter')?.value || '').toUpperCase();
     const el       = document.getElementById('fbLogsList');
     if (!el) return;
+    // Station filtering is done server-side (see refreshAuditLogs); here we
+    // only narrow by source/type over the already-fetched station history.
     let filtered = _auditLogs;
     if (sourceF)  filtered = filtered.filter(e => e.source === sourceF);
     if (typeF)    filtered = filtered.filter(e => e.type   === typeF);
-    if (stationF) filtered = filtered.filter(e => (e.stationCode || '').toUpperCase().includes(stationF));
     const count = document.getElementById('logsCount');
     if (count) count.textContent = t('admin.log.events_count', { n: filtered.length });
     if (!filtered.length) {
       el.innerHTML = '<div style="padding:1rem;color:var(--text3);font-size:.84rem;text-align:center;">' + t('admin.log.empty_live') + '</div>';
       return;
     }
-    el.innerHTML = filtered.slice(0, 80).map(e => {
+    el.innerHTML = filtered.slice(0, 200).map(e => {
       const color = typeColors[e.type] || '#94A3B8';
       const sourceLabel = e.source === 'supervisor' ? t('admin.log.source_sup') : e.source === 'admin' ? t('admin.log.source_admin') : t('admin.log.source_app');
       const stLabel = e.stationCode ? `<span style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:1px 6px;border-radius:4px;font-size:.7rem;font-weight:700;margin-inline-start:6px;">${esc(e.stationCode)}</span>` : '';
