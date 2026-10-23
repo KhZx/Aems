@@ -7,6 +7,27 @@ export const LANGS = {
 
 export const T = {
   en: {
+    // ── Demo maintenance interstitial ──────────────────────
+    'maintenance.document_title':'AEMS — Updating in Progress',
+    'maintenance.eyebrow':'AEMS · DEMO ENVIRONMENT',
+    'maintenance.status':'DEMO PREPARATION',
+    'maintenance.signal':'A BETTER DEMO IS TAKING SHAPE',
+    'maintenance.title':'Updating in progress',
+    'maintenance.description':'We’re preparing the AEMS demo. The experience will be back as soon as the final checks are complete.',
+    'maintenance.progress':'PREPARING THE DEMO',
+    'maintenance.progress_state':'IN PROGRESS',
+    'maintenance.no_eta':'We’re not showing a countdown so we can focus on getting it right.',
+    'maintenance.refresh':'Check again',
+    'maintenance.signal_caption':'SYSTEMS CHECK',
+    'maintenance.live':'LIVE',
+    'maintenance.field_systems':'DCAS / FIELD SYSTEMS',
+    'maintenance.visual_footer':'Carefully preparing every detail',
+    'maintenance.progress_aria':'Demo preparation in progress',
+    'maintenance.features_aria':'AEMS demo areas',
+    'maintenance.feature_inventory':'Equipment inventory',
+    'maintenance.feature_inspection':'Crew inspections',
+    'maintenance.feature_reports':'Operational reports',
+    'maintenance.footer':'Dubai Corporation of Ambulance Services',
     // ── Navigation (Landing) ──────────────────────────────
     'nav.login':'Sign In', 'nav.signup':'Get Access', 'nav.features':'Features', 'nav.about':'About', 'nav.demo':'Live Demo', 'nav.monitor':'Monitor',
     // ── Hero ──────────────────────────────────────────────
@@ -775,6 +796,27 @@ export const T = {
     'ui.btn.expiry':'Expiry',
   },
   ar: {
+    // ── شاشة تجهيز العرض التجريبي ──────────────────────────
+    'maintenance.document_title':'AEMS — التحديث قيد التنفيذ',
+    'maintenance.eyebrow':'AEMS · بيئة العرض التجريبي',
+    'maintenance.status':'تجهيز العرض التجريبي',
+    'maintenance.signal':'نعمل على تجهيز تجربة أفضل',
+    'maintenance.title':'التحديث قيد التنفيذ',
+    'maintenance.description':'نعمل على تجهيز العرض التجريبي لنظام AEMS. ستعود الخدمة فور اكتمال الفحوصات النهائية.',
+    'maintenance.progress':'جارٍ تجهيز العرض التجريبي',
+    'maintenance.progress_state':'قيد التنفيذ',
+    'maintenance.no_eta':'لا نعرض عدّاً تنازلياً لنركز على تجهيز التجربة بالشكل الصحيح.',
+    'maintenance.refresh':'تحقق مرة أخرى',
+    'maintenance.signal_caption':'فحص الأنظمة',
+    'maintenance.live':'مباشر',
+    'maintenance.field_systems':'مؤسسة دبي لخدمات الإسعاف / الأنظمة الميدانية',
+    'maintenance.visual_footer':'نجهز كل التفاصيل بعناية',
+    'maintenance.progress_aria':'تجهيز العرض التجريبي قيد التنفيذ',
+    'maintenance.features_aria':'أقسام العرض التجريبي لنظام AEMS',
+    'maintenance.feature_inventory':'مخزون المعدات',
+    'maintenance.feature_inspection':'فحوصات الطاقم',
+    'maintenance.feature_reports':'التقارير التشغيلية',
+    'maintenance.footer':'مؤسسة دبي لخدمات الإسعاف',
     // ── Navigation (Landing) ──────────────────────────────
     'nav.login':'تسجيل الدخول', 'nav.signup':'طلب وصول', 'nav.features':'المميزات', 'nav.about':'عن النظام', 'nav.demo':'عرض تجريبي', 'nav.monitor':'المحاكي',
     // ── Hero ──────────────────────────────────────────────

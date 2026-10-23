@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#070a10">
+  <title data-i18n="maintenance.document_title">AEMS — Updating in Progress</title>
+  <link rel="icon" type="image/svg+xml" href="assets/DubaiAmbulance.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Outfit:wght@400;500;600;700&family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/updating.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="site-shell">
+    <header class="masthead">
+      <a class="brand" href="/updating.html" aria-label="Dubai Corporation of Ambulance Services" data-i18n="maintenance.footer" data-i18n-attr="aria-label">
+        <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation of Ambulance Services" decoding="async">
+      </a>
+      <div class="masthead-right">
+        <div class="system-status"><span class="status-led" aria-hidden="true"></span><span data-i18n="maintenance.status">DEMO PREPARATION</span></div>
+        <button class="language-button" id="languageButton" type="button" data-i18n="ui.lang" aria-label="Switch language">عربي</button>
+      </div>
+    </header>
+
+    <main class="main-stage">
+      <section class="update-card" aria-labelledby="updateTitle">
+        <div class="card-topline">
+          <span class="eyebrow"><span class="eyebrow-mark" aria-hidden="true"></span><span data-i18n="maintenance.eyebrow">AEMS · DEMO ENVIRONMENT</span></span>
+          <span class="version-tag">DCAS <span aria-hidden="true">/</span> AEMS</span>
+        </div>
+
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="signal-label"><span class="signal-line" aria-hidden="true"></span><span data-i18n="maintenance.signal">A BETTER DEMO IS TAKING SHAPE</span></div>
+            <h1 id="updateTitle" data-i18n="maintenance.title">Updating in progress</h1>
+            <p class="intro" data-i18n="maintenance.description">We’re preparing the AEMS demo. The experience will be back as soon as the final checks are complete.</p>
+
+            <div class="progress-block" aria-live="polite">
+              <div class="progress-heading"><span data-i18n="maintenance.progress">PREPARING THE DEMO</span><span class="progress-state" data-i18n="maintenance.progress_state">IN PROGRESS</span></div>
+              <div class="progress-track" role="progressbar" aria-label="Demo preparation in progress" data-i18n="maintenance.progress_aria" data-i18n-attr="aria-label" aria-valuetext="In progress">
+                <span class="progress-fill"></span><span class="progress-glint"></span>
+              </div>
+              <p class="progress-caption" data-i18n="maintenance.no_eta">We’re not showing a countdown so we can focus on getting it right.</p>
+            </div>
+
+            <button class="refresh-button" id="refreshButton" type="button">
+              <span class="refresh-icon" aria-hidden="true">↻</span><span data-i18n="maintenance.refresh">Check again</span>
+            </button>
+          </div>
+
+          <div class="visual-panel" id="visualPanel" aria-hidden="true">
+            <div class="visual-caption"><span data-i18n="maintenance.signal_caption">SYSTEMS CHECK</span><span class="caption-live"><i></i> <span data-i18n="maintenance.live">LIVE</span></span></div>
+            <div class="orbital-display">
+              <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div>
+              <div class="orbit-node node-a"></div><div class="orbit-node node-b"></div><div class="orbit-node node-c"></div>
+              <div class="core-halo"></div>
+              <div class="core-mark"><span class="core-cross">✚</span></div>
+              <div class="core-label">AEMS</div>
+            </div>
+            <div class="waveform">
+              <span class="wave-tag" data-i18n="maintenance.field_systems">DCAS / FIELD SYSTEMS</span>
+              <svg viewBox="0 0 360 56" preserveAspectRatio="none" role="presentation">
+                <path class="wave-base" d="M0 29 H58 L73 28 L82 27 L91 30 L101 29 L113 29 L123 27 L131 30 L143 29 H160 L170 29 L179 28 L187 29 H200 L209 28 L218 29 H229 L238 29 L247 8 L257 48 L267 20 L277 31 L288 28 H360"/>
+                <path class="wave-trace" d="M0 29 H58 L73 28 L82 27 L91 30 L101 29 L113 29 L123 27 L131 30 L143 29 H160 L170 29 L179 28 L187 29 H200 L209 28 L218 29 H229 L238 29 L247 8 L257 48 L267 20 L277 31 L288 28 H360"/>
+              </svg>
+            </div>
+            <div class="visual-footer"><span data-i18n="maintenance.visual_footer">Carefully preparing every detail</span><span class="footer-dot"></span></div>
+          </div>
+        </div>
+
+        <div class="feature-rail" aria-label="AEMS demo areas" data-i18n="maintenance.features_aria" data-i18n-attr="aria-label">
+          <div class="feature-item"><span class="feature-number">01</span><span data-i18n="maintenance.feature_inventory">Equipment inventory</span><span class="feature-arrow" aria-hidden="true">↗</span></div>
+          <div class="feature-item"><span class="feature-number">02</span><span data-i18n="maintenance.feature_inspection">Crew inspections</span><span class="feature-arrow" aria-hidden="true">↗</span></div>
+          <div class="feature-item"><span class="feature-number">03</span><span data-i18n="maintenance.feature_reports">Operational reports</span><span class="feature-arrow" aria-hidden="true">↗</span></div>
+        </div>
+      </section>
+
+      <footer class="page-footer"><span data-i18n="maintenance.footer">Dubai Corporation of Ambulance Services</span><span class="footer-separator" aria-hidden="true">·</span><span>AEMS</span></footer>
+    </main>
+  </div>
+  <script type="module" src="js/updating.js"></script>
+</body>
+</html>
