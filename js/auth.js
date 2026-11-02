@@ -6,18 +6,32 @@ import { api, setToken } from './api.js';
 
 const SESSION_KEY = 'aems_session';
 
+/**
+ * The cached session holds the profile and permissions only. The ID token is
+ * never written to localStorage (any script on the page could read it); it is
+ * kept in memory and re-obtained from Firebase on every page load.
+ */
 export function getSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const session = JSON.parse(raw);
+    if (session && 'token' in session) {
+      // Scrub a token persisted by an earlier build.
+      const { token: _legacy, ...clean } = session;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(clean));
+      return clean;
+    }
+    return session;
   } catch {
     return null;
   }
 }
 
 export function setSession(session) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-  setToken(session?.token || null);
+  const { token, ...profile } = session || {};
+  localStorage.setItem(SESSION_KEY, JSON.stringify(profile));
+  setToken(token || null);
 }
 
 export function clearSession() {
@@ -89,12 +103,17 @@ export async function renewSession() {
 /** Entry point for protected pages: returns a valid session or null. */
 export async function initAppSession() {
   const cached = getSession();
-  if (cached) setToken(cached.token);
   const fbUser = await waitForAuthUser();
   if (!fbUser) {
     clearSession();
     return null;
   }
+  const token = await getFirebaseIdToken();
+  if (!token) {
+    clearSession();
+    return null;
+  }
+  setToken(token);
   // Sessions cached before the duty-roster upgrade lack `dutyRoster` — refresh them once.
   if (cached && cached.user?.firebaseUid === fbUser.uid && 'dutyRoster' in cached) {
     // Refresh the profile/permissions/roster in place (no audit write) so admin
