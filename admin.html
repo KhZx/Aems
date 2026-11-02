@@ -738,6 +738,14 @@
           <button class="btn-save" onclick="openChangePasswordDialog()"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> <span data-i18n="pwd.change">Change password</span></button>
         </div>
       </div>
+
+      <div class="section">
+        <div class="section-head"><div class="section-title" data-i18n="admin.reset.section">Danger zone</div></div>
+        <div class="section-body">
+          <p style="font-size:.85rem;color:var(--text2);margin-bottom:1rem;" data-i18n="admin.reset.desc">Permanently deletes all stations (units), ambulances, medicines, stock, transfers, inspections, supply requests, distributions, shift notes, handovers and reports. User accounts are kept. Download a backup first.</p>
+          <button class="btn-save" style="background:var(--danger);" onclick="resetStationsMedicines()"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> <span data-i18n="admin.reset.button">Delete stations and medicines</span></button>
+        </div>
+      </div>
     </div>
 
   </div><!-- /content -->
@@ -944,7 +952,7 @@
   import { initAppSession, signOutAll, clearSession } from './js/auth.js';
   import { startHealthMonitor } from './js/health.js';
   import { expiryStatus } from './js/ui.js';
-  import { confirmDialog } from './js/confirm.js';
+  import { confirmDialog, promptDialog } from './js/confirm.js';
   import { initSidebarNavigation } from './js/sidebar-nav.js';
   import { initNotificationCenter } from './js/notifications.js';
   import { createReportsDashboard } from './js/reports.js';
@@ -1358,6 +1366,21 @@
       await refreshUsers();
     } catch (err) {
       toast(err.message || 'Toggle failed', 'error');
+    }
+  };
+
+  window.resetStationsMedicines = async function() {
+    const title = t('admin.reset.title');
+    if (!await confirmDialog({ message: t('admin.reset.warn'), tone: 'danger', title })) return;
+    const typed = await promptDialog({ message: t('admin.reset.type_prompt'), tone: 'danger', title, placeholder: 'DELETE' });
+    if (typed === null) return;
+    if (typed.trim() !== 'DELETE') { toast(t('admin.reset.mismatch'), 'error'); return; }
+    try {
+      const res = await api.resetStationsMedicines('DELETE');
+      toast(t('admin.reset.done', { stations: res.deleted.stations, medicines: res.deleted.medicines, users: res.usersKept }), 'success');
+      setTimeout(() => location.reload(), 1500);
+    } catch (err) {
+      toast(err.message || 'Reset failed', 'error');
     }
   };
 

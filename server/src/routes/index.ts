@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate.js';
 import { authRateLimiter, destructiveRateLimiter } from '../middleware/rateLimiter.js';
 import * as auth from '../controllers/auth.controller.js';
 import * as duty from '../controllers/duty.controller.js';
+import * as admin from '../controllers/admin.controller.js';
 import * as health from '../controllers/health.controller.js';
 import * as users from '../controllers/user.controller.js';
 import * as stations from '../controllers/station.controller.js';
@@ -89,6 +90,7 @@ import {
   switchDutySchema,
   setUserUnitsSchema,
   listNotificationsQuerySchema,
+  resetStationsMedicinesSchema,
 } from '../validators/index.js';
 
 const router = Router();
@@ -259,6 +261,9 @@ router.post('/supply-requests/:id/dispatch', authenticate, requirePermission('su
 router.post('/supply-requests/:id/receive', authenticate, requirePermission('supply:request'), validate(idParamSchema, 'params'), validate(receiveSupplyRequestSchema), supplyRequests.receive);
 router.post('/supply-requests/:id/confirm', authenticate, requirePermission('supply:review'), validate(idParamSchema, 'params'), supplyRequests.confirm);
 router.post('/supply-requests/:id/close', authenticate, requirePermission('supply:review'), validate(idParamSchema, 'params'), supplyRequests.close);
+
+// ── Admin data reset (stations + medicines; users kept) ─────────
+router.post('/admin/reset-stations-medicines', authenticate, destructiveRateLimiter, validate(resetStationsMedicinesSchema), admin.resetStationsMedicines);
 
 // ── Inventory Distribution (admin) ──────────────────────────────
 router.get('/distributions/templates', authenticate, requirePermission('distribution:manage'), distributions.templates);

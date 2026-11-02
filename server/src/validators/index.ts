@@ -75,3 +75,4 @@ export {
 } from './supplyRequest.schema.js';
 export { listStockReasonsQuerySchema } from './stockReason.schema.js';
 export { switchDutySchema, setUserUnitsSchema } from './duty.schema.js';
+export { resetStationsMedicinesSchema } from './admin.schema.js';

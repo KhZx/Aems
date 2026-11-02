@@ -1492,4 +1492,57 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
       expect(admin.body.data.total).toBeGreaterThan(0);
     });
   });
+
+  describe('admin reset of stations and medicines', () => {
+    it('refuses non-admins and missing confirmation, then clears stations and medicines but keeps users', async () => {
+      const usersBefore = await prisma.user.count();
+      const stationsBefore = await prisma.station.count();
+      expect(stationsBefore).toBeGreaterThan(0);
+
+      await request(app)
+        .post('/api/admin/reset-stations-medicines')
+        .set(auth('token-paramedic'))
+        .send({ confirmation: 'DELETE' })
+        .expect(403);
+
+      await request(app)
+        .post('/api/admin/reset-stations-medicines')
+        .set(auth(adminToken))
+        .send({})
+        .expect(400);
+
+      await request(app)
+        .post('/api/admin/reset-stations-medicines')
+        .set(auth(adminToken))
+        .send({ confirmation: 'yes' })
+        .expect(400);
+
+      expect(await prisma.station.count()).toBe(stationsBefore);
+      expect(await prisma.user.count()).toBe(usersBefore);
+
+      const res = await request(app)
+        .post('/api/admin/reset-stations-medicines')
+        .set(auth(adminToken))
+        .send({ confirmation: 'DELETE' })
+        .expect(200);
+
+      expect(res.body.data.deleted.stations).toBe(stationsBefore);
+      expect(res.body.data.usersKept).toBe(usersBefore);
+
+      expect(await prisma.station.count()).toBe(0);
+      expect(await prisma.ambulance.count()).toBe(0);
+      expect(await prisma.medicine.count()).toBe(0);
+      expect(await prisma.medicineBatch.count()).toBe(0);
+      expect(await prisma.inventory.count()).toBe(0);
+      expect(await prisma.inventoryTransaction.count()).toBe(0);
+      expect(await prisma.user.count()).toBe(usersBefore);
+
+      const paramedic = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-paramedic' } });
+      expect(paramedic.stationId).toBeNull();
+
+      const audit = await prisma.auditLog.findFirst({ where: { action: 'RESET_STATIONS_MEDICINES' } });
+      expect(audit).not.toBeNull();
+      expect(audit?.userId).toBe((await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-admin' } })).id);
+    });
+  });
 });

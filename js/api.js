@@ -249,6 +249,7 @@ export const api = {
   changeRole: (id, body) => request(`/users/${id}/role`, { method: 'PATCH', body }),
   setUserPassword: (id, password) => request(`/users/${id}/password`, { method: 'PUT', body: { password } }),
   deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
+  resetStationsMedicines: (confirmation) => request('/admin/reset-stations-medicines', { method: 'POST', body: { confirmation } }),
 
   // ── Auth: password ──────────────────────────────────────
   // Records a self-service password change (the change itself happens in
