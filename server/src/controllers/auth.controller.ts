@@ -8,52 +8,47 @@ import { AppError } from '../utils/AppError.js';
 async function sessionPayload(userId: string) {
   const user = await userService.getUserById(userId);
   const managedStations = user.managedStations.map((s) => s.code);
-
-  let accessibleStationIds: string[] = [];
-  if (user.role === 'ADMIN') {
-    const stations = await prisma.station.findMany({ select: { id: true } });
-    accessibleStationIds = stations.map((s) => s.id);
-  } else if (user.role === 'SUPERVISOR') {
-    accessibleStationIds = user.managedStations.map((s) => s.id);
-  } else {
-    // Crew: stationId IS their active duty unit.
-    accessibleStationIds = user.stationId ? [user.stationId] : [];
-  }
-
   const isStaff = user.role === 'ADMIN' || user.role === 'SUPERVISOR';
-  const ambulances = isStaff
-    ? await prisma.ambulance.findMany({
-        where: { stationId: { in: accessibleStationIds } },
-        select: {
-          id: true,
-          vehicleNumber: true,
-          status: true,
-          station: { select: { id: true, code: true, name: true } },
-        },
-        orderBy: { vehicleNumber: 'asc' },
-      })
-    : // Crew: the cars of the unit they currently hold.
-      await prisma.ambulance.findMany({
-        where: { stationId: user.stationId ?? '__none__' },
-        select: {
-          id: true,
-          vehicleNumber: true,
-          status: true,
-          station: { select: { id: true, code: true, name: true } },
-        },
-        orderBy: { vehicleNumber: 'asc' },
-      });
 
-  // Crew roster: the units (stations) they may switch to. Staff get null.
-  const dutyRoster = isStaff
-    ? null
-    : (
-        await prisma.dutyRoster.findMany({
-          where: { userId: user.id },
-          orderBy: { station: { code: 'asc' } },
-          include: { station: { select: { id: true, code: true, name: true, status: true } } },
-        })
-      ).map((r) => r.station);
+  const ambulanceSelect = {
+    id: true,
+    vehicleNumber: true,
+    status: true,
+    station: { select: { id: true, code: true, name: true } },
+  } as const;
+
+  // Independent lookups run concurrently: each one is a round-trip to the
+  // database, which is the dominant cost of login/me when the DB is remote.
+  const [accessibleStationIds, ambulances, dutyRoster] = await Promise.all([
+    user.role === 'ADMIN'
+      ? prisma.station.findMany({ select: { id: true } }).then((stations) => stations.map((s) => s.id))
+      : Promise.resolve(
+          user.role === 'SUPERVISOR'
+            ? user.managedStations.map((s) => s.id)
+            : // Crew: stationId IS their active duty unit.
+              (user.stationId ? [user.stationId] : []),
+        ),
+    user.role === 'ADMIN'
+      ? prisma.ambulance.findMany({ select: ambulanceSelect, orderBy: { vehicleNumber: 'asc' } })
+      : prisma.ambulance.findMany({
+          where: isStaff
+            ? { stationId: { in: user.managedStations.map((s) => s.id) } }
+            : // Crew: the cars of the unit they currently hold.
+              { stationId: user.stationId ?? '__none__' },
+          select: ambulanceSelect,
+          orderBy: { vehicleNumber: 'asc' },
+        }),
+    // Crew roster: the units (stations) they may switch to. Staff get null.
+    isStaff
+      ? Promise.resolve(null)
+      : prisma.dutyRoster
+          .findMany({
+            where: { userId: user.id },
+            orderBy: { station: { code: 'asc' } },
+            include: { station: { select: { id: true, code: true, name: true, status: true } } },
+          })
+          .then((rows) => rows.map((r) => r.station)),
+  ]);
 
   return {
     user,
@@ -89,8 +84,11 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 /** POST /api/auth/login — called right after a successful Firebase sign-in. */
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const { ipAddress, userAgent } = requestMeta(req);
-  const user = await userService.recordLogin(req.firebaseUid as string, { ipAddress, userAgent });
-  const payload = await sessionPayload(user.id);
+  // The audit write and the session lookup are independent; run them together.
+  const [, payload] = await Promise.all([
+    userService.recordLogin(req.firebaseUid as string, { ipAddress, userAgent }),
+    sessionPayload(req.authUser!.id),
+  ]);
   res.json({ success: true, data: payload });
 });
 
