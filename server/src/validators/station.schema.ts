@@ -19,6 +19,7 @@ export const createStationSchema = z.object({
 });
 
 export const updateStationSchema = z.object({
+  code: stationCodeSchema.optional(),
   name: z.string().trim().min(2).max(120).optional(),
   location: z.string().trim().max(200).nullable().optional(),
   status: z.enum([StationStatus.ACTIVE, StationStatus.INACTIVE]).optional(),

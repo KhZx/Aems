@@ -1,15 +1,38 @@
 import { createServer } from 'http';
 import { readFile } from 'fs/promises';
-import { extname, join } from 'path';
+import { extname, join, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
+const ROOT_PREFIX = ROOT.endsWith(sep) ? ROOT : ROOT + sep;
+
+/** Resolve a URL path inside ROOT and reject traversal outside it. */
+function resolveInside(pathname) {
+  const full = resolve(ROOT, `.${pathname}`);
+  if (!full.startsWith(ROOT_PREFIX)) throw new Error('Forbidden path');
+  return full;
+}
+
+// Resolve extension-less paths: /login → /login.html, /admin → /admin.html
+async function resolveFile(path) {
+  const file = resolveInside(path);
+  if (!extname(path)) {
+    try {
+      await readFile(file);
+      return file;
+    } catch {
+      return resolveInside(path + '.html');
+    }
+  }
+  return file;
+}
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css':  'text/css; charset=utf-8',
   '.js':   'application/javascript; charset=utf-8',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
   '.png':  'image/png',
   '.svg':  'image/svg+xml',
   '.ico':  'image/x-icon',
@@ -19,15 +42,28 @@ const MIME = {
 };
 
 createServer(async (req, res) => {
-  const raw = decodeURIComponent(req.url.split('?')[0]);
+  let raw;
+  try {
+    raw = decodeURIComponent(req.url.split('?')[0]);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Bad request');
+    return;
+  }
   const path = raw === '/' ? '/index.html' : raw;
-  const file = join(ROOT, path);
+  let file;
+  try {
+    file = await resolveFile(path);
+  } catch {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden');
+    return;
+  }
   try {
     const data = await readFile(file);
     const ct = MIME[extname(file)] || 'application/octet-stream';
     res.writeHead(200, {
       'Content-Type': ct,
-      'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'no-store',
     });
     res.end(data);
@@ -36,7 +72,6 @@ createServer(async (req, res) => {
       const errPage = await readFile(join(ROOT, 'error.html'));
       res.writeHead(404, {
         'Content-Type': 'text/html; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-store',
       });
       res.end(errPage);

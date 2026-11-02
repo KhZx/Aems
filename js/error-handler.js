@@ -1,58 +1,91 @@
 // js/error-handler.js — Global error boundary + session hardening
 // Include BEFORE any other scripts in every HTML page.
+//
+// Policy: an error must never throw the user away from their work. Only a
+// genuinely expired/revoked session sends them to the login page. Everything
+// else (network blips, a failed widget, a stray script error) shows a small
+// dismissable notice and leaves the page intact.
 
 (function() {
 
-  const ERROR_PAGE = '/error.html';
+  const SESSION_CODES = new Set([
+    'auth/id-token-expired',
+    'auth/user-token-expired',
+    'auth/user-disabled',
+    'auth/user-not-found',
+    'auth/invalid-user-token',
+    'auth/requires-recent-login',
+  ]);
 
-  function goToLogin(expired) {
-    const params = expired ? '?expired=1' : '';
-    window.location.href = '/login.html' + params;
+  function isSessionError(err) {
+    if (!err) return false;
+    if (err.code === 'PERMISSION_DENIED') return true;
+    return SESSION_CODES.has(err.code);
   }
 
-  // ── Global error handler ───────────────────────────────────
-  function getErrorCode(err) {
-    if (!err) return 500;
-    if (err.code === 'PERMISSION_DENIED') return 403;
-    if (err.code === 'NETWORK_ERROR' || err.message?.includes('network')) return 503;
-    if (err.code?.startsWith('auth/')) return 401;
-    if (err.name === 'AbortError' || err.name === 'TimeoutError') return 408;
-    return 500;
+  function isNetworkError(err) {
+    if (!err) return false;
+    if (err.code === 'NETWORK_ERROR' || err.code === 'auth/network-request-failed') return true;
+    if (err.name === 'AbortError' || err.name === 'TimeoutError') return true;
+    return typeof err.message === 'string' && /network|failed to fetch/i.test(err.message);
   }
 
-  function goToError(code, detail) {
-    const params = new URLSearchParams({ code: String(code) });
-    if (detail) params.set('detail', String(detail).slice(0, 300));
-    window.location.href = ERROR_PAGE + '?' + params.toString();
+  function goToLogin() {
+    window.location.href = '/login.html?expired=1';
   }
 
+  // ── Non-blocking notice (never navigates) ──────────────────
+  let noticeEl = null;
+  let noticeTimer = null;
+
+  function showNotice(text) {
+    if (!document.body) return;
+    if (!noticeEl) {
+      noticeEl = document.createElement('div');
+      noticeEl.setAttribute('role', 'alert');
+      noticeEl.style.cssText =
+        'position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:99999;' +
+        'max-width:min(90vw,460px);padding:10px 16px;border-radius:10px;' +
+        'background:#1f2937;color:#fff;font:600 13px/1.4 system-ui,sans-serif;' +
+        'box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;';
+      noticeEl.title = 'Dismiss';
+      noticeEl.addEventListener('click', () => noticeEl.remove());
+      document.body.appendChild(noticeEl);
+    }
+    noticeEl.textContent = text;
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => noticeEl && noticeEl.remove(), 6000);
+  }
+
+  function report(err, context) {
+    const detail = context ? context + ': ' + (err?.message || String(err)) : (err?.message || String(err));
+    console.error('[AEMS Error]', detail, err);
+    if (isNetworkError(err)) {
+      showNotice('Connection problem — your work is still here. Check your connection and try again.');
+    } else {
+      showNotice('Something went wrong. Your work is still here — please try the action again.');
+    }
+  }
+
+  // Kept for code that wants to report a handled error explicitly.
   window.AEMS_onFatalError = function(err, context) {
     if (!err) return;
-    if (window.location.pathname === ERROR_PAGE) return;
-    if (err.code === 'PERMISSION_DENIED' || err.code?.startsWith('auth/')) {
-      goToLogin(true);
-      return;
-    }
-    const code = getErrorCode(err);
-    const msg = context ? context + ': ' + (err.message || err) : (err.message || String(err));
-    goToError(code, msg);
+    if (isSessionError(err)) return goToLogin();
+    report(err, context);
   };
 
   window.onerror = function(msg, source, line, col, err) {
     console.error('[AEMS Error]', msg, source, line, col);
     if (String(msg).includes('ResizeObserver') || source?.includes('extension://')) return;
-    goToError(500, msg + (source ? ' at ' + source.replace(location.origin, '') : ''));
+    if (isSessionError(err)) return goToLogin();
+    showNotice('Something went wrong. Your work is still here — please try the action again.');
   };
 
   window.onunhandledrejection = function(e) {
-    console.error('[AEMS Error] Unhandled rejection:', e.reason);
     const err = e.reason;
     if (!err) return;
-    if (err.code === 'PERMISSION_DENIED' || err.code?.startsWith('auth/')) {
-      goToLogin(true);
-      return;
-    }
-    goToError(getErrorCode(err), err.message || String(err));
+    if (isSessionError(err)) return goToLogin();
+    report(err);
   };
 
   // ── Inject slide animations if not present ─────────────────

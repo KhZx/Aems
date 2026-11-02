@@ -5,8 +5,14 @@ import { initI18n, setLanguage, getCurrentLang, t, onLanguageChanged, unitLabel 
 import { initAppSession, setSession, renewSession, roleRedirectPath, clearSession, signOutAll } from './auth.js';
 import { api } from './api.js';
 import { icon, mountSprite } from './icons.js';
+import { confirmDialog, promptDialog } from './confirm.js';
+import { initSidebarNavigation } from './sidebar-nav.js';
+import { initNotificationCenter } from './notifications.js';
+import { createReportsDashboard } from './reports.js';
+import { openChangePasswordDialog } from './password.js';
 
 mountSprite();
+initSidebarNavigation();
 
 const $ = (id) => document.getElementById(id);
 
@@ -53,6 +59,12 @@ const AUDIT_ACTION_KEYS = {
   EXPIRED: 'sup.audit.action.expire',
   INITIAL_STOCK: 'sup.audit.action.initial',
   INSPECTION: 'sup.audit.action.check',
+  INSPECTION_DRAFT: 'sup.audit.action.insp_draft',
+  INSPECTION_DRAFT_UPDATE: 'sup.audit.action.insp_draft_update',
+  INSPECTION_DRAFT_DELETE: 'sup.audit.action.insp_draft_delete',
+  INSPECTION_COMPLETE: 'sup.audit.action.insp_complete',
+  INSPECTION_ACKNOWLEDGE: 'sup.audit.action.insp_ack',
+  INSPECTION_VOID: 'sup.audit.action.insp_void',
   SUBMIT_HANDOVER: 'sup.audit.action.handover',
   ACKNOWLEDGE_HANDOVER: 'sup.audit.action.handover',
   CREATE_REPORT: 'sup.audit.action.report',
@@ -84,6 +96,7 @@ const AUDIT_ACTION_KEYS = {
   DISTRIBUTE_STOCK: 'sup.audit.action.distribution',
   DUTY_SWITCH: 'sup.audit.action.duty_switch',
   UPDATE_USER_UNITS: 'sup.audit.action.units',
+  UPDATE_SUPERVISOR_ZONE: 'sup.audit.action.zone',
 };
 function auditActionLabel(action) { return t(AUDIT_ACTION_KEYS[action] || 'sup.audit.action.generic', { action: action || '—' }); }
 
@@ -96,12 +109,14 @@ let _directory = [];          // publicStations() listing
 let _rawInventory = [];
 let _rawAudit = [];
 let _crew = [];               // approved users, for the duty board
+let _handovers = [];
+let _handoverLoadError = false;
 let _auditPage = 0;           // server pages of audit already loaded
 let _auditTotal = 0;          // total audit rows the backend holds for this scope
 const AUDIT_PAGE_SIZE = 100;
 
 /** Metadata keys that are bookkeeping, not "details the user filled in". */
-const INTERNAL_META_KEYS = new Set(['userId', 'userEmail', 'medicineId', 'referenceId', 'ipAddress', 'userAgent', 'templateId', 'ambulanceId']);
+const INTERNAL_META_KEYS = new Set(['userId', 'userEmail', 'medicineId', 'referenceId', 'ipAddress', 'userAgent', 'templateId', 'ambulanceId', 'corrections', 'lost', 'found', 'notChecked', 'notCheckedCount', 'checkedCount', 'inventoryId', 'reversals', 'fromStationId', 'toStationId']);
 
 function fmtMetaVal(v) {
   if (v == null || v === '') return '—';
@@ -177,7 +192,9 @@ function stationByCode(code) {
 
 // ── Fetchers ───────────────────────────────────────────────
 async function refreshInventory() {
-  _rawInventory = await api.inventory({ pageSize: 1000 });
+  // Load bounded pages so large managed fleets never arrive as one huge API
+  // response; the client helper merges pages for existing dashboard views.
+  _rawInventory = await api.inventoryAll({});
   rebuildStations();
 }
 async function refreshAudit() {
@@ -187,6 +204,25 @@ async function refreshAudit() {
   _rawAudit = Array.isArray(res) ? res : (res?.logs || []);
   _auditTotal = (res && res.total) || _rawAudit.length;
   _auditPage = 1;
+}
+async function refreshHandovers() {
+  try {
+    const first = await api.handovers({ page: 1, pageSize: 200 });
+    const handovers = [...(first?.handovers || [])];
+    const total = Number(first?.total) || handovers.length;
+    for (let page = 2; handovers.length < total && page <= 20; page++) {
+      const next = await api.handovers({ page, pageSize: 200 });
+      const rows = next?.handovers || [];
+      if (!rows.length) break;
+      handovers.push(...rows);
+    }
+    _handovers = handovers;
+    _handoverLoadError = false;
+  } catch {
+    _handovers = [];
+    _handoverLoadError = true;
+  }
+  renderHandoverPage();
 }
 async function loadDirectory() {
   try {
@@ -371,6 +407,7 @@ async function boot() {
     if (sess.user?.role !== 'SUPERVISOR') { window.location.href = roleRedirectPath(sess); return; }
     _session = sess;
     window.AEMS_PERMS = sess.permissions || [];
+    initNotificationCenter();
 
     try {
       const me = await api.me();
@@ -393,8 +430,9 @@ async function boot() {
     initI18n();
     wireLangToggle();
     wireShiftControls();
+    wireSupervisorZone();
 
-    await Promise.all([loadDirectory(), refreshInventory(), refreshAudit(), refreshCrew(), loadSupply()]);
+    await Promise.all([loadDirectory(), refreshInventory(), refreshAudit(), refreshCrew(), loadSupply(), refreshHandovers()]);
     $('pageLoader')?.classList.add('hide');
     applyAll();
     toast(t('sup.toast.data_refreshed'), 'success');
@@ -442,6 +480,21 @@ document.querySelector('.sidebar')?.addEventListener('click', (e) => {
   if (e.target.closest('.nav-item, .st-item, .btn-logout')) toggleSidebar(false);
 });
 
+const PAGE_TITLE_KEYS = {
+  overview: 'sup.page.overview', stations: 'sup.page.stations',
+  inspections: 'sup.page.inspections', reports: 'sup.page.reports',
+  handovers: 'sup.page.handovers',
+  audit: 'sup.page.audit', manage: 'sup.page.manage',
+  supply: 'sup.page.supply', duty: 'sup.page.duty',
+  analytics: 'sup.page.analytics', settings: 'sup.page.settings',
+};
+
+/** Re-applies the topbar page title in the current language. */
+function paintPageTitle() {
+  const el = $('pageTitle');
+  if (el) el.textContent = PAGE_TITLE_KEYS[_currentPage] ? t(PAGE_TITLE_KEYS[_currentPage]) : _currentPage;
+}
+
 window.showPage = function (id) {
   _currentPage = id;
   closeSidebar();
@@ -449,23 +502,110 @@ window.showPage = function (id) {
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
   $('page-' + id)?.classList.add('active');
   document.querySelector(`.nav-item[onclick="showPage('${id}')"]`)?.classList.add('active');
-  const titles = {
-    overview: t('sup.page.overview'), stations: t('sup.page.stations'),
-    reports: t('sup.page.reports'), audit: t('sup.page.audit'), manage: t('sup.page.manage'),
-    supply: t('sup.page.supply'), duty: t('sup.page.duty'),
-  };
-  $('pageTitle').textContent = titles[id] || id;
+  paintPageTitle();
   if (id === 'overview') renderOverview();
   if (id === 'stations') renderStationsPage();
-  if (id === 'reports') renderReportSelector();
+  if (id === 'inspections') { if (_inspOverview) renderInspections(); else refreshInspections(); }
+  if (id === 'handovers') refreshHandovers();
+  if (id === 'reports') { renderReportSelector(); loadSavedReports(); }
+  if (id === 'analytics') ensureAnalytics();
   if (id === 'audit') renderAudit();
   if (id === 'manage') renderManage();
   if (id === 'supply') renderSupplyReview();
   if (id === 'duty') { renderDuty(); if (!_crew.length) refreshDutyBoard(); }
+  if (id === 'settings') renderSettings();
 };
 
+function renderHandoverPage() {
+  const root = $('supHandoversList');
+  if (!root) return;
+  const pendingCount = _handovers.filter((h) => h.status === 'submitted').length;
+  const badge = $('supHandoverBadge');
+  if (badge) {
+    badge.textContent = String(pendingCount);
+    badge.style.display = pendingCount ? 'inline-flex' : 'none';
+  }
+
+  if (_handoverLoadError) {
+    root.innerHTML = `<div class="empty"><div class="empty-text">${t('sup.handover.load_error')}</div></div>`;
+    return;
+  }
+  if (!_handovers.length) {
+    root.innerHTML = `<div class="empty"><div class="empty-icon">${icon('repeat')}</div><div class="empty-text">${t('sup.handover.empty')}</div></div>`;
+    return;
+  }
+
+  const eqKeys = {
+    'All OK': 'handover.eq.all_ok',
+    'Issues Noted': 'handover.eq.noted',
+    'Critical Items Missing': 'handover.eq.critical',
+  };
+  const detail = (label, value) => value
+    ? `<div class="sup-handover-detail"><span>${label}</span><div>${esc(value)}</div></div>`
+    : '';
+
+  root.innerHTML = `<div class="sup-handover-list">${_handovers.map((h) => {
+    const submitted = h.status === 'submitted';
+    const stationName = h.station?.name || h.station?.code || '—';
+    const stationCode = h.station?.code && h.station?.name ? h.station.code : '';
+    const outgoing = h.outgoing || {};
+    const incoming = h.incoming || {};
+    const equipKey = eqKeys[outgoing.equipStatus];
+    const equipStatus = equipKey ? t(equipKey) : (outgoing.equipStatus || '—');
+    return `<article class="sup-handover-card">
+      <header class="sup-handover-card-head">
+        <div class="sup-handover-station">${stationCode ? `<span class="sup-handover-station-code">${esc(stationCode)}</span>` : ''}<strong>${esc(stationName)}</strong></div>
+        <span class="sup-handover-status ${submitted ? 'pending' : 'complete'}">${t(submitted ? 'sup.handover.status_pending' : 'sup.handover.status_acknowledged')}</span>
+      </header>
+      <div class="sup-handover-summary">
+        <div><span>${t('sup.handover.outgoing')}</span><strong>${esc(outgoing.paramedicName || '—')}</strong></div>
+        <div><span>${t('sup.handover.incoming')}</span><strong>${esc(incoming.paramedicName || (submitted ? t('sup.handover.awaiting') : '—'))}</strong></div>
+        <div><span>${t('sup.handover.shift')}</span><strong>${esc(outgoing.shiftType || '—')}</strong></div>
+        <div><span>${t('sup.handover.patients')}</span><strong>${Number(outgoing.patientsCount) || 0}</strong></div>
+        <div><span>${t('sup.handover.equipment')}</span><strong>${esc(equipStatus)}</strong></div>
+      </div>
+      <div class="sup-handover-details">
+        ${detail(t('sup.handover.issues'), outgoing.pendingIssues)}
+        ${detail(t('sup.handover.medications'), outgoing.medicationsUsed)}
+        ${detail(t('sup.handover.notes'), outgoing.notes)}
+        ${detail(t('sup.handover.incoming_notes'), incoming.notes)}
+      </div>
+      <footer class="sup-handover-times">
+        <span>${t('sup.handover.submitted')}: ${esc(fmtDateTime(h.createdAt))}</span>
+        ${h.acknowledgedAt ? `<span>${t('sup.handover.acknowledged')}: ${esc(fmtDateTime(h.acknowledgedAt))}</span>` : ''}
+      </footer>
+    </article>`;
+  }).join('')}</div>`;
+}
+
+window.refreshSupervisorHandovers = async function () {
+  await refreshHandovers();
+};
+
+// ── Analytics (shared Reports Dashboard, scoped to managed units) ──
+let supReportsDash = null;
+function ensureAnalytics() {
+  if (!supReportsDash) {
+    supReportsDash = createReportsDashboard({
+      rootId: 'supReports',
+      getStations: async () => {
+        const ids = stations.length ? [...stations] : Object.keys(_supData || {});
+        return ids
+          .map((id) => {
+            const meta = _stationMeta.get(id) || _supData[id] || {};
+            return { id, code: meta.code || '', name: meta.name || '' };
+          })
+          .filter((s) => s.id);
+      },
+    });
+  }
+  supReportsDash?.refresh();
+  return supReportsDash;
+}
+
 function applyAll() {
-  $('sidebarName') && ($('sidebarName').textContent = (_session?.user?.name || _session?.user?.email) || '—');
+  paintPageTitle();
+  $('sidebarName') && ($('sidebarName').textContent = (_session?.user?.name || _session?.user?.email) || '-');
   $('sidebarZone') && ($('sidebarZone').textContent = _session?.user?.supervisorZone ? `${t('sup.zone')} ${_session.user.supervisorZone}` : '');
   renderSidebarStations();
   updateAlertBadge();
@@ -474,20 +614,69 @@ function applyAll() {
   const p = _currentPage;
   if (p === 'overview') renderOverview();
   else if (p === 'stations') renderStationsPage();
-  else if (p === 'reports') renderReportSelector();
+  else if (p === 'inspections') { if (_inspOverview) renderInspections(); }
+  else if (p === 'handovers') renderHandoverPage();
+  else if (p === 'reports') { renderReportSelector(); loadSavedReports(); }
+  else if (p === 'analytics') { supReportsDash?.rerender(); }
   else if (p === 'audit') renderAudit();
   else if (p === 'manage') renderManage();
   else if (p === 'supply') renderSupplyReview();
   else if (p === 'duty') renderDuty();
+  else if (p === 'settings') renderSettings();
+}
+
+/** Settings page: shows the signed-in supervisor and the password action. */
+function renderSettings() {
+  const name = $('settingsProfileName');
+  const email = $('settingsProfileEmail');
+  if (name) name.textContent = (_session?.user?.name || _session?.user?.displayName || _session?.user?.email) || '—';
+  if (email) email.textContent = _session?.user?.email || '—';
+  const zone = $('settingsSupervisorZone');
+  if (zone) zone.value = _session?.user?.supervisorZone || '';
+}
+
+function wireSupervisorZone() {
+  const input = $('settingsSupervisorZone');
+  const button = $('saveSupervisorZone');
+  if (!input || !button) return;
+  button.addEventListener('click', saveSupervisorZone);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveSupervisorZone();
+    }
+  });
+}
+
+async function saveSupervisorZone() {
+  const input = $('settingsSupervisorZone');
+  const button = $('saveSupervisorZone');
+  if (!input || !button || button.disabled) return;
+  const supervisorZone = input.value.trim();
+  if (supervisorZone.length > 100) return;
+
+  button.disabled = true;
+  try {
+    const updated = await api.updateMySupervisorZone(supervisorZone);
+    const user = { ...(_session?.user || {}), ...updated };
+    _session = { ..._session, user };
+    setSession(_session);
+    renderSettings();
+    const sidebarZone = $('sidebarZone');
+    if (sidebarZone) sidebarZone.textContent = user.supervisorZone ? `${t('sup.zone')} ${user.supervisorZone}` : '';
+    toast(t('sup.settings.zone_saved'), 'success');
+  } catch (err) {
+    toast(err?.message || String(err), 'error');
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function wireLangToggle() {
   const btn = $('supLangToggle');
   if (!btn) return;
-  const paint = () => (btn.textContent = getCurrentLang() === 'en' ? 'عربي' : 'EN');
   btn.addEventListener('click', () => { setLanguage(getCurrentLang() === 'en' ? 'ar' : 'en'); });
-  onLanguageChanged(() => { paint(); applyAll(); });
-  paint();
+  onLanguageChanged(() => { applyAll(); });
 }
 
 function wireShiftControls() {
@@ -512,6 +701,9 @@ function wireShiftControls() {
   };
   code.addEventListener('change', save);
   period.addEventListener('change', save);
+  // The chip text is built from t(), so it must be rebuilt when the language
+  // changes - otherwise it keeps the language it was painted in.
+  onLanguageChanged(paint);
   try {
     const saved = JSON.parse(localStorage.getItem('aems_sup_shift') || 'null');
     if (saved) {
@@ -925,9 +1117,9 @@ function renderReportSelector() {
   grid.innerHTML = stations.map((id) => {
     const d = _supData[id]; if (!d) return '';
     const st = stationStats(d.items);
-    const checked = _reportSet.has(id) || !stations.length;
+    const checked = _reportSet.has(id);
     return `<label class="report-check-item ${checked ? 'selected' : ''}" data-code="${esc(d.code)}">
-      <input type="checkbox" ${checked ? 'checked' : ''} value="${esc(id)}" onchange="this.closest('.report-check-item').classList.toggle('selected', this.checked)">
+      <input type="checkbox" ${checked ? 'checked' : ''} value="${esc(id)}" onchange="window.reportStationToggled(this)">
       <div style="flex:1;">
         <div style="font-weight:600;">${esc(d.name)}</div>
         <div style="font-size:.68rem;color:var(--text3);">${st.total} ${t('sup.items')}${st.expired ? ` · <span style="color:#FCA5A5;">${st.expired} ${t('sup.col.expired')}</span>` : ''}${st.warning ? ` · <span style="color:#FDE68A;">${st.warning} ${t('sup.col.warning')}</span>` : ''}</div>
@@ -935,10 +1127,28 @@ function renderReportSelector() {
     </label>`;
   }).join('') || `<div style="color:var(--text3);font-size:.84rem;">${t('sup.empty.no_stations')}</div>`;
 
-  const allSel = stations.length > 0 && _reportSet.size === stations.length;
-  const btn = $('reportSelectAll');
-  if (btn) btn.textContent = t('sup.btn.' + (allSel ? 'deselect' : 'select_all'));
+  updateSelectAllLabel();
 }
+
+function updateSelectAllLabel() {
+  const btn = $('reportSelectAll');
+  if (!btn) return;
+  const allSel = stations.length > 0 && _reportSet.size === stations.length;
+  btn.textContent = t('sup.btn.' + (allSel ? 'deselect' : 'select_all'));
+}
+
+/**
+ * Ticking a station box must update the selection SET — Generate reads the set,
+ * not the DOM. (The old inline handler only toggled the CSS class, so ticking a
+ * box by hand left the set empty and Generate wrongly said "select a unit".)
+ */
+window.reportStationToggled = function (input) {
+  const id = input.value;
+  if (input.checked) _reportSet.add(id);
+  else _reportSet.delete(id);
+  input.closest('.report-check-item')?.classList.toggle('selected', input.checked);
+  updateSelectAllLabel();
+};
 
 window.toggleSelectAll = function () {
   if (stations.length && _reportSet.size === stations.length) _reportSet = new Set();
@@ -946,14 +1156,20 @@ window.toggleSelectAll = function () {
   renderReportSelector();
 };
 
-window.generateReport = function () {
-  const ids = [..._reportSet];
+window.generateReport = async function () {
+  const ids = [..._reportSet].filter((id) => _supData[id]);
   if (!ids.length) { toast(t('sup.toast.no_station'), 'error'); return; }
-  const results = ids.map((id) => { const d = _supData[id]; return { code: d.code, name: d.name, items: d.items || [] }; });
+  const results = ids.map((id) => {
+    const d = _supData[id];
+    return { id, code: d.code, name: d.name, items: d.items || [] };
+  });
   _reportData = results;
   renderReportOutput(results);
   $('reportActions').style.display = 'flex';
   toast(t('sup.toast.report_ready', { items: results.reduce((a, r) => a + r.items.length, 0), stations: results.length }), 'success');
+  // Persist automatically so the report is in the system no matter when the
+  // supervisor (or anyone else) looks at the unit later.
+  await saveReportSnapshot(results);
 };
 
 function renderReportOutput(results) {
@@ -1029,7 +1245,533 @@ window.exportReportCSV = function () {
   toast(t('sup.toast.csv_exported'), 'success');
 };
 
+// ── Saved reports ──────────────────────────────────────────
+// Every generated report is written to the system so it can be reopened at any
+// time, independent of when the units were inspected or when the supervisor
+// looks. The list is scoped server-side to the supervisor's own units.
+let _savedReports = [];
+let _viewReport = null;
+
+function reportToText(results) {
+  const lines = [];
+  lines.push(t('sup.report.title'));
+  lines.push(`${t('sup.report.generated')}: ${new Date().toLocaleString()}`);
+  lines.push(`${t('sup.insp.units_title')}: ${results.map((r) => r.name).join(' · ')}`);
+  lines.push('');
+  results.forEach((r) => {
+    const st = stationStats(r.items);
+    lines.push(`■ ${r.name} (${r.code}) — ${st.total} ${t('sup.items')}`);
+    const problems = r.items
+      .map((i) => ({ i, k: itemStatusKey(i) }))
+      .filter((x) => x.k === 'expired' || x.k === 'warning')
+      .sort((a, b) => (a.k === 'expired' ? -1 : 1) - (b.k === 'expired' ? -1 : 1));
+    if (!problems.length) {
+      lines.push(`   ✓ ${t('sup.filter.ok')}`);
+    } else {
+      problems.forEach(({ i, k }) => {
+        const bits = [
+          k === 'expired' ? t('sup.status.expired') : t('sup.status.warning'),
+          i.name,
+          i.size || null,
+          i.batchNumber ? `${t('sup.tbl.batch') || 'Batch'} ${i.batchNumber}` : null,
+          i.expiry ? fmtDate(i.expiry) : null,
+          `${t('sup.tbl.qty')} ${i.quantity}`,
+        ].filter(Boolean);
+        lines.push(`   • ${bits.join(' · ')}`);
+      });
+    }
+    lines.push('');
+  });
+  lines.push(`${t('sup.items_count')}: ${results.reduce((a, r) => a + r.items.length, 0)}`);
+  return lines.join('\n');
+}
+
+function reportSnapshot(results) {
+  return {
+    generatedAt: new Date().toISOString(),
+    scope: results.map((r) => {
+      const st = stationStats(r.items);
+      return { stationId: r.id, code: r.code, name: r.name, ...st };
+    }),
+    items: results.flatMap((r) => r.items.map((i) => ({
+      stationCode: r.code, stationName: r.name, name: i.name, category: i.category || '',
+      quantity: i.quantity, size: i.size || '', batchNumber: i.batchNumber || '',
+      expiry: i.expiry || null, vehicleNumber: i.vehicleNumber || '',
+      status: itemStatusKey(i), lastCheck: i.lastCheck || null,
+    }))),
+  };
+}
+
+async function saveReportSnapshot(results) {
+  const now = new Date();
+  const units = results.map((r) => r.name).join(' · ') || '—';
+  const rawTitle = t('sup.report.saved_title_fmt', { units, date: now.toLocaleDateString() });
+  // Server caps: title <= 150, reportText <= 20 000.
+  const title = rawTitle.length > 150 ? rawTitle.slice(0, 150) : rawTitle;
+  let reportText = reportToText(results);
+  if (reportText.length > 19_500) reportText = reportText.slice(0, 19_400) + '\n… (truncated)';
+  try {
+    await api.createReport({
+      stationId: results[0]?.id ?? undefined,
+      title,
+      reportText,
+      data: reportSnapshot(results),
+    });
+    toast(t('sup.report.saved'), 'success');
+    loadSavedReports();
+  } catch (err) {
+    toast(err && err.message ? err.message : t('sup.report.save_failed'), 'error');
+  }
+}
+
+async function loadSavedReports() {
+  const host = $('savedReportList');
+  if (!host) return;
+  try {
+    const res = await api.reports({ pageSize: 30 });
+    _savedReports = res?.reports || res?.items || [];
+  } catch {
+    _savedReports = [];
+  }
+  renderSavedReports();
+}
+
+function savedReportTitle(r) {
+  // Titles are stored in the language that was active when the report was
+  // generated; rebuild them from the structured scope so they follow the
+  // language the supervisor is reading in now.
+  const names = (r?.data?.scope || []).map((s) => s.name).filter(Boolean);
+  if (!names.length) return r?.title || '';
+  const lang = getCurrentLang() === 'ar' ? 'ar-EG' : 'en-GB';
+  const date = r.createdAt ? new Date(r.createdAt).toLocaleDateString(lang) : '';
+  return t('sup.report.saved_title_fmt', { units: names.join(' · '), date });
+}
+
+function renderSavedReports() {
+  const host = $('savedReportList');
+  if (!host) return;
+  if (!_savedReports.length) {
+    host.innerHTML = `<div class="insp-empty">${t('sup.report.saved_empty')}</div>`;
+    return;
+  }
+  host.innerHTML = `<div class="tbl-wrap"><table>
+    <thead><tr>
+      <th>${t('sup.report.col_title')}</th>
+      <th>${t('sup.report.col_units')}</th>
+      <th>${t('sup.report.col_generated')}</th>
+      <th>${t('sup.report.col_by')}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>${_savedReports.map((r) => {
+      const units = (r.data?.scope || []).map((s) => s.name).filter(Boolean).join(' · ');
+      return `<tr>
+        <td style="font-weight:600;">${esc(savedReportTitle(r) || '-')}</td>
+        <td style="font-size:.75rem;color:var(--text2);">${esc(units || r.station?.name || '—')}</td>
+        <td style="font-size:.74rem;color:var(--text3);">${esc(fmtDate(r.createdAt))}</td>
+        <td style="font-size:.74rem;color:var(--text3);">${esc(r.createdBy?.displayName || '—')}</td>
+        <td style="text-align:end;"><button class="btn-sm" onclick="window.openSavedReport('${esc(r.id)}')">${t('sup.report.open')}</button></td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+window.openSavedReport = function (id) {
+  const r = _savedReports.find((x) => x.id === id);
+  if (!r) return;
+  _viewReport = r;
+  $('reportViewTitle').textContent = savedReportTitle(r) || t('sup.report.view_title');
+  $('reportViewSub').textContent = `${t('sup.report.generated')}: ${new Date(r.createdAt).toLocaleString()}`;
+  $('reportViewBody').textContent = r.reportText || '—';
+  document.getElementById('reportViewModal')?.classList.add('open');
+};
+
+window.closeReportView = function () {
+  document.getElementById('reportViewModal')?.classList.remove('open');
+  _viewReport = null;
+};
+$('reportViewModal')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) window.closeReportView();
+});
+
+window.exportSavedReportCsv = function () {
+  const items = _viewReport?.data?.items;
+  if (!Array.isArray(items) || !items.length) { toast(t('sup.report.no_snapshot'), 'error'); return; }
+  const headers = ['Station', 'Code', 'Item', 'Category', 'Quantity', 'Size', 'Location', 'Expiry', 'Status', 'Last Check'];
+  let csv = '\ufeff' + headers.join(',') + '\n';
+  items.forEach((i) => {
+    const row = [
+      i.stationName, i.stationCode, i.name, i.category || '',
+      i.quantity, i.size || '', i.vehicleNumber || '',
+      i.expiry ? fmtDate(i.expiry) : '',
+      i.status === 'expired' ? 'Expired' : i.status === 'warning' ? 'Warning' : 'Valid',
+      i.lastCheck ? fmtDate(i.lastCheck) : '',
+    ];
+    csv += row.map((c) => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(',') + '\n';
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  a.download = `AEMS_Report_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  toast(t('sup.toast.csv_exported'), 'success');
+};
+
+// ── Inspection change overview ──────────────────────────────
+// Supervisors see only the latest comparison per ambulance by default. Full
+// item descriptions are fetched and shown only when they open a snapshot.
+let _inspOverview = null;
+let _inspRange = 30;
+let _inspStationId = '';
+let _inspLoading = false;
+let _inspectionDetail = null;
+let _inspectionFullDetails = false;
+
+const INSP_COND_CLASS = {
+  OK: 'ok', MISSING: 'exp', DAMAGED: 'exp', EXPIRED: 'exp',
+  UNUSABLE: 'warn', EXTRA: 'low', NOT_CHECKED: 'grey',
+};
+function inspCondLabel(c) { return t('sup.insp.cond.' + c); }
+
+window.setInspRange = function (v) {
+  _inspRange = Number(v);
+  refreshInspections();
+};
+window.setInspStation = function (v) {
+  _inspStationId = v || '';
+  refreshInspections();
+};
+
+window.refreshInspections = async function () {
+  if (_inspLoading) return;
+  _inspLoading = true;
+  if ($('inspKpi')) $('inspKpi').innerHTML = `<div class="insp-empty">${t('sup.insp.loading')}</div>`;
+  try {
+    const res = await api.inspectionOverview({
+      days: _inspRange,
+      stationId: _inspStationId || undefined,
+    });
+    _inspOverview = res || null;
+  } catch (err) {
+    toast(err && err.message ? err.message : String(err), 'error');
+    _inspOverview = null;
+  } finally {
+    _inspLoading = false;
+  }
+  renderInspections();
+};
+
+function fillInspStationFilter() {
+  const sel = $('inspStationFilter');
+  if (!sel) return;
+  const current = _inspStationId;
+  sel.innerHTML = `<option value="">${t('sup.filter.all_units')}</option>` + stations.map((id) => {
+    const d = _supData[id] || _stationMeta.get(id) || {};
+    const label = d.name || d.code || id;
+    return `<option value="${esc(id)}" ${current === id ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+}
+
+window.renderInspections = function () {
+  fillInspStationFilter();
+  const rangeSel = $('inspRange');
+  if (rangeSel && Number(rangeSel.value) !== _inspRange) rangeSel.value = String(_inspRange);
+  if (!$('inspKpi')) return;
+  if (!_inspOverview) {
+    $('inspKpi').innerHTML = `<div class="insp-empty">${t('sup.insp.empty')}</div>`;
+    $('inspChanges').innerHTML = '';
+    $('inspRecent').innerHTML = '';
+    return;
+  }
+  const comparisons = _inspOverview.comparisons || [];
+  renderInspKpi(comparisons);
+  renderInspChanges(comparisons);
+  renderInspRecent(_inspOverview.inspections || []);
+};
+
+function renderInspKpi(comparisons) {
+  const rows = Array.isArray(comparisons) ? comparisons : [];
+  const withBaseline = rows.filter((c) => c.previousInspectionId);
+  const sum = (key) => withBaseline.reduce((n, c) => n + (Number(c[key]) || 0), 0);
+  const changedChecks = withBaseline.filter((c) => c.changedItems > 0).length;
+  const changedItems = sum('changedItems');
+  const cards = [
+    { n: rows.length, label: t('sup.insp.kpi.latest'), cls: 'blue', icon: 'clipboard' },
+    { n: changedChecks, label: t('sup.insp.kpi.with_changes'), cls: changedChecks ? 'amber' : 'green', icon: 'activity' },
+    { n: changedItems, label: t('sup.insp.kpi.changed_items'), cls: changedItems ? 'amber' : 'green', icon: 'repeat' },
+    { n: sum('qtyDecreased'), label: t('sup.insp.kpi.qty_decreased'), cls: sum('qtyDecreased') ? 'red' : 'green', icon: 'trending' },
+    { n: sum('qtyIncreased'), label: t('sup.insp.kpi.qty_increased'), cls: sum('qtyIncreased') ? 'blue' : 'green', icon: 'activity' },
+    { n: rows.length - withBaseline.length, label: t('sup.insp.kpi.baselines'), cls: 'green', icon: 'grid' },
+  ];
+  $('inspKpi').innerHTML = cards.map((c) => `<div class="stat-card ${c.cls}">
+    <div class="stat-icon">${icon(c.icon)}</div>
+    <div class="stat-num">${Number(c.n) || 0}</div>
+    <div class="stat-label">${esc(c.label)}</div>
+  </div>`).join('');
+}
+
+function renderInspChanges(comparisons) {
+  const host = $('inspChanges');
+  if (!host) return;
+  if (!comparisons.length) {
+    host.innerHTML = `<div class="insp-empty">${t('sup.insp.no_recent_checks')}</div>`;
+    return;
+  }
+  host.innerHTML = `<table><thead><tr>
+    <th>${t('sup.insp.col_ambulance')}</th><th>${t('sup.insp.col_latest')}</th>
+    <th>${t('sup.insp.col_previous')}</th><th>${t('sup.insp.kpi.changed_items')}</th>
+    <th>${t('sup.insp.kpi.qty_decreased')}</th><th>${t('sup.insp.kpi.qty_increased')}</th><th></th>
+  </tr></thead><tbody>${comparisons.map((c) => {
+    const label = unitLabel(c.stationCode, c.unitName);
+    const previous = c.previousInspectionId ? esc(fmtDateTime(c.previousPerformedAt)) : t('sup.insp.baseline');
+    const changeCell = c.previousInspectionId
+      ? `<span class="chip ${c.changedItems ? 'warn' : 'ok'}">${c.changedItems}</span>${c.addedItems ? ` <span class="chip low">+${c.addedItems} ${t('sup.insp.added')}</span>` : ''}${c.removedItems ? ` <span class="chip grey">−${c.removedItems} ${t('sup.insp.removed')}</span>` : ''}`
+      : `<span class="chip grey">${t('sup.insp.baseline')}</span>`;
+    return `<tr>
+      <td style="font-weight:600;">${esc(label)}<div style="font-size:.7rem;color:var(--text3);">${esc(c.ambulanceNumber || '—')}</div></td>
+      <td style="white-space:nowrap;">${esc(fmtDateTime(c.performedAt))}<div style="font-size:.68rem;color:var(--text3);">${esc(c.performedByName || '—')}</div></td>
+      <td style="white-space:nowrap;color:var(--text2);">${esc(previous)}</td>
+      <td>${changeCell}</td>
+      <td>${c.previousInspectionId ? Number(c.qtyDecreased || 0) : '—'}</td>
+      <td>${c.previousInspectionId ? Number(c.qtyIncreased || 0) : '—'}</td>
+      <td style="text-align:end;"><button class="btn-sm" onclick="window.openInspectionDetails('${esc(c.inspectionId)}')">${t('sup.insp.details')}</button></td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function renderInspRecent(inspections) {
+  const host = $('inspRecent');
+  if (!host) return;
+  if (!inspections.length) { host.innerHTML = `<div class="insp-empty">${t('sup.insp.no_recent_checks')}</div>`; return; }
+  host.innerHTML = `<table><thead><tr>
+    <th>${t('sup.tbl.station')}</th><th>${t('sup.insp.col_ambulance')}</th>
+    <th>${t('sup.insp.col_latest')}</th><th>${t('sup.insp.col_by')}</th>
+    <th>${t('sup.tbl.status')}</th><th></th>
+  </tr></thead><tbody>${inspections.slice(0, 100).map((i) => {
+    const statusLabel = i.status === 'VOID' ? t('sup.insp.status_void') : t('sup.insp.status_complete');
+    const statusClass = i.status === 'VOID' ? 'none' : 'ok';
+    return `<tr>
+      <td style="font-weight:600;">${esc(unitLabel(i.stationCode, i.unitName))}</td>
+      <td>${esc(i.ambulanceNumber || '—')}</td>
+      <td style="white-space:nowrap;">${esc(fmtDateTime(i.completedAt || i.performedAt))}</td>
+      <td>${esc(i.performedByName || '—')}</td>
+      <td><span class="badge ${statusClass}">${esc(statusLabel)}</span></td>
+      <td style="text-align:end;"><button class="btn-sm" onclick="window.openInspectionDetails('${esc(i.id)}')">${t('sup.insp.details')}</button></td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function inspectionItemReason(item) {
+  const ar = getCurrentLang() === 'ar';
+  const label = (r) => (ar ? (r?.labelAr || r?.labelEn) : (r?.labelEn || r?.labelAr)) || r?.code || '';
+  const lines = item.reasonLines || [];
+  if (lines.length) return lines.map((r) => `${label(r.reason) || r.reasonCode} (${r.quantity})`).join(' · ');
+  return label(item.reason) || item.reasonCode || '';
+}
+
+function inspectionItemName(item) {
+  return item.inventory?.batch?.medicine?.name || t('sup.insp.unknown_item');
+}
+
+function buildInspectionDiff(inspection) {
+  const currentItems = inspection.items || [];
+  const previous = inspection.previousInspection;
+  const previousItems = previous?.items || [];
+  const previousByInventory = new Map(previousItems.map((item) => [item.inventoryId, item]));
+  const seen = new Set();
+  const changes = [];
+  let qtyDecreased = 0;
+  let qtyIncreased = 0;
+  let addedItems = 0;
+  let removedItems = 0;
+
+  for (const current of currentItems) {
+    const old = previousByInventory.get(current.inventoryId) || null;
+    seen.add(current.inventoryId);
+    if (!old) {
+      if (previous) addedItems += 1;
+      changes.push({ current, previous: null, kind: previous ? 'ADDED' : 'BASELINE', delta: null });
+      continue;
+    }
+    const delta = current.actualQuantity - old.actualQuantity;
+    if (delta < 0) qtyDecreased += -delta;
+    if (delta > 0) qtyIncreased += delta;
+    if (delta !== 0 || current.condition !== old.condition) changes.push({ current, previous: old, kind: 'CHANGED', delta });
+  }
+  if (previous) {
+    for (const old of previousItems) {
+      if (seen.has(old.inventoryId)) continue;
+      removedItems += 1;
+      changes.push({ current: null, previous: old, kind: 'REMOVED', delta: null });
+    }
+  }
+  return { previous, changes, qtyDecreased, qtyIncreased, addedItems, removedItems, currentItems };
+}
+
+function inspectionDetailsRow(row) {
+  const item = row.current || row.previous;
+  const medicine = item.inventory?.batch?.medicine;
+  const oldQty = row.previous?.actualQuantity;
+  const newQty = row.current?.actualQuantity;
+  const qtyText = row.kind === 'REMOVED'
+    ? `${oldQty} → —`
+    : row.kind === 'ADDED' ? `— → ${newQty}`
+      : row.previous ? `${oldQty} → ${newQty}` : `${newQty}`;
+  const conditionText = row.previous && row.current
+    ? `${inspCondLabel(row.previous.condition)} → ${inspCondLabel(row.current.condition)}`
+    : inspCondLabel(item.condition);
+  const delta = row.delta == null ? '' : `<span class="insp-delta ${row.delta < 0 ? 'neg' : row.delta > 0 ? 'pos' : ''}">${row.delta > 0 ? '+' : ''}${row.delta}</span>`;
+  const badge = row.kind === 'ADDED' ? t('sup.insp.added') : row.kind === 'REMOVED' ? t('sup.insp.removed') : '';
+  return `<tr>
+    <td style="font-weight:600;">${esc(inspectionItemName(item))}<div style="font-size:.68rem;color:var(--text3);">${esc(item.inventory?.batch?.batchNumber || '')}${medicine?.size ? ` · ${esc(medicine.size)}` : ''}</div></td>
+    <td style="white-space:nowrap;">${esc(qtyText)} ${delta}</td>
+    <td>${esc(conditionText)}</td>
+    <td>${esc(inspectionItemReason(row.current || item) || badge || '—')}${item.notes ? `<div style="font-size:.7rem;color:var(--text3);">${esc(item.notes)}</div>` : ''}</td>
+  </tr>`;
+}
+
+function renderInspectionDetails() {
+  if (!_inspectionDetail) return;
+  const inspection = _inspectionDetail;
+  const diff = buildInspectionDiff(inspection);
+  const station = inspection.ambulance?.station;
+  const unit = unitLabel(station?.code, station?.name);
+  const previous = diff.previous;
+  $('inspectionDetailsTitle').textContent = `${t('sup.insp.details_title')} · ${unit}`;
+  $('inspectionDetailsMeta').textContent = `${inspection.ambulance?.vehicleNumber || '—'} · ${fmtDateTime(inspection.completedAt || inspection.performedAt)} · ${inspection.performedBy?.displayName || '—'}${previous ? ` · ${t('sup.insp.previous_check')}: ${fmtDateTime(previous.completedAt || previous.performedAt)}` : ''}`;
+  $('inspectionDetailsSummary').innerHTML = previous ? [
+    [diff.changes.length, t('sup.insp.kpi.changed_items')],
+    [diff.qtyDecreased, t('sup.insp.kpi.qty_decreased')],
+    [diff.qtyIncreased, t('sup.insp.kpi.qty_increased')],
+    [diff.addedItems, t('sup.insp.added')],
+    [diff.removedItems, t('sup.insp.removed')],
+  ].map(([value, label]) => `<div class="insp-detail-metric"><b>${Number(value)}</b><span>${esc(label)}</span></div>`).join('')
+    : `<div class="insp-empty">${t('sup.insp.baseline_description', { count: diff.currentItems.length })}</div>`;
+
+  const rows = _inspectionFullDetails
+    ? [
+        ...diff.currentItems.map((current) => ({ current, previous: diff.previous && diff.previous.items.find((old) => old.inventoryId === current.inventoryId), kind: 'CURRENT', delta: diff.previous ? current.actualQuantity - (diff.previous.items.find((old) => old.inventoryId === current.inventoryId)?.actualQuantity ?? 0) : null })),
+        ...diff.changes.filter((r) => r.kind === 'REMOVED'),
+      ]
+    : diff.changes.filter((r) => r.kind !== 'BASELINE');
+  $('inspectionDetailsItems').innerHTML = rows.length ? `<table><thead><tr>
+    <th>${t('sup.insp.item_label')}</th><th>${t('sup.insp.quantity_change')}</th>
+    <th>${t('sup.insp.condition_label')}</th><th>${t('sup.insp.reason_label')}</th>
+  </tr></thead><tbody>${rows.map(inspectionDetailsRow).join('')}</tbody></table>`
+    : `<div class="insp-empty">${previous ? t('sup.insp.no_changes') : t('sup.insp.baseline_description', { count: diff.currentItems.length })}</div>`;
+
+  $('inspectionDetailsToggle').textContent = t(_inspectionFullDetails ? 'sup.insp.show_changes' : 'sup.insp.show_full');
+  $('inspectionVoidBtn').style.display = ['COMPLETED', 'ACKNOWLEDGED'].includes(inspection.status) ? '' : 'none';
+}
+
+window.openInspectionDetails = async function (id) {
+  try {
+    _inspectionDetail = await api.inspection(id);
+    _inspectionFullDetails = false;
+    renderInspectionDetails();
+    $('inspectionDetailsModal').classList.add('open');
+  } catch (err) {
+    toast(err?.message || t('sup.insp.details_failed'), 'error');
+  }
+};
+window.toggleInspectionFullDetails = function () {
+  _inspectionFullDetails = !_inspectionFullDetails;
+  renderInspectionDetails();
+};
+window.closeInspectionDetails = function () {
+  $('inspectionDetailsModal')?.classList.remove('open');
+  _inspectionDetail = null;
+};
+window.voidInspectionRecord = async function () {
+  if (!_inspectionDetail || !['COMPLETED', 'ACKNOWLEDGED'].includes(_inspectionDetail.status)) return;
+  const reason = await promptDialog({
+    title: t('sup.insp.void_title'), message: t('sup.insp.void_prompt'),
+    placeholder: t('sup.insp.void_reason_ph'), tone: 'danger',
+  });
+  if (reason === null) return;
+  if (reason.trim().length < 3 || reason.trim().length > 500) {
+    toast(t('sup.insp.void_reason_invalid'), 'error');
+    return;
+  }
+  const ok = await confirmDialog({
+    title: t('sup.insp.void_title'), message: t('sup.insp.void_confirm'),
+    tone: 'danger', confirmLabel: t('sup.insp.void_record'), cancelLabel: t('sup.btn.cancel'),
+  });
+  if (!ok) return;
+  try {
+    await api.voidInspection(_inspectionDetail.id, reason.trim());
+    toast(t('sup.insp.voided'), 'success');
+    window.closeInspectionDetails();
+    await refreshInspections();
+  } catch (err) {
+    toast(err?.message || String(err), 'error');
+  }
+};
+$('inspectionDetailsModal')?.addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) window.closeInspectionDetails();
+});
 // ── Audit log ──────────────────────────────────────────────
+/**
+ * Inspection audit entries render as TWO separate documents:
+ *   1. Inspection report — what the crew found (conditions, not-checked).
+ *   2. Adjustments applied — the reason-coded stock changes.
+ * A supervisor reads the findings first, then the adjustment it produced.
+ */
+function inspectionAuditTable(e) {
+  const m = e.metadata || {};
+  if (!['INSPECTION', 'INSPECTION_COMPLETE', 'INSPECTION_VOID'].includes(e.action)) return '';
+  const corrections = Array.isArray(m.corrections) ? m.corrections : [];
+  const notChecked = Array.isArray(m.notChecked) ? m.notChecked : [];
+  const cond = m.conditions && typeof m.conditions === 'object' ? m.conditions : {};
+  const condKeys = ['missing', 'damaged', 'expired', 'unusable'].filter((k) => Array.isArray(cond[k]) && cond[k].length);
+  const notCheckedHtml = notChecked.length
+    ? `<div class="rpt-line"><span class="rpt-tag nc">${esc(t('ui.audit.not_checked'))}</span> ${esc(notChecked.join(', '))}</div>`
+    : '';
+
+  let inspBlock = '';
+  if (condKeys.length || notCheckedHtml) {
+    inspBlock = `<div class="rpt-block rpt-inspection">
+      <div class="rpt-head">${icon('search')} ${esc(t('ui.report.inspection'))}</div>
+      ${condKeys.map((k) => `<div class="rpt-line"><span class="rpt-tag ${k}">${esc(t('ui.report.cond_' + k))}</span> ${esc(cond[k].join(', '))}</div>`).join('')}
+      ${notCheckedHtml}
+    </div>`;
+  }
+
+  let adjBlock = '';
+  if (corrections.length) {
+    const rows = corrections.map((c) => {
+      const diff = c.difference ?? ((c.to ?? 0) - (c.from ?? 0));
+      const color = diff < 0 ? 'var(--danger)' : (diff > 0 ? 'var(--success)' : 'inherit');
+      const sign = diff > 0 ? `+${diff}` : `${diff}`;
+      const lines = Array.isArray(c.lines) ? c.lines.filter((l) => l && l.code) : [];
+      const reasonCell = lines.length
+        ? lines.map((l) => `${esc(l.code)} <span style="color:var(--text-muted);">×${esc(fmtMetaVal(l.quantity))}</span>`).join('<br>')
+        : (c.reason ? esc(c.reason) : '—');
+      return `<tr>
+        <td>${esc(c.name || c.inventoryId || '—')}</td>
+        <td style="text-align:center;">${esc(fmtMetaVal(c.from))}</td>
+        <td style="text-align:center;">${esc(fmtMetaVal(c.to))}</td>
+        <td style="text-align:center;color:${color};font-weight:700;">${esc(sign)}</td>
+        <td>${reasonCell}</td>
+      </tr>`;
+    }).join('');
+    adjBlock = `<div class="rpt-block rpt-adjust">
+      <div class="rpt-head">${icon('fileText')} ${esc(t('ui.report.adjustments'))}</div>
+      <div class="audit-table-wrap"><table class="audit-table">
+        <thead><tr>
+          <th>${esc(t('ui.audit.col_item'))}</th>
+          <th style="text-align:center;">${esc(t('ui.audit.col_before'))}</th>
+          <th style="text-align:center;">${esc(t('ui.audit.col_counted'))}</th>
+          <th style="text-align:center;">${esc(t('ui.audit.col_change'))}</th>
+          <th>${esc(t('ui.audit.col_reason'))}</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  if (!inspBlock && !adjBlock) return '';
+  return `<div class="audit-table-wrap">${inspBlock}${adjBlock}</div>`;
+}
+
 function renderAudit() {
   const stFilt = $('auditStationFilter')?.value || '';
   const typeFilt = $('auditTypeFilter')?.value || '';
@@ -1103,6 +1845,7 @@ function renderAudit() {
         <div class="audit-station">${icon('pin')} ${esc(stName)}</div>
         ${(() => { const r = e.reason || (e.metadata && typeof e.metadata === 'object' ? e.metadata.reason : ''); return r ? `<div class="audit-reason">${icon('message')} "${esc(String(r))}"</div>` : ''; })()}
         ${meta}
+        ${inspectionAuditTable(e)}
       </div>
     </div>`;
   }).join('') : `<div class="empty"><div class="empty-icon">${icon('list')}</div><div class="empty-text">${t('sup.audit.empty')}</div></div>`;
@@ -1175,7 +1918,13 @@ function renderSupplyReview() {
       actions.push(`<button class="btn-sm primary" onclick="reviewSupply('${r.id}','APPROVED')">${icon('check')} ${t('sup.supply.approve')}</button>`);
       actions.push(`<button class="btn-sm danger" onclick="reviewSupply('${r.id}','REJECTED')">${t('sup.supply.reject')}</button>`);
     } else if (r.status === 'APPROVED') {
-      actions.push(`<button class="btn-sm success" onclick="reviewSupply('${r.id}','FULFILLED')">${icon('checkCircle')} ${t('sup.supply.fulfil')}</button>`);
+      actions.push(`<button class="btn-sm primary" onclick="supplyDispatch('${r.id}','${r.medicineId}')">${icon('send')} ${t('sup.supply.dispatch')}</button>`);
+    } else if (r.status === 'DISPATCHED' || r.status === 'IN_TRANSIT') {
+      actions.push(`<span style="display:inline-flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text3);padding:4px 2px;">${icon('clock')} ${t('sup.supply.awaiting_receipt')}</span>`);
+    } else if (r.status === 'RECEIVED') {
+      actions.push(`<button class="btn-sm success" onclick="supplyConfirmReceipt('${r.id}')">${icon('checkCircle')} ${t('sup.supply.confirm_receipt')}</button>`);
+    } else if (r.status === 'FULFILLED') {
+      actions.push(`<button class="btn-sm" onclick="supplyClose('${r.id}')">${icon('check')} ${t('sup.supply.close')}</button>`);
     }
     return `<div class="dir-item" style="align-items:start;">
       <span class="dir-dot tracked"></span>
@@ -1201,7 +1950,7 @@ function renderSupplyReview() {
 function showConfirm(message, { danger = false } = {}) {
   return new Promise((resolve) => {
     const m = $('confirmModal');
-    if (!m) { resolve(window.confirm(message)); return; }
+    if (!m) { confirmDialog({ message, tone: danger ? 'danger' : 'warning' }).then(resolve); return; }
     $('confirmMsg').textContent = message;
     const yes = $('confirmYes'), no = $('confirmNo');
     yes.classList.toggle('go', !danger);
@@ -1218,6 +1967,13 @@ function showConfirm(message, { danger = false } = {}) {
 }
 
 window.reviewSupply = async function (id, status) {
+  // The PATCH /status endpoint only accepts APPROVED | REJECTED. Any other
+  // transition has its own endpoint (dispatch / receive / confirm / close),
+  // so guard here instead of letting the server reject it with a 400.
+  if (status !== 'APPROVED' && status !== 'REJECTED') {
+    toast(t('sup.supply.bad_action'), 'error');
+    return;
+  }
   const confirmMsg = status === 'REJECTED' ? t('sup.supply.reject_confirm') : t('sup.supply.action_confirm');
   if (!await showConfirm(confirmMsg, { danger: status === 'REJECTED' })) return;
   try {
@@ -1226,6 +1982,80 @@ window.reviewSupply = async function (id, status) {
     await Promise.all([loadSupply(), refreshAudit()]);
     if (_currentPage === 'supply') renderSupplyReview();
     renderSupplyBadge();
+  } catch (err) {
+    toast(err && err.message || String(err), 'error');
+  }
+};
+
+/** Runs the post-action refresh shared by every supply mutation. */
+async function afterSupplyAction() {
+  await Promise.all([loadSupply(), refreshAudit()]);
+  if (_currentPage === 'supply') renderSupplyReview();
+  renderSupplyBadge();
+}
+
+/**
+ * Resolves a typed batch number to a batch id for the given medicine.
+ * Returns the id, null when nothing was typed, or false when no batch matches
+ * (so the caller can tell "not supplied" apart from "not found").
+ */
+async function resolveBatchId(medicineId, typed) {
+  const q = String(typed || '').trim();
+  if (!q) return null;
+  const data = await api.batches({ medicineId, activeOnly: 'true', pageSize: 200 });
+  const match = (data.batches || []).find(
+    (b) => String(b.batchNumber || '').trim().toLowerCase() === q.toLowerCase(),
+  );
+  return match ? match.id : false;
+}
+
+/** APPROVED → DISPATCHED. Naming the batch is what lets the later
+ *  confirmation credit the stock to the unit's inventory. */
+window.supplyDispatch = async function (id, medicineId) {
+  let typed;
+  try {
+    typed = await promptDialog({
+      title: t('sup.supply.dispatch'),
+      message: t('sup.supply.dispatch_hint'),
+      placeholder: t('sup.supply.dispatch_placeholder'),
+      confirmLabel: t('sup.supply.dispatch'),
+    });
+  } catch (err) {
+    toast(err && err.message || String(err), 'error');
+    return;
+  }
+  if (typed === null || typed === undefined) return; // cancelled
+
+  try {
+    const batchId = await resolveBatchId(medicineId, typed);
+    if (batchId === false) { toast(t('sup.supply.batch_not_found'), 'error'); return; }
+    await api.dispatchSupplyRequest(id, batchId ? { batchId } : {});
+    toast(t('sup.supply.dispatched'), 'success');
+    await afterSupplyAction();
+  } catch (err) {
+    toast(err && err.message || String(err), 'error');
+  }
+};
+
+/** RECEIVED → FULFILLED. Credits the received quantity and lifts the hold. */
+window.supplyConfirmReceipt = async function (id) {
+  if (!await showConfirm(t('sup.supply.confirm_receipt_msg'), {})) return;
+  try {
+    await api.confirmSupplyRequest(id);
+    toast(t('sup.supply.done'), 'success');
+    await afterSupplyAction();
+  } catch (err) {
+    toast(err && err.message || String(err), 'error');
+  }
+};
+
+/** FULFILLED → CLOSED. */
+window.supplyClose = async function (id) {
+  if (!await showConfirm(t('sup.supply.close_msg'), {})) return;
+  try {
+    await api.closeSupplyRequest(id);
+    toast(t('sup.supply.done'), 'success');
+    await afterSupplyAction();
   } catch (err) {
     toast(err && err.message || String(err), 'error');
   }
@@ -1385,7 +2215,7 @@ window.confirmEdit = function () {
 // ── Refresh / logout ───────────────────────────────────────
 window.refreshData = async function (showToast = true) {
   try {
-    await Promise.all([refreshInventory(), refreshAudit(), refreshCrew(), loadDirectory(), loadSupply()]);
+    await Promise.all([refreshInventory(), refreshAudit(), refreshCrew(), loadDirectory(), loadSupply(), refreshHandovers()]);
     updateAlertBadge();
     updateTopbarPill();
     updateConnectionPill();
@@ -1400,11 +2230,15 @@ function applyCurrent() {
   const p = _currentPage;
   if (p === 'overview') renderOverview();
   else if (p === 'stations') renderStationsPage();
-  else if (p === 'reports') renderReportSelector();
+  else if (p === 'inspections') { if (_inspOverview) renderInspections(); else refreshInspections(); }
+  else if (p === 'handovers') renderHandoverPage();
+  else if (p === 'reports') { renderReportSelector(); loadSavedReports(); }
+  else if (p === 'analytics') { supReportsDash?.rerender(); }
   else if (p === 'audit') renderAudit();
   else if (p === 'manage') renderManage();
   else if (p === 'supply') renderSupplyReview();
   else if (p === 'duty') renderDuty();
+  else if (p === 'settings') renderSettings();
 }
 
 window.doLogout = async function () {

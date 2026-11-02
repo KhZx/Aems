@@ -3,16 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PWA: installable app shell (manifest + service worker, wired up in js/pwa.js) -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="application-name" content="AEMS">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="AEMS">
+  <script src="/js/pwa.js" defer></script>
   <title>AEMS — Ambulance Equipment Management System</title>
-  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
-  <meta name="description" content="AEMS v1.0 — Dubai Corporation of Ambulance Services. Real-time equipment tracking, expiry alerts, and shift handovers for every DCA station.">
+  <link rel="icon" type="image/png" href="pictures/ECGLOGO.png">
+  <meta name="description" content="AEMS v1.0 - Dubai Corporation of Ambulance Services. Real-time equipment tracking, expiry alerts, and shift handovers for every DCAS station.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="AEMS — Ambulance Equipment Management System">
-  <meta property="og:description" content="Real-time inventory, smart expiry alerts, and shift handovers — unified platform for every DCA ambulance.">
+  <meta property="og:description" content="Real-time inventory, smart expiry alerts, and shift handovers - unified platform for every DCAS ambulance.">
   <meta name="theme-color" content="#06080F">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,500;0,600;0,700;0,800;0,900;1,700&family=Outfit:wght@300;400;500;600;700&family=Cairo:wght@400;500;600;700;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
   <script src="js/error-handler.js"></script>
+  <!-- Shared bilingual segmented control (EN | عربي). Loaded before the inline
+       styles below so index-specific rules can still override it. -->
+  <link rel="stylesheet" href="css/lang-toggle.css">
   <style>
     .ic { width:1.15em; height:1.15em; vertical-align:-0.2em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; pointer-events:none; }
     :root {
@@ -67,7 +79,7 @@
     }
     .hdr:not(.solid) .nav-lnk { color: rgba(255,255,255,.9); text-shadow: 0 1px 10px rgba(0,0,0,.6); }
     .hdr:not(.solid) .btn-ghost { color: rgba(255,255,255,.88); border-color: rgba(255,255,255,.28); text-shadow: 0 1px 8px rgba(0,0,0,.55); }
-    .hdr:not(.solid) .lang-btn { color: rgba(255,255,255,.88); border-color: rgba(255,255,255,.28); }
+    .hdr:not(.solid) .lang-btn:not(.lang-toggle) { color: rgba(255,255,255,.88); border-color: rgba(255,255,255,.28); }
 
     /* DCA SVG logo */
     .brand { text-decoration: none; display: flex; align-items: center; }
@@ -83,8 +95,8 @@
     .btn-ghost:hover { color: var(--text2); border-color: var(--brd2); }
     .btn-acc { padding: 7px 18px; background: var(--red); color: #fff; border: none; border-radius: 6px; font-family: var(--body); font-size: .8rem; font-weight: 700; cursor: pointer; text-decoration: none; transition: all .18s; box-shadow: 0 2px 14px rgba(200,16,46,.35); }
     .btn-acc:hover { background: var(--red2); transform: translateY(-1px); }
-    .lang-btn { padding: 6px 12px; background: transparent; color: var(--text3); border: 1px solid var(--brd); border-radius: 6px; font-family: var(--body); font-size: .72rem; font-weight: 700; cursor: pointer; transition: all .18s; }
-    .lang-btn:hover { color: var(--text2); border-color: var(--brd2); }
+    .lang-btn:not(.lang-toggle) { padding: 6px 12px; background: transparent; color: var(--text3); border: 1px solid var(--brd); border-radius: 6px; font-family: var(--body); font-size: .72rem; font-weight: 700; cursor: pointer; transition: all .18s; }
+    .lang-btn:not(.lang-toggle):hover { color: var(--text2); border-color: var(--brd2); }
 
     /* ─── HERO ─── */
     .hero {
@@ -795,6 +807,18 @@
     }
     .d-actions .btn-ghost, .d-actions .btn-acc, .d-actions .lang-btn { text-align: center; display: block; width: 100%; }
 
+    /* ─── LANGUAGE TOGGLE ─────────────────────────────────────
+       The bilingual pill itself comes from css/lang-toggle.css.
+       These are the index-only adjustments: the shared control sets
+       `display:inline-grid !important`, so the "hide in the phone
+       header" rule below has to match that to still win. */
+    .hdr-nav .lang-toggle { min-width: 104px; }
+    .d-actions .lang-toggle { width: 100%; min-width: 0; }
+    .hdr:not(.solid) .lang-toggle { background: rgba(6,8,15,.55); backdrop-filter: blur(8px); }
+    @media (max-width: 600px) {
+      .hdr-nav .lang-btn.lang-toggle { display: none !important; }
+    }
+
     @media(max-width:600px) {
       .hdr { height: 60px; padding: 0 1rem; }
       .hdr-nav .btn-ghost, .hdr-nav .btn-acc, .hdr-nav .lang-btn { display: none; }
@@ -812,8 +836,8 @@
 <!-- ═══ HEADER ═══ -->
 <header class="hdr">
   <!-- DCA SVG Logo -->
-  <a href="/" class="brand" aria-label="Dubai Corporation for Ambulance Services">
-    <img class="dca-logo" src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" decoding="async">
+  <a href="/" class="brand" aria-label="Dubai Corporation of Ambulance Services">
+    <img class="dca-logo" src="assets/DubaiAmbulance.svg" alt="Dubai Corporation of Ambulance Services" decoding="async">
   </a>
   <nav class="hdr-nav">
     <a href="#demo" class="nav-lnk" data-i18n="nav.demo">Live Demo</a>
@@ -831,7 +855,7 @@
 <div class="drawer-overlay" id="drawerOverlay"></div>
 <nav class="nav-drawer" id="navDrawer" aria-label="Mobile navigation">
   <div class="nav-drawer-head">
-    <a href="/" class="brand" aria-label="Dubai Corporation for Ambulance Services">
+    <a href="/" class="brand" aria-label="Dubai Corporation of Ambulance Services">
       <img class="dca-logo" src="assets/DubaiAmbulance.svg" alt="" decoding="async">
     </a>
     <button class="d-drawer-close" id="drawerClose" title="Close" aria-label="Close" data-i18n="common.close" data-i18n-attr="title"><svg class="ic" aria-hidden="true"><use href="#i-close"/></svg></button>
@@ -861,7 +885,7 @@
       <span class="acc" data-i18n="hero.title2">Reimagined.</span>
     </h1>
     <p class="h-sub" data-i18n="hero.subtitle">
-      Real-time inventory tracking, smart expiry alerts, and shift reporting — unified platform for every DCA station.
+      Real-time inventory tracking, smart expiry alerts, and shift reporting - unified platform for every DCAS station.
     </p>
     <div class="h-btns">
       <a href="/login.html" class="btn-primary" data-i18n="hero.cta.primary">Sign In to Dashboard</a>
@@ -1169,7 +1193,7 @@
       <div class="feat-card rv" style="transition-delay:.07s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg></div><div class="feat-title" data-i18n="features.alerts.title">Smart Alerts</div><p class="feat-desc" data-i18n="features.alerts.desc">Automatic notifications for expiring medication, low stock levels, and equipment requiring inspection.</p></div>
       <div class="feat-card rv" style="transition-delay:.14s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></div><div class="feat-title" data-i18n="features.reports.title">Shift Reports</div><p class="feat-desc" data-i18n="features.reports.desc">Generate professional shift reports with one click. Share via WhatsApp or export as PDF.</p></div>
       <div class="feat-card rv" style="transition-delay:.07s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-search"/></svg></div><div class="feat-title" data-i18n="features.audit.title">Audit Trail</div><p class="feat-desc" data-i18n="features.audit.desc">Complete history of every equipment change, inspection, and usage event with timestamps.</p></div>
-      <div class="feat-card rv" style="transition-delay:.14s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg></div><div class="feat-title" data-i18n="features.stations.title">Multi-Station</div><p class="feat-desc" data-i18n="features.stations.desc">Manage equipment across all DCA stations from a single dashboard with per-station filtering.</p></div>
+      <div class="feat-card rv" style="transition-delay:.14s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg></div><div class="feat-title" data-i18n="features.stations.title">Multi-Station</div><p class="feat-desc" data-i18n="features.stations.desc">Manage equipment across all DCAS stations from a single dashboard with per-station filtering.</p></div>
       <div class="feat-card rv" style="transition-delay:.21s"><div class="feat-ico"><svg class="ic" aria-hidden="true"><use href="#i-smartphone"/></svg></div><div class="feat-title" data-i18n="features.mobile.title">Mobile Ready</div><p class="feat-desc" data-i18n="features.mobile.desc">Fully responsive design works seamlessly on tablets and smartphones used in the field.</p></div>
     </div>
   </div>
@@ -1183,7 +1207,7 @@
       <h2 class="sec-title" data-i18n="how.title">How It Works</h2>
     </div>
     <div class="how-grid">
-      <div class="how-step rv"><div class="step-n">1</div><div class="step-t" data-i18n="how.step1.title">Request Access</div><p class="step-d" data-i18n="how.step1.desc">Sign up with your DCA Employee ID. Your supervisor approves your account.</p></div>
+      <div class="how-step rv"><div class="step-n">1</div><div class="step-t" data-i18n="how.step1.title">Request Access</div><p class="step-d" data-i18n="how.step1.desc">Sign up with your DCAS Employee ID. Your supervisor approves your account.</p></div>
       <div class="how-step rv" style="transition-delay:.13s"><div class="step-n">2</div><div class="step-t" data-i18n="how.step2.title">Sign In</div><p class="step-d" data-i18n="how.step2.desc">Authenticate with your work email and password. Station data loads instantly.</p></div>
       <div class="how-step rv" style="transition-delay:.26s"><div class="step-n">3</div><div class="step-t" data-i18n="how.step3.title">Manage & Report</div><p class="step-d" data-i18n="how.step3.desc">Track equipment, log inspections, and generate shift reports.</p></div>
     </div>
@@ -1194,7 +1218,7 @@
 <section class="cta-sec">
   <div class="rv">
     <h2 class="cta-title" data-i18n="cta.title">Ready to get started?</h2>
-    <p class="cta-sub" data-i18n="cta.subtitle">Join Dubai Corporation of Ambulance staff already using AEMS.</p>
+    <p class="cta-sub" data-i18n="cta.subtitle">Join Dubai Corporation of Ambulance Services staff already using AEMS.</p>
     <div class="cta-btns">
       <a href="/login.html" class="btn-primary" data-i18n="cta.signin">Sign In</a>
       <a href="/signup.html" class="btn-outline" data-i18n="cta.signup">Request Access</a>
@@ -1215,7 +1239,7 @@
       <a href="/login.html" class="foot-lnk" data-i18n="footer.login">Sign In</a>
       <a href="/signup.html" class="foot-lnk" data-i18n="footer.signup">Sign Up</a>
     </div>
-    <div class="foot-cp" data-i18n="footer.rights">© 2026 Dubai Corporation of Ambulance. All rights reserved.</div>
+    <div class="foot-cp" data-i18n="footer.rights">© 2026 Dubai Corporation of Ambulance Services. All rights reserved.</div>
   </div>
 </footer>
 

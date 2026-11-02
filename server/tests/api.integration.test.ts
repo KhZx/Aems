@@ -37,6 +37,8 @@ vi.mock('../src/config/firebase.js', () => ({
 // Imported after the mock + env setup.
 const { createApp } = await import('../src/app.js');
 const { prisma } = await import('../src/config/prisma.js');
+const { syncStockReasons } = await import('../src/config/stockReasons.js');
+const notificationService = await import('../src/services/notification.service.js');
 
 describe.skipIf(!HAS_DB)('AEMS API integration', () => {
   let app: Express;
@@ -50,6 +52,7 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
 
   beforeAll(async () => {
     execSync('npx prisma db push --force-reset --skip-generate', { stdio: 'pipe', timeout: 120_000 });
+    await syncStockReasons(prisma);
     app = createApp();
 
     const station = await prisma.station.create({ data: { code: '100', name: 'Test Station' } });
@@ -116,6 +119,63 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
     await prisma.$disconnect();
   });
 
+  it('keeps notifications private to their recipient and marks them read idempotently', async () => {
+    const paramedic = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-paramedic' } });
+    const notification = await prisma.notification.create({
+      data: {
+        userId: paramedic.id,
+        stationId,
+        type: 'TEST_NOTIFICATION',
+        severity: 'ACTION',
+        titleKey: 'notifications.title',
+        bodyKey: 'notifications.empty',
+        data: { page: 'dashboard' },
+        dedupeKey: `test-notification-${Date.now()}`,
+      },
+    });
+
+    const crewList = await request(app).get('/api/notifications?pageSize=20').set(auth('token-paramedic')).expect(200);
+    expect(crewList.body.data.notifications.some((n: { id: string }) => n.id === notification.id)).toBe(true);
+    expect(crewList.body.data.unread).toBeGreaterThan(0);
+
+    const adminList = await request(app).get('/api/notifications?pageSize=20').set(auth(adminToken)).expect(200);
+    expect(adminList.body.data.notifications.some((n: { id: string }) => n.id === notification.id)).toBe(false);
+
+    await request(app).post(`/api/notifications/${notification.id}/read`).set(auth('token-paramedic')).expect(200);
+    await request(app).post(`/api/notifications/${notification.id}/read`).set(auth('token-paramedic')).expect(200);
+    const unread = await request(app).get('/api/notifications?unreadOnly=true').set(auth('token-paramedic')).expect(200);
+    expect(unread.body.data.notifications.some((n: { id: string }) => n.id === notification.id)).toBe(false);
+  });
+
+  it('streams refresh events only to the authenticated notification recipient', async () => {
+    const paramedic = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-paramedic' } });
+    const server = app.listen(0);
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Test server did not bind a TCP port');
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/notifications/stream`, {
+        headers: { Authorization: 'Bearer token-paramedic' },
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      const ready = decoder.decode((await reader.read()).value);
+      expect(ready).toContain('event: ready');
+
+      await notificationService.notifyUser(paramedic.id, {
+        type: 'TEST_STREAM', severity: 'INFO', titleKey: 'notifications.title',
+        bodyKey: 'notifications.empty', data: { page: 'dashboard' },
+        dedupeKey: `stream-test-${Date.now()}`,
+      });
+      const update = decoder.decode((await reader.read()).value);
+      expect(update).toContain('event: refresh');
+      await reader.cancel();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   // Full unit-operator flow: page-load GETs + add-medicine with the new form.
   it('lets a paramedic load unit data and add a medicine with blank optional fields', async () => {
     const sid = stationId;
@@ -125,6 +185,19 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
       request(app).get(`/api/handovers?stationId=${sid}&pageSize=50`).set(auth('token-paramedic')),
     ]);
     for (const res of gets) expect(res.status).toBe(200);
+
+    const firstInventoryPage = await request(app)
+      .get(`/api/inventory?stationId=${sid}&includeEmpty=true&page=1&pageSize=1`)
+      .set(auth('token-paramedic'))
+      .expect(200);
+    const secondInventoryPage = await request(app)
+      .get(`/api/inventory?stationId=${sid}&includeEmpty=true&page=2&pageSize=1`)
+      .set(auth('token-paramedic'))
+      .expect(200);
+    expect(firstInventoryPage.body.data.total).toBe(2);
+    expect(firstInventoryPage.body.data.items).toHaveLength(1);
+    expect(secondInventoryPage.body.data.items).toHaveLength(1);
+    expect(firstInventoryPage.body.data.items[0].id).not.toBe(secondInventoryPage.body.data.items[0].id);
 
     const medRes = await request(app)
       .post('/api/medicines')
@@ -154,6 +227,132 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
   });
 
   const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+  async function invIdFor(ambulanceId: string): Promise<string> {
+    const row = await prisma.inventory.findUniqueOrThrow({
+      where: { ambulanceId_batchId: { ambulanceId, batchId } },
+    });
+    return row.id;
+  }
+
+  it('lets a unit override its own lot without touching the shared batch or other units', async () => {
+    const invA = await invIdFor(ambulanceA);
+
+    const res = await request(app)
+      .patch(`/api/inventory/${invA}/lot`)
+      .set(auth('token-paramedic'))
+      .send({ batchNumber: 'TB-1-UNIT-A', reason: 'Relabel for this unit' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.batch.batchNumber).toBe('TB-1-UNIT-A');
+    expect(res.body.data.hasLotOverride).toBe(true);
+
+    // The shared catalogue batch the fleet publishes is untouched.
+    const shared = await prisma.medicineBatch.findUniqueOrThrow({ where: { id: batchId } });
+    expect(shared.batchNumber).toBe('TB-1');
+
+    // The other ambulance's line for the very same batch keeps the shared value.
+    const invB = await invIdFor(ambulanceB);
+    const bRow = await prisma.inventory.findUniqueOrThrow({ where: { id: invB } });
+    expect(bRow.overrideBatchNumber).toBeNull();
+    const list = await request(app)
+      .get(`/api/inventory?stationId=${stationId}&includeEmpty=true`)
+      .set(auth('token-paramedic'))
+      .expect(200);
+    const bSeen = (list.body.data as any[]).find(r => r.id === invB);
+    expect(bSeen.batch.batchNumber).toBe('TB-1');
+    expect(bSeen.hasLotOverride).toBe(false);
+
+    // Audit records the per-unit edit with the shared number for context.
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: 'UPDATE_STOCK_LOT', entityId: invA },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(audit).toBeTruthy();
+    expect(audit?.entityType).toBe('Inventory');
+    const meta = audit?.metadata as any;
+    expect(meta.reason).toBe('Relabel for this unit');
+    expect(meta.sharedBatchNumber).toBe('TB-1');
+    expect(meta.changes.batchNumber).toEqual({ from: 'TB-1', to: 'TB-1-UNIT-A' });
+  });
+
+  it('rejects a per-unit lot edit without a reason (400)', async () => {
+    const invA = await invIdFor(ambulanceA);
+    await request(app)
+      .patch(`/api/inventory/${invA}/lot`)
+      .set(auth('token-paramedic'))
+      .send({ batchNumber: 'TB-X' })
+      .expect(400);
+  });
+
+  it('clears the per-unit override when the value is set back to the shared lot', async () => {
+    const invA = await invIdFor(ambulanceA);
+    const res = await request(app)
+      .patch(`/api/inventory/${invA}/lot`)
+      .set(auth('token-paramedic'))
+      .send({ batchNumber: 'TB-1', reason: 'Re-sync with published lot' })
+      .expect(200);
+    expect(res.body.data.batch.batchNumber).toBe('TB-1');
+    expect(res.body.data.hasLotOverride).toBe(false);
+    const row = await prisma.inventory.findUniqueOrThrow({ where: { id: invA } });
+    expect(row.overrideBatchNumber).toBeNull();
+  });
+
+  it('edits the shared batch with a reason and records a field-level audit entry', async () => {
+    const res = await request(app)
+      .patch(`/api/batches/${batchId}`)
+      .set(auth(adminToken))
+      .send({ batchNumber: 'TB-1B', supplier: 'Acme Supplies', expiryDate: '2027-06-30', reason: 'Corrected supplier' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.batchNumber).toBe('TB-1B');
+    expect(res.body.data.supplier).toBe('Acme Supplies');
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: 'UPDATE_BATCH', entityId: batchId },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(audit).toBeTruthy();
+    expect(audit?.entityType).toBe('MedicineBatch');
+    const meta = audit?.metadata as any;
+    expect(meta.reason).toBe('Corrected supplier');
+    expect(meta.changes.batchNumber).toEqual({ from: 'TB-1', to: 'TB-1B' });
+    expect(meta.changes.supplier).toEqual({ from: null, to: 'Acme Supplies' });
+  });
+
+  it('rejects a shared-batch edit without a reason (400)', async () => {
+    await request(app)
+      .patch(`/api/batches/${batchId}`)
+      .set(auth(adminToken))
+      .send({ supplier: 'No Reason Co' })
+      .expect(400);
+  });
+
+  it('lets a paramedic edit a batch with a reason (all-roles policy, still audited)', async () => {
+    const res = await request(app)
+      .patch(`/api/batches/${batchId}`)
+      .set(auth('token-paramedic'))
+      .send({ batchNumber: 'TB-CREW', reason: 'Recount during inspection' })
+      .expect(200);
+    expect(res.body.data.batchNumber).toBe('TB-CREW');
+
+    // The reason stays mandatory for every role, crews included.
+    await request(app)
+      .patch(`/api/batches/${batchId}`)
+      .set(auth('token-paramedic'))
+      .send({ supplier: 'No Reason Co' })
+      .expect(400);
+  });
+
+  it('rejects a batch number that clashes with another lot (409)', async () => {
+    const other = await prisma.medicineBatch.create({
+      data: { medicineId, batchNumber: 'TB-CLASH', expiryDate: new Date('2028-01-01') },
+    });
+    const res = await request(app)
+      .patch(`/api/batches/${batchId}`)
+      .set(auth(adminToken))
+      .send({ batchNumber: 'TB-CLASH', reason: 'Attempted clash' });
+    expect(res.status).toBe(409);
+    await prisma.medicineBatch.delete({ where: { id: other.id } });
+  });
 
   it('rejects missing token with 401', async () => {
     await request(app).get('/api/auth/me').expect(401);
@@ -283,6 +482,29 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
     expect(res.body.data.database).toBe('ok');
   });
 
+  it('serves the structured reason catalog, filtered by item type and action', async () => {
+    const all = await request(app).get('/api/stock-reasons').set(auth('token-paramedic')).expect(200);
+    const codes = all.body.data.reasons.map((r: { code: string }) => r.code);
+    expect(codes).toContain('EXPIRED');
+    expect(codes).toContain('NOT_CHECKED');
+    expect(codes).toContain('USED_PATIENT_CARE');
+
+    const forUse = await request(app)
+      .get('/api/stock-reasons?action=USE&itemType=MEDICATION')
+      .set(auth('token-paramedic'))
+      .expect(200);
+    for (const r of forUse.body.data.reasons) {
+      expect(r.actions).toContain('USE');
+      expect(r.itemTypes).toContain('MEDICATION');
+    }
+    expect(forUse.body.data.reasons.length).toBeGreaterThan(0);
+    expect(forUse.body.data.reasons.length).toBeLessThan(all.body.data.reasons.length);
+  });
+
+  it('rejects an unauthenticated reason-catalog request (401)', async () => {
+    await request(app).get('/api/stock-reasons').expect(401);
+  });
+
   it('creating a station auto-creates its unit car and rejects non-digit codes', async () => {
     const created = await request(app)
       .post('/api/stations')
@@ -297,6 +519,96 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
       .set(auth(adminToken))
       .send({ code: 'CEN-99', name: 'Bad Code' })
       .expect(400);
+  });
+
+  it('edits a station: renames + re-numbers its own car, and rejects clashes', async () => {
+    // A fresh unit keeps the code change isolated from other tests.
+    const created = await request(app)
+      .post('/api/stations')
+      .set(auth(adminToken))
+      .send({ code: '810', name: 'Unit 810' })
+      .expect(201);
+    const id = created.body.data.id;
+
+    const updated = await request(app)
+      .patch(`/api/stations/${id}`)
+      .set(auth(adminToken))
+      .send({ code: '811', name: 'Unit 811 Renamed', location: 'Al Barsha' })
+      .expect(200);
+    expect(updated.body.data.code).toBe('811');
+    expect(updated.body.data.name).toBe('Unit 811 Renamed');
+    expect(updated.body.data.location).toBe('Al Barsha');
+
+    // The unit's OWN car follows the new unit number (numbered to match).
+    const car = await prisma.ambulance.findFirst({ where: { stationId: id } });
+    expect(car?.vehicleNumber).toBe('811');
+
+    // A code already used by ANOTHER unit is rejected.
+    await request(app)
+      .patch(`/api/stations/${id}`)
+      .set(auth(adminToken))
+      .send({ code: '100' })
+      .expect(409);
+
+    // Non-digit codes are rejected by validation.
+    await request(app)
+      .patch(`/api/stations/${id}`)
+      .set(auth(adminToken))
+      .send({ code: 'ABC' })
+      .expect(400);
+
+    // Editing details never touches inventory or assigned users.
+    const inv = await prisma.inventory.count({ where: { ambulance: { stationId: id } } });
+    expect(inv).toBe(0);
+  });
+
+  it('only admins may edit or delete stations (403 for crew)', async () => {
+    await request(app)
+      .patch(`/api/stations/${stationId}`)
+      .set(auth('token-paramedic'))
+      .send({ name: 'Nope' })
+      .expect(403);
+    await request(app).delete(`/api/stations/${stationId}`).set(auth('token-paramedic')).expect(403);
+  });
+
+  it('refuses to delete a station that still has history, and says why', async () => {
+    const res = await request(app).delete(`/api/stations/${stationId}`).set(auth(adminToken)).expect(409);
+    expect(res.body.error.message).toMatch(/cannot be deleted/i);
+    expect(res.body.error.message).toMatch(/inactive/i);
+    // The station itself is untouched.
+    expect(await prisma.station.findUnique({ where: { id: stationId } })).toBeTruthy();
+  });
+
+  it('just-created empty station can be hard-deleted (with its auto car)', async () => {
+    const created = await request(app)
+      .post('/api/stations')
+      .set(auth(adminToken))
+      .send({ code: '812', name: 'Unit 812' })
+      .expect(201);
+    const id = created.body.data.id;
+
+    await request(app).delete(`/api/stations/${id}`).set(auth(adminToken)).expect(204);
+    expect(await prisma.station.findUnique({ where: { id } })).toBeNull();
+    expect(await prisma.ambulance.count({ where: { stationId: id } })).toBe(0);
+  });
+
+  it('deactivates a station without deleting history, hiding it from the public list', async () => {
+    const res = await request(app)
+      .patch(`/api/stations/${stationId}`)
+      .set(auth(adminToken))
+      .send({ status: 'INACTIVE' })
+      .expect(200);
+    expect(res.body.data.status).toBe('INACTIVE');
+
+    const pub = await request(app).get('/api/public/stations').expect(200);
+    expect(pub.body.data.some((s: { id: string }) => s.id === stationId)).toBe(false);
+
+    // Restore for any later tests.
+    await request(app)
+      .patch(`/api/stations/${stationId}`)
+      .set(auth(adminToken))
+      .send({ status: 'ACTIVE' })
+      .expect(200);
   });
 
   it('creates a medicine with details, its batch, then restocks a car', async () => {
@@ -335,6 +647,374 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
     const row = await prisma.inventory.findUniqueOrThrow({ where: { ambulanceId_batchId: { ambulanceId: ambulanceA, batchId } } });
     return row.id;
   }
+
+  // ─────────────────────────────────────────────────────────────
+  //  Free-form inspection lifecycle.
+  // ─────────────────────────────────────────────────────────────
+  describe('inspection lifecycle', () => {
+    let inspBatchId: string;
+    let inspInventoryId: string;
+
+    beforeAll(async () => {
+      const med = await prisma.medicine.create({
+        data: { name: `Inspectable ${Date.now()}`, category: 'RESPONDER' },
+      });
+      const batch = await prisma.medicineBatch.create({
+        data: { medicineId: med.id, batchNumber: `IB-${Date.now()}`, expiryDate: new Date('2028-01-01') },
+      });
+      inspBatchId = batch.id;
+      const inv = await prisma.inventory.create({
+        data: { ambulanceId: ambulanceA, batchId: batch.id, quantity: 5 },
+      });
+      inspInventoryId = inv.id;
+    });
+
+    it('creates a draft, resumes it, then completing reconciles stock (auto-report)', async () => {
+      const draft = await request(app)
+        .post('/api/inspections')
+        .set(auth('token-paramedic'))
+        .send({
+          ambulanceId: ambulanceA,
+          title: 'Evening check',
+          items: [{ inventoryId: inspInventoryId, actualQuantity: 5, condition: 'OK' }],
+        })
+        .expect(201);
+      expect(draft.body.data.status).toBe('DRAFT');
+      const id = draft.body.data.id as string;
+
+      // Resume: mark it missing with a structured reason.
+      await request(app)
+        .put(`/api/inspections/${id}`)
+        .set(auth('token-paramedic'))
+        .send({ items: [{ inventoryId: inspInventoryId, actualQuantity: 3, condition: 'MISSING', reasonCode: 'LOST_OPERATIONS' }] })
+        .expect(200);
+
+      const detailBefore = await request(app).get(`/api/inspections/${id}`).set(auth('token-paramedic')).expect(200);
+      expect(detailBefore.body.data.items).toHaveLength(1);
+      expect(detailBefore.body.data.items[0].condition).toBe('MISSING');
+
+      const done = await request(app)
+        .post(`/api/inspections/${id}/complete`)
+        .set(auth('token-paramedic'))
+        .expect(200);
+      expect(done.body.data.inspection.status).toBe('COMPLETED');
+      expect(done.body.data.corrections).toHaveLength(1);
+      expect(done.body.data.corrections[0].difference).toBe(-2);
+
+      const inv = await prisma.inventory.findUniqueOrThrow({ where: { id: inspInventoryId } });
+      expect(inv.quantity).toBe(3);
+
+      const tx = await prisma.inventoryTransaction.findFirst({
+        where: { referenceId: id, transactionType: 'INSPECTION_CORRECTION' },
+      });
+      expect(inv.quantity).toBe(3);
+      expect(tx?.reasonCode).toBe('LOST_OPERATIONS');
+
+      // Completed reports are immutable: the performer can no longer edit them.
+      await request(app)
+        .put(`/api/inspections/${id}`)
+        .set(auth('token-paramedic'))
+        .send({ items: [] })
+        .expect(409);
+
+      // A field crew member cannot acknowledge their own inspection.
+      await request(app).post(`/api/inspections/${id}/acknowledge`).set(auth('token-paramedic')).send({}).expect(403);
+
+      // A supervisor-admin acknowledges and closes the loop.
+      const ack = await request(app)
+        .post(`/api/inspections/${id}/acknowledge`)
+        .set(auth(adminToken))
+        .send({ reviewNotes: 'Noted' })
+        .expect(200);
+      expect(ack.body.data.status).toBe('ACKNOWLEDGED');
+    });
+
+    it('requires a reason for a loss line and rejects unknown reasons (400)', async () => {
+      const draft = await request(app)
+        .post('/api/inspections')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceA, items: [] })
+        .expect(201);
+      const id = draft.body.data.id as string;
+
+      await request(app)
+        .put(`/api/inspections/${id}`)
+        .set(auth('token-paramedic'))
+        .send({ items: [{ inventoryId: inspInventoryId, actualQuantity: 2, condition: 'MISSING' }] })
+        .expect(400);
+
+      await request(app)
+        .put(`/api/inspections/${id}`)
+        .set(auth('token-paramedic'))
+        .send({ items: [{ inventoryId: inspInventoryId, actualQuantity: 2, condition: 'MISSING', reasonCode: 'NOPE' }] })
+        .expect(400);
+
+      await request(app).delete(`/api/inspections/${id}`).set(auth('token-paramedic')).expect(200);
+    });
+
+    it('splits one discrepancy across several reasons (e.g. 1 used + 1 lost)', async () => {
+      await prisma.inventory.update({ where: { id: inspInventoryId }, data: { quantity: 5 } });
+
+      const draft = await request(app)
+        .post('/api/inspections')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceA, items: [] })
+        .expect(201);
+      const id = draft.body.data.id as string;
+
+      // Sum of the split lines must equal the counted difference (5 → 3 = -2).
+      const bad = await request(app)
+        .put(`/api/inspections/${id}`)
+        .set(auth('token-paramedic'))
+        .send({
+          items: [{
+            inventoryId: inspInventoryId,
+            actualQuantity: 3,
+            condition: 'MISSING',
+            reasonLines: [{ code: 'USED_PATIENT_CARE', quantity: 1 }],
+          }],
+        })
+        .expect(400);
+      expect(JSON.stringify(bad.body)).toMatch(/add up/i);
+
+      await request(app)
+        .put(`/api/inspections/${id}`)
+        .set(auth('token-paramedic'))
+        .send({
+          items: [{
+            inventoryId: inspInventoryId,
+            actualQuantity: 3,
+            condition: 'MISSING',
+            reasonLines: [
+              { code: 'USED_PATIENT_CARE', quantity: 1 },
+              { code: 'LOST_OPERATIONS', quantity: 1 },
+            ],
+          }],
+        })
+        .expect(200);
+
+      const detail = await request(app).get(`/api/inspections/${id}`).set(auth('token-paramedic')).expect(200);
+      expect(detail.body.data.items[0].reasonLines).toHaveLength(2);
+      expect(detail.body.data.items[0].reasonLines[0].reasonCode).toBe('USED_PATIENT_CARE');
+
+      const done = await request(app)
+        .post(`/api/inspections/${id}/complete`)
+        .set(auth('token-paramedic'))
+        .expect(200);
+      expect(done.body.data.corrections[0].difference).toBe(-2);
+      expect(done.body.data.corrections[0].lines).toHaveLength(2);
+      expect(done.body.data.corrections[0].lines.map((l: { code: string }) => l.code).sort()).toEqual([
+        'LOST_OPERATIONS',
+        'USED_PATIENT_CARE',
+      ]);
+
+      const inv = await prisma.inventory.findUniqueOrThrow({ where: { id: inspInventoryId } });
+      expect(inv.quantity).toBe(3);
+    });
+
+    it('compares a new inspection with the previous completed snapshot for the same ambulance', async () => {
+      await prisma.inventory.update({ where: { id: inspInventoryId }, data: { quantity: 5 } });
+      const baseline = await request(app)
+        .post('/api/inspections')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceA, items: [] })
+        .expect(201);
+      const baselineId = baseline.body.data.id as string;
+      await request(app)
+        .put(`/api/inspections/${baselineId}`)
+        .set(auth('token-paramedic'))
+        .send({ items: [{ inventoryId: inspInventoryId, actualQuantity: 3, condition: 'MISSING', reasonCode: 'LOST_OPERATIONS' }] })
+        .expect(200);
+      await request(app).post(`/api/inspections/${baselineId}/complete`).set(auth('token-paramedic')).expect(200);
+      await prisma.inventory.update({ where: { id: inspInventoryId }, data: { quantity: 5 } });
+
+      const draft = await request(app)
+        .post('/api/inspections')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceA, items: [] })
+        .expect(201);
+      const id = draft.body.data.id as string;
+
+      await request(app)
+        .put(`/api/inspections/${id}`)
+        .set(auth('token-paramedic'))
+        .send({ items: [{
+          inventoryId: inspInventoryId,
+          actualQuantity: 4,
+          condition: 'MISSING',
+          reasonLines: [
+            { code: 'USED_PATIENT_CARE', quantity: 1 },
+          ],
+        }] })
+        .expect(200);
+      await request(app).post(`/api/inspections/${id}/complete`).set(auth('token-paramedic')).expect(200);
+
+      const overview = await request(app)
+        .get('/api/inspections/overview?days=0')
+        .set(auth(adminToken))
+        .expect(200);
+      expect(overview.body.data.inspections.find((i: { id: string }) => i.id === id).status).toBe('COMPLETED');
+      const comparison = overview.body.data.comparisons.find((c: { inspectionId: string }) => c.inspectionId === id);
+      expect(comparison.previousInspectionId).toBe(baselineId);
+      expect(comparison.changedItems).toBe(1);
+      expect(comparison.qtyIncreased).toBe(1);
+
+      const detail = await request(app)
+        .get(`/api/inspections/${id}`)
+        .set(auth(adminToken))
+        .expect(200);
+      expect(detail.body.data.previousInspection.id).toBe(baselineId);
+      expect(detail.body.data.previousInspection.items[0].actualQuantity).toBe(3);
+
+      // The other ambulance is at the same station, but must start its own baseline.
+      const ambulanceBInventoryId = await invIdFor(ambulanceB);
+      const otherDraft = await request(app)
+        .post('/api/inspections')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceB, items: [{ inventoryId: ambulanceBInventoryId, actualQuantity: 3, condition: 'OK' }] })
+        .expect(201);
+      await request(app).post(`/api/inspections/${otherDraft.body.data.id}/complete`).set(auth('token-paramedic')).expect(200);
+      const perAmbulance = await request(app)
+        .get('/api/inspections/overview?days=0')
+        .set(auth(adminToken))
+        .expect(200);
+      const otherComparison = perAmbulance.body.data.comparisons.find((c: { ambulanceId: string }) => c.ambulanceId === ambulanceB);
+      expect(otherComparison.previousInspectionId).toBeNull();
+    });
+
+    it('voiding a completed inspection reverses its corrections', async () => {
+      await prisma.inventory.update({ where: { id: inspInventoryId }, data: { quantity: 3 } });
+      const draft = await request(app)
+        .post('/api/inspections')
+        .set(auth('token-paramedic'))
+        .send({
+          ambulanceId: ambulanceA,
+          items: [{ inventoryId: inspInventoryId, actualQuantity: 10, condition: 'EXTRA', reasonCode: 'MISFILED' }],
+        })
+        .expect(201);
+      const id = draft.body.data.id as string;
+
+      // Completing bumps stock to the counted value...
+      await request(app).post(`/api/inspections/${id}/complete`).set(auth('token-paramedic')).expect(200);
+      let inv = await prisma.inventory.findUniqueOrThrow({ where: { id: inspInventoryId } });
+      expect(inv.quantity).toBe(10);
+
+      // ...and voiding restores the pre-inspection quantity.
+      const voided = await request(app)
+        .post(`/api/inspections/${id}/void`)
+        .set(auth(adminToken))
+        .send({ voidReason: 'Miscounted' })
+        .expect(200);
+      expect(voided.body.data.status).toBe('VOID');
+      inv = await prisma.inventory.findUniqueOrThrow({ where: { id: inspInventoryId } });
+      expect(inv.quantity).toBe(3);
+      expect(inspBatchId).toBeTruthy();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  //  Supply-request fulfilment: approve → dispatch (held) → receive →
+  //  double-confirm (credits stock) → close.
+  // ─────────────────────────────────────────────────────────────
+  describe('supply request lifecycle', () => {
+    let medId: string;
+    let supplyBatchId: string;
+
+    beforeAll(async () => {
+      const med = await prisma.medicine.create({ data: { name: `Resupply ${Date.now()}`, category: 'MEDICATION' } });
+      medId = med.id;
+      const batch = await prisma.medicineBatch.create({
+        data: { medicineId: med.id, batchNumber: `SB-${Date.now()}`, expiryDate: new Date('2029-01-01') },
+      });
+      supplyBatchId = batch.id;
+    });
+
+    it('runs the full held → double-confirmed flow and credits stock on confirm', async () => {
+      const created = await request(app)
+        .post('/api/supply-requests')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceA, medicineId: medId, quantity: 4, reason: 'Low stock' })
+        .expect(201);
+      const id = created.body.data.id as string;
+      expect(created.body.data.status).toBe('PENDING');
+
+      await request(app)
+        .patch(`/api/supply-requests/${id}/status`)
+        .set(auth(adminToken))
+        .send({ status: 'APPROVED' })
+        .expect(200);
+
+      const dispatched = await request(app)
+        .post(`/api/supply-requests/${id}/dispatch`)
+        .set(auth(adminToken))
+        .send({ batchId: supplyBatchId, expectedArrivalAt: '2026-10-20T10:00:00.000Z' })
+        .expect(200);
+      expect(dispatched.body.data.status).toBe('DISPATCHED');
+
+      // Stock is NOT credited yet (the item is on arrival hold).
+      expect(await prisma.inventory.findUnique({ where: { ambulanceId_batchId: { ambulanceId: ambulanceA, batchId: supplyBatchId } } })).toBeNull();
+
+      const received = await request(app)
+        .post(`/api/supply-requests/${id}/receive`)
+        .set(auth('token-paramedic'))
+        .send({ receivedQuantity: 4 })
+        .expect(200);
+      expect(received.body.data.status).toBe('RECEIVED');
+
+      const confirmed = await request(app)
+        .post(`/api/supply-requests/${id}/confirm`)
+        .set(auth(adminToken))
+        .expect(200);
+      expect(confirmed.body.data.status).toBe('FULFILLED');
+
+      const inv = await prisma.inventory.findUnique({ where: { ambulanceId_batchId: { ambulanceId: ambulanceA, batchId: supplyBatchId } } });
+      expect(inv?.quantity).toBe(4);
+
+      const closed = await request(app)
+        .post(`/api/supply-requests/${id}/close`)
+        .set(auth(adminToken))
+        .expect(200);
+      expect(closed.body.data.status).toBe('CLOSED');
+    });
+
+    it('rejects FULFILLED on the generic review endpoint (must use dispatch → receive → confirm)', async () => {
+      const created = await request(app)
+        .post('/api/supply-requests')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceA, medicineId: medId, quantity: 2, reason: 'Low stock' })
+        .expect(201);
+      const id = created.body.data.id as string;
+
+      await request(app)
+        .patch(`/api/supply-requests/${id}/status`)
+        .set(auth(adminToken))
+        .send({ status: 'APPROVED' })
+        .expect(200);
+
+      // Jumping straight to FULFILLED would skip the arrival hold and credit
+      // no stock, so the review endpoint must refuse it.
+      await request(app)
+        .patch(`/api/supply-requests/${id}/status`)
+        .set(auth(adminToken))
+        .send({ status: 'FULFILLED' })
+        .expect(400);
+
+      // The request must be untouched by the rejected call.
+      const after = await prisma.supplyRequest.findUnique({ where: { id } });
+      expect(after?.status).toBe('APPROVED');
+    });
+
+    it('forbids a paramedic from dispatching or confirming (403)', async () => {
+      const created = await request(app)
+        .post('/api/supply-requests')
+        .set(auth('token-paramedic'))
+        .send({ ambulanceId: ambulanceA, medicineId: medId, quantity: 1 })
+        .expect(201);
+      const id = created.body.data.id as string;
+      await request(app).post(`/api/supply-requests/${id}/dispatch`).set(auth('token-paramedic')).send({}).expect(403);
+      await request(app).post(`/api/supply-requests/${id}/confirm`).set(auth('token-paramedic')).expect(403);
+    });
+  });
 
   // ─────────────────────────────────────────────────────────────
   //  Security boundaries — the "rogue crew member" scenarios.
@@ -769,10 +1449,47 @@ describe.skipIf(!HAS_DB)('AEMS API integration', () => {
         .expect(400);
     });
 
-    it('seeds a roster on approval and exposes it in the session', async () => {
+    it('seeds the full active-unit roster on approval and exposes it in the session', async () => {
+      // Re-approve so the roster is seeded now, with every unit this suite has
+      // created (300/301/302) already active — the default is the full set.
+      const pending = await prisma.user.findUniqueOrThrow({ where: { firebaseUid: 'uid-pending' } });
+      await request(app)
+        .post(`/api/users/${pending.id}/approve`)
+        .set(auth(adminToken))
+        .send({ role: 'PARAMEDIC', stationCode: '100' })
+        .expect(200);
+
+      const active = await prisma.station.findMany({ where: { status: 'ACTIVE' }, select: { code: true } });
       const me = await request(app).get('/api/auth/me').set(auth('token-pending')).expect(200);
-      expect(me.body.data.dutyRoster).toHaveLength(1);
-      expect(me.body.data.dutyRoster[0].code).toBe('100');
+      const codes = me.body.data.dutyRoster.map((s: { code: string }) => s.code).sort();
+      expect(codes).toEqual(active.map((s) => s.code).sort());
+      expect(codes).toContain('100');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  //  Audit visibility: units see operational events, admins see all.
+  // ─────────────────────────────────────────────────────────────
+  describe('audit visibility', () => {
+    it('hides system/admin events from units but keeps operational ones', async () => {
+      const paramedic = await prisma.user.findFirstOrThrow({ where: { firebaseUid: 'uid-paramedic' } });
+      await prisma.auditLog.createMany({
+        data: [
+          { userId: paramedic.id, stationId, action: 'LOGIN' },
+          { userId: paramedic.id, stationId, action: 'USE_MEDICINE' },
+        ],
+      });
+
+      const unit = await request(app).get('/api/audit-logs?pageSize=200').set(auth('token-paramedic')).expect(200);
+      const unitActions: string[] = unit.body.data.logs.map((l: { action: string }) => l.action);
+      expect(unitActions).toContain('USE_MEDICINE');
+      expect(unitActions).not.toContain('LOGIN');
+
+      const unitLogin = await request(app).get('/api/audit-logs?action=LOGIN').set(auth('token-paramedic')).expect(200);
+      expect(unitLogin.body.data.total).toBe(0);
+
+      const admin = await request(app).get('/api/audit-logs?action=LOGIN').set(auth(adminToken)).expect(200);
+      expect(admin.body.data.total).toBeGreaterThan(0);
     });
   });
 });

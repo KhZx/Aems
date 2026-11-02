@@ -3,8 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEMS — Ambulance Equipment Management</title>
-  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <!-- PWA: installable app shell (manifest + service worker, wired up in js/pwa.js) -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="application-name" content="AEMS">
+  <meta name="theme-color" content="#06080F">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="AEMS">
+  <script src="/js/pwa.js" defer></script>
+  <title>AEMS - Ambulance Equipment Management</title>
+  <link rel="icon" type="image/png" href="pictures/ECGLOGO.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Outfit:wght@400;500;600;700&family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -22,9 +32,11 @@
     }
   </script>
   <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/password.css">
+  <link rel="stylesheet" href="css/glass.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
-<body>
+<body class="has-glass">
 
 <div id="pageLoader"><div class="loader-cross"><div class="loader-ring"></div></div><div class="loader-text" data-i18n="common.loading">Loading...</div></div>
 
@@ -39,7 +51,7 @@
     <!-- Logo -->
     <div class="sidebar-logo">
       <a href="/" style="display:flex;align-items:center;text-decoration:none;margin-bottom:2px;">
-        <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" style="height:34px;width:auto;display:block" decoding="async">
+        <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation of Ambulance Services" style="height:34px;width:auto;display:block" decoding="async">
       </a>
     </div>
 
@@ -58,25 +70,25 @@
       </button>
 
       <div class="nav-group-label" style="margin-top:8px;" data-i18n="app.nav.group.equipment">Equipment</div>
-      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','medication')">
+      <button class="nav-item" data-page="equipment" data-category="medication" onclick="App.navigateTo('equipment','medication')">
         <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg></span> <span data-i18n="app.nav.medication">Medication Bag</span>
       </button>
-      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','lifepak')">
-        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span> Lifepak
+      <button class="nav-item" data-page="equipment" data-category="lifepak" onclick="App.navigateTo('equipment','lifepak')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span> <span data-i18n="app.nav.lifepak">Lifepak</span>
       </button>
-      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','responder')">
-        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-backpack"/></svg></span> Responder
+      <button class="nav-item" data-page="equipment" data-category="responder" onclick="App.navigateTo('equipment','responder')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-backpack"/></svg></span> <span data-i18n="app.nav.responder">Responder</span>
       </button>
-      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','suction')">
-        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg></span> Suction
+      <button class="nav-item" data-page="equipment" data-category="suction" onclick="App.navigateTo('equipment','suction')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-wind"/></svg></span> <span data-i18n="app.nav.suction">Suction</span>
       </button>
-      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','carevent')">
-        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-carevent"/></svg></span> CAREVENT
+      <button class="nav-item" data-page="equipment" data-category="carevent" onclick="App.navigateTo('equipment','carevent')">
+        <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-carevent"/></svg></span> <span data-i18n="app.nav.carevent">CAREVENT</span>
       </button>
-      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','station_store')">
+      <button class="nav-item" data-page="equipment" data-category="station_store" onclick="App.navigateTo('equipment','station_store')">
         <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-store"/></svg></span> <span data-i18n="app.nav.store">Station Store</span>
       </button>
-      <button class="nav-item" data-page="equipment" onclick="App.navigateTo('equipment','car_contents')">
+      <button class="nav-item" data-page="equipment" data-category="car_contents" onclick="App.navigateTo('equipment','car_contents')">
         <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg></span> <span data-i18n="app.nav.car">Car Contents</span>
       </button>
       <button class="nav-item" data-page="all" onclick="App.navigateTo('all')">
@@ -112,7 +124,7 @@
     <!-- Top Bar -->
     <header id="topbar">
       <div style="display:flex;align-items:center;gap:12px;">
-        <button id="sidebarToggle" class="sidebar-menu-btn" style="display:none;" data-i18n="common.menu" data-i18n-attr="title" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
+        <button id="sidebarToggle" class="sidebar-menu-btn" data-i18n="common.menu" data-i18n-attr="title" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
         <div class="topbar-title" id="pageTitle" data-i18n="app.nav.dashboard">Dashboard</div>
       </div>
       <div class="topbar-right">
@@ -128,7 +140,7 @@
         <button class="btn btn-ghost btn-sm" id="dutyUnitBtn" onclick="App.openDutySwitch()" title="Current unit — tap to switch"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg> <span>…</span></button>
         <button class="btn btn-primary btn-sm" onclick="App.startInspection()" data-i18n="app.topbar.start_insp">▶ Start Inspection</button>
         <button class="btn btn-ghost btn-sm" onclick="App.openReportModal()" data-i18n="app.topbar.report"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg> Send Report</button>
-        <button class="btn btn-ghost btn-sm lang-toggle" id="appLangToggle" style="min-width:60px;">عربي</button>
+        <button class="btn btn-ghost btn-sm lang-toggle" id="appLangToggle" type="button">عربي</button>
       </div>
     </header>
 
@@ -137,6 +149,15 @@
 
       <!-- ═══ DASHBOARD ══════════════════════════════════ -->
       <div id="page-dashboard" class="page active">
+
+        <!-- Live clock + greeting -->
+        <div class="dash-greeting" id="dashGreeting">
+          <div class="dash-greet-text" id="dashGreetText"></div>
+          <div class="dash-clock">
+            <span class="dash-clock-time" id="dashClockTime"></span>
+            <span class="dash-clock-date" id="dashClockDate"></span>
+          </div>
+        </div>
 
         <!-- Pending Handover Banner -->
         <div id="handover-dashboard-banner" style="display:none;background:linear-gradient(135deg,rgba(120,53,15,0.28),rgba(69,26,3,0.1));border:1.5px solid #F59E0B;border-radius:14px;padding:14px 18px;margin-bottom:16px;box-shadow:0 2px 12px rgba(245,158,11,.15);"></div>
@@ -213,12 +234,12 @@
         <div class="charts-section">
           <!-- Donut: Status Overview -->
           <div class="chart-card donut-card">
-            <div class="chart-card-title">Status Overview</div>
+            <div class="chart-card-title" data-i18n="app.chart.status">Status Overview</div>
             <div class="donut-wrap" style="position:relative;height:170px;">
               <canvas id="statusDonut"></canvas>
               <div class="donut-center">
                 <span id="donut-total">0</span>
-                <span>items</span>
+                <span data-i18n="ui.table.items">items</span>
               </div>
             </div>
             <div class="donut-legend" id="donutLegend"></div>
@@ -226,7 +247,7 @@
 
           <!-- Horizontal Bar: By Category -->
           <div class="chart-card">
-            <div class="chart-card-title">By Category</div>
+            <div class="chart-card-title" data-i18n="app.chart.by_category">By Category</div>
             <div style="flex:1;position:relative;min-height:160px;">
               <canvas id="catBarsChart"></canvas>
             </div>
@@ -234,7 +255,7 @@
 
           <!-- Expiry Timeline -->
           <div class="chart-card">
-            <div class="chart-card-title">Expiry Timeline — Next 6 Months</div>
+            <div class="chart-card-title" data-i18n="app.chart.expiry_timeline">Expiry Timeline - Next 6 Months</div>
             <div style="flex:1;position:relative;min-height:160px;">
               <canvas id="expiryTimelineChart"></canvas>
             </div>
@@ -427,6 +448,16 @@
           </div>
         </div>
 
+        <!-- Account security: change your sign-in password -->
+        <div class="card">
+          <div class="card-body">
+            <div class="section-title" style="margin-bottom:12px;" data-i18n="pwd.security_title"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg> Account Security</div>
+            <p style="font-size:.85rem;color:var(--text2);margin-bottom:14px;" data-i18n="pwd.security_desc">Change the password you use to sign in to AEMS.</p>
+            <p style="font-size:.75rem;color:var(--text3);margin-bottom:14px;" data-i18n="app.settings.security_hint">Use a password you do not use anywhere else.</p>
+            <button class="btn btn-primary" onclick="App.openChangePassword()"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> <span data-i18n="pwd.change">Change password</span></button>
+          </div>
+        </div>
+
         <!-- Duty calendar + real-time duty checker -->
         <div class="card duty-cal-card">
           <div class="card-body">
@@ -494,7 +525,8 @@
           <div class="form-row">
             <div class="form-group">
               <label class="form-label" data-i18n="modal.item.name">Equipment / Drug Name *</label>
-              <input type="text" class="form-control" id="f-name" required data-i18n-placeholder="modal.item.name.ph" placeholder="Type the medicine name...">
+              <input type="text" class="form-control" id="f-name" required data-i18n-placeholder="modal.item.name.ph" placeholder="Type the medicine name..." oninput="App.onNameInput()">
+              <div id="nameMatchHint" class="name-match-hint" style="display:none;"></div>
             </div>
             <div class="form-group">
               <label class="form-label" data-i18n="modal.item.cat">Category *</label>
@@ -607,9 +639,60 @@
           <label class="form-label" id="reasonLabel">Reason / Note *</label>
           <input type="text" class="form-control" id="f-reason" placeholder="Required for the audit log">
         </div>
+        <div id="adjustReasonControl"></div>
         <div class="modal-footer" style="padding-inline:0;margin-top:20px;">
           <button type="button" class="btn btn-danger btn-sm" id="btn-delete-med" style="display:none;margin-right:auto;" onclick="App.openDeleteModal()" data-i18n="ui.btn.delete"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg> Delete</button>
           <button type="button" class="btn btn-ghost" onclick="closeModal('modal-item')" data-i18n="modal.cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-lg" data-i18n="modal.save"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg> Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Lot / Batch metadata (number, expiry, supplier, received date) -->
+<div id="modal-batch-edit" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-batch-edit')">
+  <div class="modal-box" style="max-width:520px;" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title" data-i18n="app.batch_edit.title"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg> Edit Lot</div>
+      <button class="modal-close" onclick="closeModal('modal-batch-edit')">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="batch-edit-form" onsubmit="App.confirmBatchEdit(event)">
+        <div class="batch-edit-med">
+          <svg class="ic" aria-hidden="true"><use href="#i-pill"/></svg>
+          <strong id="bed-medicine">—</strong>
+          <span class="batch-edit-unit" id="bed-unit"></span>
+        </div>
+        <div class="batch-edit-warning" data-i18n="app.batch_edit.warning">
+          This change applies to this ambulance's stock only. Other units keep the published lot. The edit is recorded in the audit log.
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" data-i18n="modal.item.batchno">Batch / LOT No.</label>
+            <input type="text" class="form-control" id="bed-lot" dir="ltr" data-i18n-placeholder="modal.item.batchno">
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="app.batch_edit.expiry">Expiry Date</label>
+            <input type="date" class="form-control" id="bed-expiry" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" data-i18n="app.batch_edit.supplier">Supplier</label>
+            <input type="text" class="form-control" id="bed-supplier" dir="ltr">
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="app.batch_edit.received">Received Date</label>
+            <input type="date" class="form-control" id="bed-received">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" data-i18n="modal.reason.label">Reason / Note *</label>
+          <input type="text" class="form-control" id="bed-reason" required data-i18n-placeholder="app.batch_edit.reason_ph">
+        </div>
+        <div class="modal-footer" style="padding-inline:0;margin-top:16px;">
+          <button type="button" class="btn btn-ghost" onclick="closeModal('modal-batch-edit')" data-i18n="modal.cancel">Cancel</button>
           <button type="submit" class="btn btn-primary btn-lg" data-i18n="modal.save"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg> Save</button>
         </div>
       </form>
@@ -627,6 +710,7 @@
     <div class="modal-body">
       <div id="delItemInfo"></div>
       <div id="delWarningText" style="background:var(--bg);border:1px solid rgba(248,113,113,.35);border-radius:10px;padding:12px 14px;font-size:.82rem;color:var(--text2);margin-top:12px;"></div>
+      <div id="deleteReasonControl" style="margin-top:12px;"></div>
       <div class="modal-footer" style="padding-inline:0;margin-top:16px;">
         <button type="button" class="btn btn-ghost" onclick="closeModal('modal-delete')" data-i18n="modal.cancel">Cancel</button>
         <button type="button" class="btn btn-danger btn-lg" id="btn-delete-confirm" onclick="App.confirmDelete()" data-i18n="modal.delete.btn"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg> Delete</button>
@@ -712,10 +796,7 @@
         <label class="form-label" data-i18n="modal.use.qty">Quantity Used *</label>
         <input type="number" class="form-control" id="use-qty" min="1" value="1">
       </div>
-      <div class="form-group">
-        <label class="form-label" data-i18n="modal.use.reason">Reason for Use</label>
-        <input type="text" class="form-control" id="use-reason" data-i18n-placeholder="modal.use.reason.ph" placeholder="e.g. Emergency — trauma">
-      </div>
+      <div id="useReasonControl"></div>
       <div class="form-group">
         <label class="form-label" data-i18n="modal.use.notes">Additional Notes</label>
         <textarea class="form-control" id="use-notes" rows="2" data-i18n-placeholder="modal.use.notes.ph" placeholder="Any extra details..."></textarea>
@@ -728,22 +809,20 @@
   </div>
 </div>
 
-<!-- Inspection Count Sheet -->
-<div id="modal-inspect" class="modal-overlay" onclick="if(event.target===this)closeModal('modal-inspect')">
-  <div class="modal-box" style="max-width:760px;max-height:88vh;display:flex;flex-direction:column;" onclick="event.stopPropagation()">
-    <div class="modal-header">
-      <div class="modal-title" data-i18n="app.insp.sheet.title">Count & Inspect — enter what you actually counted</div>
-      <button class="modal-close" onclick="closeModal('modal-inspect')">✕</button>
+<!-- Inspection Wizard: count → review differences → submit -->
+<div id="modal-inspect" class="modal-overlay" onclick="if(event.target===this)App.inspClose()">
+  <div class="modal-box iw-modal" onclick="event.stopPropagation()">
+    <div class="modal-header iw-head">
+      <div style="min-width:0;">
+        <div class="modal-title" id="iwTitle" data-i18n="app.insp.wz.title">Inspection</div>
+        <div class="iw-steps" id="iwSteps"></div>
+      </div>
+      <button class="modal-close" onclick="App.inspClose()">✕</button>
     </div>
-    <div class="modal-body" style="overflow:auto;">
-      <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:12px;" data-i18n="app.insp.sheet.sub">Only items whose counted number differs will be corrected.</div>
-      <div id="inspSheetCount" style="font-size:.78rem;font-weight:700;margin-bottom:10px;"></div>
-      <div id="inspectSheet"></div>
-    </div>
-    <div class="modal-footer">
-      <button type="button" class="btn btn-ghost" onclick="closeModal('modal-inspect')" data-i18n="modal.cancel">Cancel</button>
-      <button type="button" class="btn btn-success btn-lg" onclick="App.submitCountSheet()" data-i18n="app.insp.sheet.submit">✓ Submit Count</button>
-    </div>
+    <div class="iw-progress" id="iwProgress"></div>
+    <div class="iw-cats" id="iwCats"></div>
+    <div class="modal-body iw-body" id="iwBody"></div>
+    <div class="modal-footer iw-foot" id="iwFoot"></div>
   </div>
 </div>
 

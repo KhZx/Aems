@@ -133,11 +133,11 @@ export function renderItemCard(group, snapshot) {
     const canDel = window.AEMS_PERMS?.includes('inventory:adjust');
     return `
       <div class="batch-row">
-        <span class="batch-lot" title="${t('ui.pill.batch', { no: b.batchNumber || '' })}">${icon('tag')} <strong>${esc(b.batchNumber || b.id.slice(0, 8))}</strong></span>
+        <span class="batch-lot" title="${t('ui.pill.batch', { no: b.batchNumber || '' })}">${icon('tag')} <strong>${esc(b.batchNumber || b.id.slice(0, 8))}</strong>${b.hasLotOverride ? ` <span class="batch-override-tag">${t('app.batch_edit.override_tag')}</span>` : ''}</span>
         <span class="batch-exp ${bs === 'expired' ? 'batch-exp-expired' : bs === 'warning' ? 'batch-exp-warning' : ''}"><span class="batch-dot"></span>${b.expiry ? fmtDate(b.expiry) : '—'}</span>
         <span class="batch-qty">${b.quantity}</span>
         <span class="batch-ops">
-          <button type="button" class="batch-btn" onclick="App.openEditBatch('${group.medicineId}','${b.id}')" title="${t('ui.btn.edit')}">${icon('edit')}</button>
+          <button type="button" class="batch-btn" onclick="App.openBatchEdit('${group.medicineId}','${b.id}')" title="${t('ui.btn.edit_lot')}">${icon('edit')}</button>
           ${canDel ? `<button type="button" class="batch-btn danger" onclick="App.deleteStockLine('${b.id}')" title="${t('ui.btn.delete_lot')}">${icon('trash')}</button>` : ''}
         </span>
       </div>`;
@@ -259,13 +259,13 @@ export function renderItemRow(group, snapshot) {
       <div class="inv-tree-batch ${bs === 'expired' ? 'is-expired' : bs === 'warning' ? 'is-warning' : ''}">
         <span class="inv-tree-node" aria-hidden="true"></span>
         <span class="inv-batch-dot ${bs === 'expired' ? 'd-expired' : bs === 'warning' ? 'd-warning' : ''}"></span>
-        <span class="inv-batch-num">${esc(b.batchNumber || b.id.slice(0, 8))}</span>
+        <span class="inv-batch-num">${esc(b.batchNumber || b.id.slice(0, 8))}${b.hasLotOverride ? ` <span class="batch-override-tag">${t('app.batch_edit.override_tag')}</span>` : ''}</span>
         <span class="inv-batch-qty">${b.quantity}${group.unit ? `<small> ${esc(group.unit)}</small>` : ''}</span>
         ${b.expiry
           ? `<span class="inv-batch-exp ${bs === 'expired' ? 'e-expired' : bs === 'warning' ? 'e-warning' : ''}">${fmtDate(b.expiry)}</span>`
           : '<span class="inv-batch-exp muted">' + t('common.not_available') + '</span>'}
         <span class="inv-batch-actions">
-          <button type="button" class="inv-bact" onclick="App.openEditBatch('${group.medicineId}','${b.id}')" title="${t('ui.btn.edit')}">${icon('edit')}</button>
+          <button type="button" class="inv-bact" onclick="App.openBatchEdit('${group.medicineId}','${b.id}')" title="${t('ui.btn.edit_lot')}">${icon('edit')}</button>
         </span>
       </div>`;
   }).join('');
@@ -336,15 +336,15 @@ export function renderHistoryEvent(ev) {
         <span style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap;">${fmtDateTime(ev.timestamp)}</span>
       </div>
       <div style="font-size:0.78rem;color:var(--text-muted);display:flex;gap:14px;flex-wrap:wrap;">
-        ${ev.station?.stationName ? `<span>${icon('building')} ${ev.station.stationName} (${ev.station.stationCallSign || '—'})</span>` : ''}
-        ${ev.station?.paramedicName ? `<span>${icon('user')} ${ev.station.paramedicName}</span>` : ''}
-        ${ev.station?.shiftType ? `<span>${icon('clock')} ${ev.station.shiftType}</span>` : ''}
+        ${ev.station?.stationName ? `<span>${icon('building')} ${esc(ev.station.stationName)} (${esc(ev.station.stationCallSign || '—')})</span>` : ''}
+        ${ev.station?.paramedicName ? `<span>${icon('user')} ${esc(ev.station.paramedicName)}</span>` : ''}
+        ${ev.station?.shiftType ? `<span>${icon('clock')} ${esc(ev.station.shiftType)}</span>` : ''}
       </div>
       ${ev.changes?.length ? `
         <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px;">
           ${ev.changes.map(c => `
             <span style="background:${c.diff<0?'rgba(239,68,68,.14)':'rgba(16,185,129,.14)'};color:${c.diff<0?'#FCA5A5':'#6EE7B7'};padding:2px 9px;border-radius:6px;font-size:0.72rem;font-weight:700;">
-              ${c.name}: ${c.prevQty}→${c.currQty}
+              ${esc(c.name)}: ${esc(c.prevQty)}→${esc(c.currQty)}
             </span>`).join('')}
         </div>` : ''}
     </div>`;
@@ -370,14 +370,14 @@ export function renderShiftNote(note) {
   return `
     <div class="shift-note prio-${prio}"${removed ? ' style="opacity:.55;border-style:dashed;"' : ''}>
       <div class="note-header">
-        <div class="note-title"><span class="prio-dot" style="background:${prioCol[prio] || '#94A3B8'};"></span> ${note.title}${removed ? ` <span class="chip" style="font-size:.6rem;">${esc(t('ui.note.removed'))}</span>` : ''}</div>
+        <div class="note-title"><span class="prio-dot" style="background:${prioCol[prio] || '#94A3B8'};"></span> ${esc(note.title)}${removed ? ` <span class="chip" style="font-size:.6rem;">${esc(t('ui.note.removed'))}</span>` : ''}</div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="note-meta">${fmtDateTime(note.createdAt || note.date)}</span>
           ${action}
         </div>
       </div>
-      <div class="note-content">${note.content}</div>
-      ${note.author ? `<div style="margin-top:5px;font-size:0.7rem;color:var(--text-muted);">${icon('edit')} ${note.author}</div>` : ''}
+      <div class="note-content">${esc(note.content)}</div>
+      ${note.author ? `<div style="margin-top:5px;font-size:0.7rem;color:var(--text-muted);">${icon('edit')} ${esc(note.author)}</div>` : ''}
       ${removed && note.deleteReason ? `<div style="margin-top:5px;font-size:0.7rem;color:var(--danger);">${icon('info')} ${esc(note.deleteReason)}</div>` : ''}
     </div>`;
 }
@@ -387,7 +387,7 @@ export function renderChangeItem(c) {
   return `
     <div class="change-item ${c.diff > 0 ? 'inc' : 'dec'}">
       <div>
-        <div class="change-name">${c.name}</div>
+        <div class="change-name">${esc(c.name)}</div>
         <div class="change-cat">${catIcon(c.category)} ${catLabel(c.category)}</div>
       </div>
       <div class="change-qty">${c.diff > 0 ? '▲' : '▼'} ${Math.abs(c.diff)}&ensp;(${c.prevQty} → ${c.currQty})</div>
@@ -402,7 +402,7 @@ export function renderBatchItem(batch, idx) {
       <div>
         <strong>${batch.quantity}×</strong>
         &nbsp;${t('ui.batch.expiry', { date: fmtDate(batch.expiry) })}
-        ${batch.batchNumber ? `&nbsp;| ${batch.batchNumber}` : ''}
+        ${batch.batchNumber ? `&nbsp;| ${esc(batch.batchNumber)}` : ''}
       </div>
       <button type="button" class="btn btn-danger btn-sm" style="padding:3px 8px;" onclick="App.removeBatch(${idx})">${icon('close')}</button>
     </div>`;
@@ -416,12 +416,20 @@ export function toast(message, type = 'success') {
   if (!container) return;
   const el = document.createElement('div');
   el.className = `toast ${type}`;
+  el.title = 'Click to dismiss';
   el.innerHTML = `${icon(TOAST_ICONS[type] || 'info')}<span>${esc(message)}</span>`;
   container.appendChild(el);
-  setTimeout(() => {
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
     el.classList.add('leaving');
     setTimeout(() => el.remove(), 200);
-  }, 3500);
+  };
+  el.addEventListener('click', dismiss);
+  // Keep errors/warnings on screen longer so the text can be copied.
+  const linger = (type === 'error' || type === 'warning') ? 6000 : 3000;
+  setTimeout(dismiss, linger);
 }
 
 // ── Modal ─────────────────────────────────────────────────────

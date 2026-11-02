@@ -3,10 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- PWA: installable app shell (manifest + service worker, wired up in js/pwa.js) -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="application-name" content="AEMS">
+  <meta name="theme-color" content="#06080F">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="AEMS">
+  <script src="/js/pwa.js" defer></script>
   <title id="pageTitle">AEMS — 404</title>
-  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <link rel="icon" type="image/png" href="pictures/ECGLOGO.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800;900&family=Outfit:wght@300;400;500;600;700&family=Cairo:wght@400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/lang-toggle.css">
   <style>
     :root {
       --red: #C8102E; --red2: #E52030;
@@ -72,12 +83,12 @@
     .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .06em; color: var(--text2); }
     .brand .emblem { color: var(--red); }
     .brand b { color: var(--text); font-family: var(--disp); font-weight: 800; font-size: .95rem; letter-spacing: .02em; }
-    .lang-btn {
+    .lang-btn:not(.lang-toggle) {
       font-family: var(--body); font-size: .78rem; font-weight: 600; cursor: pointer;
       color: var(--text2); background: rgba(255,255,255,.04);
       border: 1px solid var(--brd); border-radius: 8px; padding: 6px 12px; transition: all .2s;
     }
-    .lang-btn:hover { color: var(--text); background: rgba(255,255,255,.08); }
+    .lang-btn:not(.lang-toggle):hover { color: var(--text); background: rgba(255,255,255,.08); }
 
     /* ── Error code ── */
     .error-code {
@@ -238,9 +249,9 @@
       <svg class="emblem" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M9 2h6v7h7v6h-7v7H9v-7H2V9h7z"/>
       </svg>
-      <b>DCA · AEMS</b>
+      <b>DCAS · AEMS</b>
     </div>
-    <button class="lang-btn" id="langBtn" onclick="toggleLang()">عربي</button>
+    <button class="lang-btn lang-toggle" id="langBtn" type="button" onclick="toggleLang()">عربي</button>
   </div>
 
   <div class="container">
@@ -348,7 +359,13 @@
         document.getElementById('btnDefibTxt').textContent = t.defib;
         document.getElementById('footTxt').textContent = t.foot;
         var lb = document.getElementById('langBtn');
-        lb.textContent = lang === 'en' ? 'عربي' : 'English';
+        lb.dataset.lang = lang;
+        lb.setAttribute('aria-label', lang === 'en' ? 'Switch language to Arabic' : 'Switch language to English');
+        lb.setAttribute('aria-pressed', lang === 'ar' ? 'true' : 'false');
+        lb.innerHTML = '<span class="lang-option" lang="en" aria-hidden="true">EN</span><span class="lang-option" lang="ar" aria-hidden="true">عربي</span>';
+        lb.classList.remove('lang-flip');
+        void lb.offsetWidth;
+        lb.classList.add('lang-flip');
         if (redirected) {
           var addNote = textL === 'ar' ? ' سيتم توجيهك إلى صفحة تسجيل الدخول قريباً.' : " You'll be redirected to the login page shortly.";
           document.getElementById('errorMsg').textContent += addNote;

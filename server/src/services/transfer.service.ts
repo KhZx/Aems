@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { createAudit, type AuditEntryInput } from './audit.service.js';
+import * as notificationService from './notification.service.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -38,7 +39,7 @@ export async function transferStock(input: TransferInput) {
 
   const transferId = crypto.randomUUID();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const source = await tx.inventory.findUnique({
       where: { id: input.sourceInventoryId },
       include: {
@@ -70,9 +71,19 @@ export async function transferStock(input: TransferInput) {
       await tx.$queryRaw`SELECT "id" FROM "Inventory" WHERE "id" = ${id} FOR UPDATE`;
     }
 
-    if (input.quantity > source.quantity) {
+    // Re-read after locking — the pre-lock snapshot can be stale when two
+    // transfers run concurrently, which previously allowed negative stock.
+    const lockedSource = await tx.inventory.findUnique({
+      where: { id: source.id },
+      select: { quantity: true, deletedAt: true },
+    });
+    if (!lockedSource || lockedSource.deletedAt) {
+      throw AppError.notFound('Source inventory not found');
+    }
+
+    if (input.quantity > lockedSource.quantity) {
       throw AppError.conflict(
-        `Cannot transfer ${input.quantity}: only ${source.quantity} in stock on source`,
+        `Cannot transfer ${input.quantity}: only ${lockedSource.quantity} in stock on source`,
       );
     }
 
@@ -86,8 +97,8 @@ export async function transferStock(input: TransferInput) {
         inventoryId: source.id,
         transactionType: 'TRANSFER_OUT',
         quantityChange: -input.quantity,
-        quantityBefore: sourceUpdated.quantity + input.quantity,
-        quantityAfter: sourceUpdated.quantity,
+        quantityBefore: lockedSource.quantity,
+        quantityAfter: lockedSource.quantity - input.quantity,
         reason: `Transfer to ${destination.vehicleNumber}`,
         referenceId: transferId,
         performedById: input.performedById,
@@ -106,7 +117,7 @@ export async function transferStock(input: TransferInput) {
         batchId: source.batchId,
         quantity: input.quantity,
       },
-      update: { quantity: { increment: input.quantity } },
+      update: { quantity: { increment: input.quantity }, deletedAt: null },
     });
 
     await tx.inventoryTransaction.create({
@@ -121,6 +132,20 @@ export async function transferStock(input: TransferInput) {
         performedById: input.performedById,
       },
     });
+
+    const sourceStock = sourceUpdated.quantity === 0
+      ? await tx.inventory.aggregate({
+          where: {
+            ambulanceId: source.ambulanceId,
+            deletedAt: null,
+            batch: { medicineId: source.batch.medicineId, isActive: true, deletedAt: null },
+          },
+          _sum: { quantity: true },
+        })
+      : null;
+    const sourceStation = sourceStock && (sourceStock._sum.quantity ?? 0) === 0
+      ? await tx.station.findUnique({ where: { id: source.ambulance.stationId }, select: { code: true, name: true } })
+      : null;
 
     const transfer = await tx.transfer.create({
       data: {
@@ -156,12 +181,33 @@ export async function transferStock(input: TransferInput) {
     });
 
     return {
-      transfer,
-      referenceId: transferId,
-      sourceRemaining: sourceUpdated.quantity,
-      destinationQuantity: destinationInventory.quantity,
+      payload: {
+        transfer,
+        referenceId: transferId,
+        sourceRemaining: sourceUpdated.quantity,
+        destinationQuantity: destinationInventory.quantity,
+      },
+      sourceStockUnavailable: sourceStation ? {
+        stationId: source.ambulance.stationId,
+        stationName: sourceStation.name,
+        stationCode: sourceStation.code,
+        ambulanceId: source.ambulanceId,
+        ambulanceNumber: source.ambulance.vehicleNumber,
+        medicineId: source.batch.medicineId,
+        medicineName: source.batch.medicine.name,
+        category: source.batch.medicine.category,
+        actorId: input.performedById,
+        referenceId: transferId,
+      } : null,
+      restoreDestinationStock: {
+        ambulanceId: input.destinationAmbulanceId,
+        medicineId: source.batch.medicineId,
+      },
     };
   });
+  if (result.sourceStockUnavailable) await notificationService.notifyStockUnavailable(result.sourceStockUnavailable);
+  await notificationService.resolveStockUnavailable(result.restoreDestinationStock.ambulanceId, result.restoreDestinationStock.medicineId);
+  return result.payload;
 }
 
 export interface ListTransfersInput {
@@ -175,16 +221,24 @@ export interface ListTransfersInput {
 export async function listTransfers(input: ListTransfersInput = {}) {
   const { ambulanceId, stationIds, performedById, page = 1, pageSize = 50 } = input;
 
-  const or: Prisma.TransferWhereInput[] = [];
-  if (ambulanceId) or.push({ sourceAmbulanceId: ambulanceId }, { destinationAmbulanceId: ambulanceId });
+  // Scope is mandatory and must not be widened by a user-supplied filter:
+  // ambulanceId is an additional AND constraint, never an alternative branch.
+  const and: Prisma.TransferWhereInput[] = [];
   if (stationIds) {
-    or.push(
-      { sourceAmbulance: { stationId: { in: stationIds } } },
-      { destinationAmbulance: { stationId: { in: stationIds } } },
-    );
+    and.push({
+      OR: [
+        { sourceAmbulance: { stationId: { in: stationIds } } },
+        { destinationAmbulance: { stationId: { in: stationIds } } },
+      ],
+    });
+  }
+  if (ambulanceId) {
+    and.push({
+      OR: [{ sourceAmbulanceId: ambulanceId }, { destinationAmbulanceId: ambulanceId }],
+    });
   }
   const where: Prisma.TransferWhereInput = {
-    ...(or.length ? { OR: or } : {}),
+    ...(and.length ? { AND: and } : {}),
     ...(performedById ? { performedById } : {}),
   };
 

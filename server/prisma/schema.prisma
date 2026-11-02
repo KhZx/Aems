@@ -31,6 +31,12 @@ enum UserStatus {
   DISABLED
 }
 
+enum NotificationSeverity {
+  INFO
+  ACTION
+  CRITICAL
+}
+
 enum StationStatus {
   ACTIVE
   INACTIVE
@@ -73,9 +79,57 @@ enum TransferStatus {
 }
 
 enum InspectionStatus {
-  PENDING
+  DRAFT
   COMPLETED
-  CANCELLED
+  ACKNOWLEDGED
+  VOID
+}
+
+/**
+ * Per-line state captured during an inspection. Distinct from the coded
+ * `reasonCode`: the condition is what the crew found, the reason is why.
+ */
+enum InspectionItemCondition {
+  OK
+  MISSING
+  DAMAGED
+  EXPIRED
+  UNUSABLE
+  EXTRA
+  NOT_CHECKED
+}
+
+enum StockReasonFamily {
+  CONSUMPTION
+  EXPIRY
+  DAMAGE
+  LOSS
+  PROCESS
+  ACCOUNTABILITY
+  OTHER
+}
+
+enum StockReasonEffect {
+  LOSS
+  RELOCATION
+  STATUS_HOLD
+  CORRECTION
+}
+
+enum StockReasonItemType {
+  MEDICATION
+  EQUIPMENT
+}
+
+enum StockAction {
+  USE
+  DELETE
+  DAMAGE
+  EXPIRE
+  TRANSFER
+  ADJUST
+  RETURN
+  INSPECTION
 }
 
 enum NotePriority {
@@ -93,7 +147,11 @@ enum SupplyRequestStatus {
   PENDING
   APPROVED
   REJECTED
+  DISPATCHED
+  IN_TRANSIT
+  RECEIVED
   FULFILLED
+  CLOSED
   CANCELLED
 }
 
@@ -129,8 +187,13 @@ model User {
   reports               Report[]               @relation("ReportAuthor")
   supplyRequests        SupplyRequest[]        @relation("SupplyRequestAuthor")
   reviewedSupplyRequests SupplyRequest[]       @relation("SupplyRequestReviewer")
+  dispatchedSupplyRequests SupplyRequest[]     @relation("SupplyRequestDispatcher")
+  receivedSupplyRequests   SupplyRequest[]     @relation("SupplyRequestReceiver")
+  confirmedSupplyRequests  SupplyRequest[]     @relation("SupplyRequestConfirmer")
+  reviewedInspections      Inspection[]        @relation("InspectionReviewer")
   appliedDistributions  Distribution[]       @relation("DistributionAppliedBy")
   dutyRoster            DutyRoster[]
+  notifications         Notification[]
 
   @@index([stationId])
   @@index([role])
@@ -169,6 +232,7 @@ model Station {
   handovers     Handover[]
   reports       Report[]
   distributions Distribution[]
+  notifications  Notification[]
 
   @@index([code])
 }
@@ -208,6 +272,31 @@ model DutyRoster {
 
   @@id([userId, stationId])
   @@index([stationId])
+}
+
+model Notification {
+  id          String               @id @default(uuid())
+  userId      String
+  stationId   String?
+  type        String
+  severity    NotificationSeverity @default(INFO)
+  titleKey    String
+  bodyKey     String
+  data        Json?
+  entityType  String?
+  entityId    String?
+  dedupeKey   String
+  createdAt   DateTime             @default(now())
+  readAt      DateTime?
+  resolvedAt  DateTime?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  station Station? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt])
+  @@index([userId, resolvedAt, createdAt])
+  @@index([stationId, createdAt])
 }
 
 // ── Medicines & Batches ────────────────────────────────────────
@@ -253,8 +342,9 @@ model MedicineBatch {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  medicine  Medicine    @relation(fields: [medicineId], references: [id])
-  inventory Inventory[]
+  medicine       Medicine        @relation(fields: [medicineId], references: [id])
+  inventory      Inventory[]
+  supplyRequests SupplyRequest[]
 
   @@unique([medicineId, batchNumber])
   @@index([expiryDate])
@@ -272,6 +362,14 @@ model Inventory {
   batchId     String
   quantity    Int      @default(0)
   notes       String?
+  // Per-unit lot overrides. The shared MedicineBatch is the admin-published
+  // template; a crew correcting the lot number / expiry / supplier / received
+  // date for THEIR vehicle sets these on their own stock row only, so every
+  // other ambulance continues to inherit the shared batch. Null = inherit.
+  overrideBatchNumber  String?
+  overrideExpiryDate   DateTime?
+  overrideSupplier     String?
+  overrideReceivedDate DateTime?
   deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -296,7 +394,9 @@ model InventoryTransaction {
   quantityChange  Int
   quantityBefore  Int
   quantityAfter   Int
+  // Free-text note plus the stable structured code from the reason catalog.
   reason          String?
+  reasonCode      String?
   referenceId     String?
   performedById   String?
   createdAt       DateTime        @default(now())
@@ -306,6 +406,7 @@ model InventoryTransaction {
 
   @@index([inventoryId])
   @@index([transactionType])
+  @@index([reasonCode])
   @@index([referenceId])
   @@index([performedById])
   @@index([createdAt])
@@ -336,37 +437,108 @@ model Transfer {
 
 // ── Inspections ────────────────────────────────────────────────
 
+/**
+ * Structured reason catalog. One row per reason code; drives the picker on every
+ * stock-affecting action (medications + equipment) and is the stable key stored
+ * on transactions, inspection lines and audit metadata.
+ */
+model StockReason {
+  code          String                @id
+  labelEn       String
+  labelAr       String
+  family        StockReasonFamily
+  effect        StockReasonEffect     @default(LOSS)
+  itemTypes     StockReasonItemType[]
+  actions       StockAction[]
+  requiresNote  Boolean               @default(false)
+  requiresReview Boolean              @default(false)
+  sortOrder     Int                   @default(0)
+  isActive      Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  inspectionItems InspectionItem[]
+  itemReasonLines InspectionItemReason[]
+
+  @@index([family])
+  @@index([isActive])
+}
+
 model Inspection {
   id            String           @id @default(uuid())
   ambulanceId   String
   performedById String
   performedAt   DateTime         @default(now())
-  status        InspectionStatus @default(COMPLETED)
+  status        InspectionStatus @default(DRAFT)
+  title         String?
   notes         String?
+  // Free-form life cycle: a DRAFT can be saved and resumed any time; completing
+  // freezes the record (immutable) and reconciles stock immediately. A supervisor
+  // can then acknowledge (close the loop) or void (reverses corrections, audited).
+  completedAt     DateTime?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewNotes     String?
+  voidReason      String?
+  countedItems    Int            @default(0)
+  totalItems      Int            @default(0)
+  correctionCount Int            @default(0)
+  shiftCode       String?
   createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   ambulance   Ambulance        @relation(fields: [ambulanceId], references: [id])
   performedBy User             @relation("InspectionPerformer", fields: [performedById], references: [id])
+  reviewedBy  User?            @relation("InspectionReviewer", fields: [reviewedById], references: [id])
   items       InspectionItem[]
+  requests    SupplyRequest[]  @relation("InspectionRequests")
 
   @@index([ambulanceId])
   @@index([performedById])
   @@index([performedAt])
+  @@index([status])
+  @@index([reviewedById])
 }
 
 model InspectionItem {
-  id               String  @id @default(uuid())
+  id               String                  @id @default(uuid())
   inspectionId     String
   inventoryId      String
   expectedQuantity Int
   actualQuantity   Int
   difference       Int
+  condition        InspectionItemCondition @default(OK)
+  reasonCode       String?
   notes            String?
+  requestId        String?
+  checkedDetail   Json?
 
-  inspection Inspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
-  inventory  Inventory  @relation(fields: [inventoryId], references: [id])
+  inspection Inspection    @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inventory  Inventory     @relation(fields: [inventoryId], references: [id])
+  reason     StockReason?  @relation(fields: [reasonCode], references: [code])
+  request    SupplyRequest? @relation("ItemRefillRequest", fields: [requestId], references: [id])
+  // A discrepancy can mix causes, e.g. 4 counted as 2 = 1 used + 1 lost. Each
+  // allocation is a reason code with the number of units it accounts for.
+  reasonLines InspectionItemReason[]
 
   @@index([inspectionId])
+  @@index([reasonCode])
+}
+
+model InspectionItemReason {
+  id               String   @id @default(uuid())
+  inspectionItemId String
+  reasonCode       String?
+  quantity         Int
+  notes            String?
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  inspectionItem InspectionItem @relation(fields: [inspectionItemId], references: [id], onDelete: Cascade)
+  reason         StockReason?   @relation(fields: [reasonCode], references: [code])
+
+  @@index([inspectionItemId])
+  @@index([reasonCode])
 }
 
 // ── Supply Requests (PAR-level reorder) ─────────────────────────
@@ -381,18 +553,39 @@ model SupplyRequest {
   createdById   String
   reviewedById  String?
   reviewedAt    DateTime?
+  // Fulfilment / arrival trail. A dispatched request is "held" on the unit until
+  // the goods arrive and are double-confirmed (receiver + confirmer, which may be
+  // the same person per unit policy).
+  inspectionId      String?
+  batchId           String?
+  expectedArrivalAt DateTime?
+  dispatchedById    String?
+  dispatchedAt      DateTime?
+  receivedById      String?
+  receivedAt        DateTime?
+  receivedQuantity  Int?
+  confirmedById     String?
+  confirmedAt       DateTime?
+  notes             String?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
-  ambulance  Ambulance @relation(fields: [ambulanceId], references: [id])
-  medicine   Medicine  @relation(fields: [medicineId], references: [id])
-  createdBy  User      @relation("SupplyRequestAuthor", fields: [createdById], references: [id])
-  reviewedBy User?     @relation("SupplyRequestReviewer", fields: [reviewedById], references: [id])
+  ambulance    Ambulance         @relation(fields: [ambulanceId], references: [id])
+  medicine     Medicine          @relation(fields: [medicineId], references: [id])
+  batch        MedicineBatch?    @relation(fields: [batchId], references: [id])
+  createdBy    User              @relation("SupplyRequestAuthor", fields: [createdById], references: [id])
+  reviewedBy   User?             @relation("SupplyRequestReviewer", fields: [reviewedById], references: [id])
+  dispatchedBy User?             @relation("SupplyRequestDispatcher", fields: [dispatchedById], references: [id])
+  receivedBy   User?             @relation("SupplyRequestReceiver", fields: [receivedById], references: [id])
+  confirmedBy  User?             @relation("SupplyRequestConfirmer", fields: [confirmedById], references: [id])
+  inspection   Inspection?       @relation("InspectionRequests", fields: [inspectionId], references: [id])
+  refillFor    InspectionItem[]  @relation("ItemRefillRequest")
 
   @@index([status])
   @@index([ambulanceId])
   @@index([medicineId])
   @@index([createdById])
+  @@index([inspectionId])
   @@index([createdAt])
 }
 

@@ -4,7 +4,9 @@ export {
   approveUserSchema,
   changeRoleSchema,
   setUserStatusSchema,
+  setUserPasswordSchema,
   setManagedStationsSchema,
+  updateMySupervisorZoneSchema,
   idParamSchema,
 } from './user.schema.js';
 export {
@@ -23,14 +25,16 @@ export {
   updateMedicineSchema,
   listMedicinesQuerySchema,
 } from './medicine.schema.js';
-export { createBatchSchema, listBatchesQuerySchema } from './batch.schema.js';
+export { createBatchSchema, updateBatchSchema, listBatchesQuerySchema } from './batch.schema.js';
 export {
   useMedicineSchema,
   restockSchema,
   adjustSchema,
   removeStockSchema,
+  removeStockLineSchema,
   updateInventoryNotesSchema,
   updateInventoryExpirySchema,
+  updateInventoryLotSchema,
   returnSchema,
   initialStockSchema,
   listInventoryQuerySchema,
@@ -47,7 +51,11 @@ export { transferSchema, listTransfersQuerySchema } from './transfer.schema.js';
 export {
   inspectionItemSchema,
   createInspectionSchema,
+  updateInspectionSchema,
+  acknowledgeInspectionSchema,
+  voidInspectionSchema,
   listInspectionsQuerySchema,
+  inspectionOverviewQuerySchema,
 } from './inspection.schema.js';
 export { createShiftNoteSchema, listShiftNotesQuerySchema } from './shiftNote.schema.js';
 export {
@@ -56,9 +64,14 @@ export {
   listHandoversQuerySchema,
 } from './handover.schema.js';
 export { createReportSchema, listReportsQuerySchema } from './report.schema.js';
+export { analyticsQuerySchema } from './analytics.schema.js';
+export { listNotificationsQuerySchema } from './notification.schema.js';
 export {
   createSupplyRequestSchema,
   reviewSupplyRequestSchema,
+  dispatchSupplyRequestSchema,
+  receiveSupplyRequestSchema,
   listSupplyRequestsQuerySchema,
 } from './supplyRequest.schema.js';
+export { listStockReasonsQuerySchema } from './stockReason.schema.js';
 export { switchDutySchema, setUserUnitsSchema } from './duty.schema.js';

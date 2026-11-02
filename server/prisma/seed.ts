@@ -1,4 +1,5 @@
 import { PrismaClient, MedicineCategory } from '@prisma/client';
+import { syncStockReasons } from '../src/config/stockReasons.js';
 
 const prisma = new PrismaClient();
 
@@ -179,8 +180,11 @@ async function main() {
     }
   }
 
+  // ── Structured reason catalog ─────────────────────────────
+  const reasons = await syncStockReasons(prisma);
+
   console.log(
-    `Seeded: 3 units, 3 cars, ${medicineIds.length} medicines, ${batches.length} batches, ~${stockCount} initial stock rows.`,
+    `Seeded: 3 units, 3 cars, ${medicineIds.length} medicines, ${batches.length} batches, ~${stockCount} initial stock rows, ${reasons.total} stock reasons.`,
   );
 }
 

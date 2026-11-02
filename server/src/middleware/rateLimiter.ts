@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 
@@ -9,6 +9,9 @@ import { AppError } from '../utils/AppError.js';
 export const apiRateLimiter = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
   limit: env.RATE_LIMIT_MAX,
+  // Integration tests intentionally make many requests from one in-memory IP.
+  // Keep production protections enabled while avoiding order-dependent tests.
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, _res, _next, options) => {
@@ -20,6 +23,7 @@ export const apiRateLimiter = rateLimit({
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60_000,
   limit: 30,
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, _res, _next, options) => {
@@ -36,11 +40,12 @@ export const authRateLimiter = rateLimit({
 export const destructiveRateLimiter = rateLimit({
   windowMs: 60 * 60_000,
   limit: 40,
+  skip: () => env.NODE_ENV === 'test',
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
     const userId = req.authUser?.id;
-    return userId ? `uid:${userId}` : `ip:${req.ip ?? 'unknown'}`;
+    return userId ? `uid:${userId}` : `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`;
   },
   handler: (_req, _res, _next, options) => {
     throw AppError.tooManyRequests(

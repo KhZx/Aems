@@ -11,6 +11,17 @@
 *.key
 service-account*.json
 firebase-adminsdk*.json
+.firebaserc
+*.p12
+*.jks
+*.bak
+*.dump
+*.sql.gz
+.pgpass
+
+# ── Backups (never commit database dumps) ─────────────────────
+backups/
+server/backups/
 
 # ── Dependencies ──────────────────────────────────────────────
 node_modules/

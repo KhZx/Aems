@@ -28,15 +28,21 @@ export type Permission =
   | 'medicine:delete'
   | 'batch:read'
   | 'batch:create'
+  /** Edits a batch/lot (number, expiry, supplier, received date) — audited. */
+  | 'batch:update'
   | 'inventory:read'
   | 'inventory:use'
   | 'inventory:restock'
   | 'inventory:adjust'
   | 'inventory:update-expiry'
+  /** Edits the lot metadata on ONE unit's own stock line (per-unit override). */
+  | 'inventory:update-lot'
   | 'inventory:write'
   | 'inventory:transfer'
   | 'inspection:read'
   | 'inspection:create'
+  /** Acknowledge or void a completed inspection (supervisor/admin). */
+  | 'inspection:review'
   | 'transfer:read'
   | 'shiftnote:read'
   | 'shiftnote:create'
@@ -77,15 +83,18 @@ const ALL_PERMISSIONS: Permission[] = [
   'medicine:delete',
   'batch:read',
   'batch:create',
+  'batch:update',
   'inventory:read',
   'inventory:use',
   'inventory:restock',
   'inventory:adjust',
   'inventory:update-expiry',
+  'inventory:update-lot',
   'inventory:write',
   'inventory:transfer',
   'inspection:read',
   'inspection:create',
+  'inspection:review',
   'transfer:read',
   'shiftnote:read',
   'shiftnote:create',
@@ -119,29 +128,32 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'medicine:read',
     'medicine:delete',
     'batch:read',
+    'batch:update',
     'inventory:read',
     'inventory:restock',
     'inventory:adjust',
     'inventory:update-expiry',
+    'inventory:update-lot',
     'inventory:write',
     'inventory:transfer',
-    'inspection:read',
-    'inspection:create',
-    'transfer:read',
-    'shiftnote:read',
-    'shiftnote:create',
-    'shiftnote:delete',
-    'shiftnote:restore',
-    'handover:read',
-    'handover:create',
-    'handover:acknowledge',
-    'report:read',
-    'report:create',
-    'audit:read',
-    'supply:request',
-    'supply:read',
-    'supply:review',
-    'dashboard:read',
+  'inspection:read',
+  'inspection:create',
+  'inspection:review',
+  'transfer:read',
+  'shiftnote:read',
+  'shiftnote:create',
+  'shiftnote:delete',
+  'shiftnote:restore',
+  'handover:read',
+  'handover:create',
+  'handover:acknowledge',
+  'report:read',
+  'report:create',
+  'audit:read',
+  'supply:request',
+  'supply:read',
+  'supply:review',
+  'dashboard:read',
   ],
 
   PARAMEDIC: [
@@ -149,11 +161,13 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'medicine:create',
     'batch:read',
     'batch:create',
+    'batch:update',
     'inventory:read',
     'inventory:use',
     'inventory:restock',
     'inventory:adjust',
     'inventory:update-expiry',
+    'inventory:update-lot',
     'inspection:read',
     'inspection:create',
     'transfer:read',
@@ -175,11 +189,13 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'medicine:create',
     'batch:read',
     'batch:create',
+    'batch:update',
     'inventory:read',
     'inventory:use',
     'inventory:restock',
     'inventory:adjust',
     'inventory:update-expiry',
+    'inventory:update-lot',
     'inspection:read',
     'inspection:create',
     'transfer:read',
@@ -201,10 +217,12 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'medicine:create',
     'batch:read',
     'batch:create',
+    'batch:update',
     'inventory:read',
     'inventory:restock',
     'inventory:adjust',
     'inventory:update-expiry',
+    'inventory:update-lot',
     'inventory:write',
     'inspection:read',
     'inspection:create',
@@ -224,6 +242,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   DOCTOR: [
     'medicine:read',
     'batch:read',
+    'batch:update',
     'inventory:read',
     'inventory:use',
     'inspection:read',

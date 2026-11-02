@@ -1,11 +1,24 @@
 ﻿// js/app.js — AEMS paramedic app (REST API + inventory model)
 
 import { initI18n, setLanguage, getCurrentLang, onLanguageChanged, t, unitLabel } from './i18n.js';
+import { confirmDialog, promptDialog, choiceDialog } from './confirm.js';
 import { FIREBASE_CONFIG } from './config.js';
 import { initFirebase } from './services/firebase.js';
 import { api } from './api.js';
+import {
+  loadReasonCatalog,
+  mountReasonControl,
+  onReasonChange,
+  readReasonControl,
+  reasonsFor,
+  reasonLabel,
+  reasonLabelFor,
+  itemTypeForCategory,
+} from './reasons.js';
 import { initAppSession, signOutAll, getSession, setSession } from './auth.js';
 import { startHealthMonitor } from './health.js';
+import { initSidebarNavigation } from './sidebar-nav.js';
+import { initNotificationCenter } from './notifications.js';
 import {
   renderItemCard, renderItemRow, renderAlertCard, renderShiftNote, renderChangeItem, renderBatchItem, toggleTree,
   emptyState, toast, openModal, closeModal, closeAllModals,
@@ -14,8 +27,10 @@ import {
 import { CATEGORIES } from './data/initial-data.js';
 import { icon, mountSprite } from './icons.js';
 import { initDutyCalendar, renderDutyCalendar } from './duty-calendar.js';
+import { openChangePasswordDialog } from './password.js';
 
 mountSprite();
+initSidebarNavigation();
 
 // Shifts are fixed to A / B / C / D, each either morning or night.
 const SHIFT_IDS = ['A', 'B', 'C', 'D'];
@@ -26,6 +41,13 @@ function shiftLabel(code, period) {
   if (c && p) return `${c} – ${p}`;
   return c || p || '';
 }
+
+// The API caps every list endpoint at pageSize 200 (see the zod schemas in
+// server/src/validators). Asking for more is a 400, not a clamp, so oversized
+// values silently break the caller. Use this for "fetch all lots" lookups.
+const MAX_LIST_PAGE_SIZE = 200;
+const ITEM_RENDER_BATCH_SIZE = 60;
+const _itemRenderStates = new Map();
 
 const S = {
   session: null,
@@ -70,9 +92,18 @@ function can(perm) {
   return Array.isArray(S.permissions) && S.permissions.includes(perm);
 }
 function requireAmbulance() {
-  if (S.activeAmbulanceId) return true;
-  toast(t('app.inspect.no_car'), 'error');
-  return false;
+  if (!S.activeAmbulanceId) { toast(t('app.inspect.no_car'), 'error'); return false; }
+  // A stale pick (car since removed, or one this user cannot choose) would pass
+  // the truthiness check and only fail server-side with a bare 404. Catch it here
+  // with a message that tells the user what to do.
+  if (S.ambulances.length && !S.ambulances.some(a => a.id === S.activeAmbulanceId)) {
+    S.activeAmbulanceId = null;
+    localStorage.removeItem('aems_car_pick');
+    pickActiveCar();
+    if (!S.activeAmbulanceId) { toast(t('app.inspect.no_car'), 'error'); return false; }
+    toast(t('app.inspect.car_reset'), 'info');
+  }
+  return true;
 }
 function setText(id, val) {
   const el = document.getElementById(id);
@@ -104,6 +135,8 @@ function normalizeItem(row) {
     quantity: row.quantity ?? 0,
     size: m.size || null,
     expiry: row.batch?.expiryDate || null,
+    receivedDate: row.batch?.receivedDate || null,
+    hasLotOverride: !!row.hasLotOverride,
     unit: m.unit || '',
     strength: m.strength || '',
     supplier: row.batch?.supplier || '',
@@ -180,11 +213,17 @@ async function loadInventory() {
   if (!S.stationId) { S.items = []; return; }
   // Inventory is scoped to the whole unit (station): every shift and every
   // car of this unit shares the same stock view; other units never see it.
-  const data = await api.inventory({ stationId: S.stationId, includeEmpty: true });
-  const rows = Array.isArray(data) ? data : (data.items || []);
+  const rows = await api.inventoryAll({ stationId: S.stationId, includeEmpty: true });
   S.items = rows.map(normalizeItem);
+  // Only fall back to a car that owns stock when the user has no pick yet AND
+  // that car is actually one they can choose. Adopting an arbitrary car here
+  // (e.g. one belonging to another shift) could hand a non-existent or
+  // out-of-scope id to the inspection/use endpoints, which answer 404.
   if (rows.length && rows[0].ambulance && !S.activeAmbulanceId) {
-    S.activeAmbulanceId = rows[0].ambulance.id;
+    const candidate = rows[0].ambulance.id;
+    if (!S.ambulances.length || S.ambulances.some(a => a.id === candidate)) {
+      S.activeAmbulanceId = candidate;
+    }
   }
 }
 
@@ -235,6 +274,7 @@ async function loadAll() {
     loadHistory().catch(() => {}),
     loadLastInspection().catch(() => {}),
     loadSupplyRequests().catch(() => {}),
+    loadReasonCatalog().catch(() => {}),
   ]);
 }
 
@@ -257,11 +297,15 @@ function updateSupplyNavBadge() {
 }
 
 const SUPPLY_STATUS = {
-  PENDING:    { color: '#D97706', key: 'supply.status.pending' },
-  APPROVED:   { color: '#2563EB', key: 'supply.status.approved' },
-  REJECTED:   { color: '#DC2626', key: 'supply.status.rejected' },
-  FULFILLED:  { color: '#059669', key: 'supply.status.fulfilled' },
-  CANCELLED:  { color: '#64748B', key: 'supply.status.cancelled' },
+  PENDING:     { color: '#D97706', key: 'supply.status.pending' },
+  APPROVED:    { color: '#2563EB', key: 'supply.status.approved' },
+  DISPATCHED:  { color: '#0EA5E9', key: 'supply.status.dispatched' },
+  IN_TRANSIT:  { color: '#0EA5E9', key: 'supply.status.in_transit' },
+  RECEIVED:    { color: '#059669', key: 'supply.status.received' },
+  FULFILLED:   { color: '#059669', key: 'supply.status.fulfilled' },
+  CLOSED:      { color: '#64748B', key: 'supply.status.closed' },
+  REJECTED:    { color: '#DC2626', key: 'supply.status.rejected' },
+  CANCELLED:   { color: '#64748B', key: 'supply.status.cancelled' },
 };
 
 function renderSupplyPage() {
@@ -280,6 +324,12 @@ function renderSupplyPage() {
     const requester = r.createdBy?.displayName || '—';
     const when = fmtDateTime(r.createdAt);
     const canCancel = r.status === 'PENDING';
+    const canReceive = r.status === 'DISPATCHED' || r.status === 'IN_TRANSIT';
+    const rowActions = (canCancel || canReceive) ? `
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          ${canReceive ? `<button class="btn btn-primary btn-sm" onclick="App.receiveSupply('${r.id}',${Number(r.quantity) || 0})">${icon('checkCircle')} ${t('supply.receive')}</button>` : ''}
+          ${canCancel ? `<button class="btn btn-ghost btn-sm" onclick="App.cancelSupply('${r.id}')">${t('supply.cancel')}</button>` : ''}
+        </div>` : '';
     return `
       <div class="history-item">
         <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
@@ -294,10 +344,7 @@ function renderSupplyPage() {
           <span>${icon('user')} ${esc(requester)}</span>
           ${r.reason ? `<span>${icon('fileText')} ${esc(r.reason)}</span>` : ''}
         </div>
-        ${canCancel ? `
-        <div style="margin-top:10px;">
-          <button class="btn btn-ghost btn-sm" onclick="App.cancelSupply('${r.id}')">${t('supply.cancel')}</button>
-        </div>` : ''}
+        ${canCancel || canReceive ? rowActions : ''}
       </div>`;
   }).join('');
 }
@@ -350,10 +397,41 @@ async function confirmSupply() {
 }
 
 async function cancelSupply(id) {
-  if (!confirm(t('supply.cancel_confirm'))) return;
+  if (!await confirmDialog({ message: t('supply.cancel_confirm'), tone: 'warning' })) return;
   try {
     await api.cancelSupplyRequest(id);
     toast(t('supply.cancelled'));
+    await loadSupplyRequests();
+    if (S.currentPage === 'supply') renderSupplyPage();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+/** DISPATCHED/IN_TRANSIT → RECEIVED. The crew's first confirmation; the
+ *  supervisor still has to sign off before stock is credited. */
+async function receiveSupply(id, requested) {
+  let typed;
+  try {
+    typed = await promptDialog({
+      title: t('supply.receive'),
+      message: t('supply.receive_hint', { qty: requested }),
+      value: String(requested),
+      placeholder: t('supply.receive_qty'),
+      confirmLabel: t('supply.receive'),
+    });
+  } catch (err) {
+    toast(err.message, 'error');
+    return;
+  }
+  if (typed === null || typed === undefined) return;
+
+  const qty = Number.parseInt(String(typed).trim(), 10);
+  if (!Number.isInteger(qty) || qty < 0) { toast(t('supply.receive_bad_qty'), 'error'); return; }
+
+  try {
+    await api.receiveSupplyRequest(id, { receivedQuantity: qty });
+    toast(t('supply.received'), 'success');
     await loadSupplyRequests();
     if (S.currentPage === 'supply') renderSupplyPage();
   } catch (err) {
@@ -640,12 +718,33 @@ function updateHandoverBanner() {
 }
 
 function renderDashboard() {
+  renderDashboardClock();
   renderStats();
   renderCharts();
   renderAlertsList();
   renderShiftNotesList();
   renderChangesPanel();
   updateHandoverBanner();
+}
+
+// ── Dashboard greeting + live clock ───────────────────────────
+let dashClockTimer = null;
+function renderDashboardClock() {
+  const greetEl = document.getElementById('dashGreetText');
+  const timeEl = document.getElementById('dashClockTime');
+  const dateEl = document.getElementById('dashClockDate');
+  if (!greetEl || !timeEl || !dateEl) return;
+  const lang = getCurrentLang() === 'ar' ? 'ar-EG' : 'en-GB';
+  const tick = () => {
+    const now = new Date();
+    const h = now.getHours();
+    const key = h < 12 ? 'app.greet.morning' : (h < 18 ? 'app.greet.afternoon' : 'app.greet.evening');
+    greetEl.textContent = t(key, { name: me()?.name || '' }).replace(/[,،]\s*$/, '');
+    timeEl.textContent = now.toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    dateEl.textContent = now.toLocaleDateString(lang, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  };
+  tick();
+  if (!dashClockTimer) dashClockTimer = setInterval(tick, 1000);
 }
 
 function renderCharts() {
@@ -685,25 +784,31 @@ function renderAllPage() {
 function renderItemsGrid(items, containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
+  _itemRenderStates.delete(containerId);
   if (!S.stationId) {
-    el.className = 'items-grid';
+    el.className = `items-grid${containerId === 'equipmentList' ? ' is-empty' : ''}`;
     el.innerHTML = emptyState(icon('ambulance'), t('app.empty.no_unit'));
     return;
   }
   const groups = groupRows(items);
   if (!groups.length) {
-    el.className = 'items-grid';
+    el.className = `items-grid${containerId === 'equipmentList' ? ' is-empty' : ''}`;
     el.innerHTML = emptyState(icon('package'), t('app.empty.no_equipment'));
     return;
   }
-  el.className = S.view === 'list' ? 'inventory-list' : 'items-grid';
-  el.innerHTML = S.view === 'list'
-    ? renderInventoryRows(groups)
-    : groups.map(g => renderItemCard(g, snapshotItems())).join('');
+  const state = { groups, snapshot: snapshotItems(), shown: 0, view: S.view };
+  _itemRenderStates.set(containerId, state);
+  if (S.view === 'list') {
+    el.className = 'inventory-list';
+    el.innerHTML = `<div class="inv-list">${renderInventoryListHeader(groups)}<div class="inventory-load-more-content"></div></div>`;
+  } else {
+    el.className = 'items-grid';
+    el.innerHTML = '';
+  }
+  loadNextInventoryBatch(containerId);
 }
 
-function renderInventoryRows(groups) {
-  const snapshot = snapshotItems();
+function renderInventoryListHeader(groups) {
   const totalUnits = groups.reduce((s, g) => s + (g.quantity || 0), 0);
   let expiring = 0, expired = 0;
   groups.forEach(g => {
@@ -728,7 +833,32 @@ function renderInventoryRows(groups) {
       <span></span>
     </div>`;
 
-  return `<div class="inv-list">${summary}${groups.map(g => renderItemRow(g, snapshot)).join('')}</div>`;
+  return summary;
+}
+
+function loadNextInventoryBatch(containerId) {
+  const state = _itemRenderStates.get(containerId);
+  const el = document.getElementById(containerId);
+  if (!state || !el) return;
+  el.querySelector('.inventory-load-more')?.remove();
+
+  const next = state.groups.slice(state.shown, state.shown + ITEM_RENDER_BATCH_SIZE);
+  if (!next.length) return;
+  const html = state.view === 'list'
+    ? next.map((group) => renderItemRow(group, state.snapshot)).join('')
+    : next.map((group) => renderItemCard(group, state.snapshot)).join('');
+  const target = state.view === 'list' ? el.querySelector('.inventory-load-more-content') : el;
+  target?.insertAdjacentHTML('beforeend', html);
+  state.shown += next.length;
+
+  if (state.shown < state.groups.length) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'inventory-load-more';
+    button.innerHTML = `${esc(t('sup.btn.load_more'))} <span>${state.shown} / ${state.groups.length}</span>`;
+    button.addEventListener('click', () => loadNextInventoryBatch(containerId), { once: true });
+    (state.view === 'list' ? el.querySelector('.inv-list') : el)?.appendChild(button);
+  }
 }
 
 // ── View toggle (Cards ⇄ List, persisted) ──────────────────────
@@ -766,6 +896,12 @@ function applySearch(items, term) {
 // ── History (audit log) ────────────────────────────────────────
 const AUDIT_STYLE = {
   INSPECTION: { key: 'ui.audit.inspection', color: 'var(--success)' },
+  INSPECTION_DRAFT: { key: 'ui.audit.insp_draft', color: '#64748B' },
+  INSPECTION_DRAFT_UPDATE: { key: 'ui.audit.insp_draft_update', color: '#64748B' },
+  INSPECTION_DRAFT_DELETE: { key: 'ui.audit.insp_draft_delete', color: 'var(--danger)' },
+  INSPECTION_COMPLETE: { key: 'ui.audit.insp_complete', color: 'var(--success)' },
+  INSPECTION_ACKNOWLEDGE: { key: 'ui.audit.insp_ack', color: '#0D9488' },
+  INSPECTION_VOID: { key: 'ui.audit.insp_void', color: 'var(--danger)' },
   USE_MEDICINE: { key: 'ui.audit.use', color: 'var(--warning)' },
   RESTOCK: { key: 'ui.audit.restock', color: 'var(--info)' },
   ADJUST: { key: 'ui.audit.adjust', color: '#7C3AED' },
@@ -803,6 +939,18 @@ function auditDetails(log) {
       if (m.corrections?.length) s += t('ui.audit.corrected_d', { n: m.corrections.length });
       return s.trim();
     }
+    case 'INSPECTION_DRAFT': return t('ui.audit.insp_draft_d', { n: m.itemCount ?? 0 });
+    case 'INSPECTION_DRAFT_UPDATE': return t('ui.audit.insp_draft_update_d', { n: m.itemCount ?? 0 });
+    case 'INSPECTION_DRAFT_DELETE': return m.title || '';
+    case 'INSPECTION_COMPLETE': {
+      const total = m.itemCount ?? ((m.checkedCount ?? 0) + (m.notCheckedCount ?? 0));
+      const corr = m.corrections?.length ?? 0;
+      let s = t('ui.audit.insp_complete_d', { checked: m.checkedCount ?? 0, total });
+      if (corr) s += t('ui.audit.corrected_d', { n: corr });
+      return s.trim();
+    }
+    case 'INSPECTION_ACKNOWLEDGE': return m.reviewNotes || m.title || t('ui.audit.insp_ack_d');
+    case 'INSPECTION_VOID': return m.voidReason || '';
     case 'CREATE_SHIFT_NOTE': return t('ui.audit.note_d', { name: name || t('ui.note'), priority: t(PRIORITY_LBL[(m.priority || 'medium').toUpperCase()]) || m.priority });
     case 'DELETE_SHIFT_NOTE': return `${name || t('ui.note')}`;
     case 'SUBMIT_HANDOVER': return t('ui.audit.ho_d', { outgoing: m.outgoingName || '', status: m.equipStatus || '' });
@@ -884,6 +1032,71 @@ function fmtVal(v) {
   return String(v);
 }
 
+/**
+ * Inspection audit entries render as TWO separate documents:
+ *   1. Inspection report — what the crew found (conditions, not-checked).
+ *   2. Adjustments applied — the reason-coded stock changes.
+ * They answer different questions, so they are never mixed in one table.
+ */
+function inspectionAuditTable(log) {
+  const m = log.metadata || {};
+  if (!['INSPECTION', 'INSPECTION_COMPLETE', 'INSPECTION_VOID'].includes(log.action)) return '';
+  const corrections = Array.isArray(m.corrections) ? m.corrections : [];
+  const notChecked = Array.isArray(m.notChecked) ? m.notChecked : [];
+  const cond = m.conditions && typeof m.conditions === 'object' ? m.conditions : {};
+  const condKeys = ['missing', 'damaged', 'expired', 'unusable', 'extra'].filter((k) => Array.isArray(cond[k]) && cond[k].length);
+  const notCheckedHtml = notChecked.length
+    ? `<div class="rpt-line"><span class="rpt-tag nc">${esc(t('ui.audit.not_checked'))}</span> ${esc(notChecked.join(', '))}</div>`
+    : '';
+
+  // 1 ▸ Inspection report — findings only, no quantities changed.
+  let inspBlock = '';
+  if (condKeys.length || notCheckedHtml) {
+    inspBlock = `<div class="rpt-block rpt-inspection">
+      <div class="rpt-head">${icon('search')} ${esc(t('ui.report.inspection'))}</div>
+      ${condKeys.map((k) => `<div class="rpt-line"><span class="rpt-tag ${k}">${esc(t('ui.report.cond_' + k))}</span> ${esc(cond[k].join(', '))}</div>`).join('')}
+      ${notCheckedHtml}
+    </div>`;
+  }
+
+  // 2 ▸ Adjustments applied — the reason-coded stock corrections.
+  let adjBlock = '';
+  if (corrections.length) {
+    const rows = corrections.map((c) => {
+      const diff = c.difference ?? ((c.to ?? 0) - (c.from ?? 0));
+      const cls = diff < 0 ? 'color:var(--danger);font-weight:700;' : (diff > 0 ? 'color:var(--success);font-weight:700;' : '');
+      const sign = diff > 0 ? `+${diff}` : `${diff}`;
+      const lines = Array.isArray(c.lines) ? c.lines.filter((l) => l && l.code) : [];
+      const reasonCell = lines.length
+        ? lines.map((l) => `${esc(reasonLabelFor(l.code))} <span style="color:var(--text-muted);">×${esc(fmtVal(l.quantity))}</span>`).join('<br>')
+        : (c.reason ? esc(reasonLabelFor(c.reason)) : '—');
+      return `<tr>
+        <td>${esc(c.name || c.inventoryId || '—')}</td>
+        <td style="text-align:center;">${esc(fmtVal(c.from))}</td>
+        <td style="text-align:center;">${esc(fmtVal(c.to))}</td>
+        <td style="text-align:center;${cls}">${esc(sign)}</td>
+        <td>${reasonCell}</td>
+      </tr>`;
+    }).join('');
+    adjBlock = `<div class="rpt-block rpt-adjust">
+      <div class="rpt-head">${icon('fileText')} ${esc(t('ui.report.adjustments'))}</div>
+      <div class="audit-table-wrap"><table class="audit-table">
+        <thead><tr>
+          <th>${esc(t('ui.audit.col_item'))}</th>
+          <th style="text-align:center;">${esc(t('ui.audit.col_before'))}</th>
+          <th style="text-align:center;">${esc(t('ui.audit.col_counted'))}</th>
+          <th style="text-align:center;">${esc(t('ui.audit.col_change'))}</th>
+          <th>${esc(t('ui.audit.col_reason'))}</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+  }
+
+  if (!inspBlock && !adjBlock) return '';
+  return `<div class="audit-table-wrap">${inspBlock}${adjBlock}</div>`;
+}
+
 function renderAuditEvent(log) {
   const style = AUDIT_STYLE[log.action] || { key: null, color: '#999' };
   const when = fmtDateTime(log.createdAt);
@@ -912,6 +1125,7 @@ function renderAuditEvent(log) {
             : '';
         })()
       }
+      ${inspectionAuditTable(log)}
     </div>`;
 }
 
@@ -1114,11 +1328,23 @@ function _renderHandoverHistory() {
 function navigateTo(page, cat) {
   S.currentPage = page;
   if (cat) S.currentCat = cat;
+  if (page !== 'equipment') {
+    _itemRenderStates.delete('equipmentList');
+    const list = document.getElementById('equipmentList');
+    if (list) list.innerHTML = '';
+  }
+  if (page !== 'all') {
+    _itemRenderStates.delete('allList');
+    const list = document.getElementById('allList');
+    if (list) list.innerHTML = '';
+  }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const el = document.getElementById(`page-${page}`);
   if (el) el.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const navEl = document.querySelector(`.nav-item[data-page="${page}"]`);
+  const navEl = page === 'equipment'
+    ? [...document.querySelectorAll('.nav-item[data-page="equipment"]')].find((item) => item.dataset.category === S.currentCat)
+    : document.querySelector(`.nav-item[data-page="${page}"]`);
   if (navEl) navEl.classList.add('active');
   const titles = {
     dashboard: t('app.nav_title.dashboard'),
@@ -1147,10 +1373,11 @@ function updateUserUI() {
   const el = document.getElementById('userInfo');
   if (!el || !S.user) return;
   const u = S.user;
+  const logoutLabel = t('app.user.logout');
   el.innerHTML = `
     <div class="user-name">${esc(u.displayName || t('app.user.paramedic'))}</div>
     <div class="user-email">${esc(u.email || '')}</div>
-    <button class="btn-logout" onclick="App.logout()">${t('app.user.logout')}</button>`;
+    <button class="btn-logout" type="button" onclick="App.logout()" title="${esc(logoutLabel)}" aria-label="${esc(logoutLabel)}">${icon('logout')}<span class="btn-logout-text">${esc(logoutLabel)}</span></button>`;
 }
 
 function updateSidebar() {
@@ -1386,6 +1613,8 @@ function setAddMode(mode) {
   document.getElementById('restockFields').style.display = mode === 'restock' ? 'block' : 'none';
   document.getElementById('qtyGroup').style.display = mode === 'restock' ? 'block' : 'none';
   document.getElementById('reasonGroup').style.display = mode === 'restock' ? 'block' : 'none';
+  const arc = document.getElementById('adjustReasonControl');
+  if (arc) arc.style.display = 'none';
   if (mode === 'restock') prepareRestockSelector();
   refreshItemModalText();
 }
@@ -1395,9 +1624,21 @@ async function openAddModal() {
   S.editMode = 'add';
   S.addMode = 'new';
   S.editInventoryId = null;
+  S.editBatchId = null;
+  S.editGroup = null;
   S.tempBatches = [];
   document.getElementById('modal-item-title').textContent = t('modal.item.add');
   document.getElementById('f-form').reset();
+  // Clear any edit-mode leftovers so the Add form never shows a previous
+  // medicine's batch/LOT dropdown (stale #adjustFields leaked from Edit).
+  const adjustFields = document.getElementById('adjustFields');
+  if (adjustFields) adjustFields.style.display = 'none';
+  const batchEditSel = document.getElementById('f-batch-edit');
+  if (batchEditSel) batchEditSel.innerHTML = '';
+  const batchCurrent = document.getElementById('batchCurrentInfo');
+  if (batchCurrent) batchCurrent.innerHTML = '';
+  const nameHint = document.getElementById('nameMatchHint');
+  if (nameHint) { nameHint.style.display = 'none'; nameHint.textContent = ''; }
   const cat = (S.filterCat || S.currentCat || '').toUpperCase();
   document.getElementById('f-cat').value = cat;
   document.getElementById('addModeToggle').style.display = 'flex';
@@ -1455,8 +1696,14 @@ async function prepareRestockSelector() {
       S.medicines = d.medicines || [];
     } catch (err) { toast(err.message, 'error'); }
   }
+  // Scope the medicine list to the category tab the user is on, so restocking
+  // a Responder/Lifepak never surfaces unrelated meds (e.g. Panadol). If the
+  // category has no matches (or we're on "All"), fall back to the full list.
+  const cat = (S.filterCat || S.currentCat || '').toUpperCase();
+  const scoped = cat ? S.medicines.filter(m => (m.category || '').toUpperCase() === cat) : S.medicines;
+  const list = scoped.length ? scoped : S.medicines;
   fMed.innerHTML = `<option value="">${t('app.restock.select_medicine')}</option>` +
-    S.medicines.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    list.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
 
   fMed.onchange = async () => {
     fBatch.innerHTML = `<option value="">${t('app.restock.select_batch')}</option>`;
@@ -1503,7 +1750,17 @@ function openEditModal(medicineId, preferInventoryId) {
   document.getElementById('restockFields').style.display = 'none';
   document.getElementById('adjustFields').style.display = 'block';
   document.getElementById('qtyGroup').style.display = S.editQtyAllowed ? 'block' : 'none';
-  document.getElementById('reasonGroup').style.display = S.editQtyAllowed ? 'block' : 'none';
+  document.getElementById('reasonGroup').style.display = 'none';
+  const arc = document.getElementById('adjustReasonControl');
+  if (arc) {
+    arc.style.display = S.editQtyAllowed ? 'block' : 'none';
+    if (S.editQtyAllowed) {
+      mountReasonControl('adjustReasonControl', {
+        itemType: itemTypeForCategory(group.category),
+        action: 'ADJUST',
+      });
+    }
+  }
 
   const sel = document.getElementById('f-batch-edit');
   if (sel) {
@@ -1527,6 +1784,68 @@ function openEditModal(medicineId, preferInventoryId) {
 
 function openEditBatch(medicineId, inventoryId) {
   openEditModal(medicineId, inventoryId);
+}
+
+// ── Per-unit lot edit (number, expiry, supplier, received date) ──
+// Scoped to ONE ambulance's stock line: the shared batch the rest of the fleet
+// points at is never touched. A reason is mandatory and the from→to diff is
+// written to the audit log. `inventoryId` is the stock line (normalized item id).
+async function openBatchEdit(medicineId, inventoryId) {
+  if (!can('inventory:update-lot')) { toast(t('app.toast.no_perm'), 'error'); return; }
+  const group = findGroup(medicineId);
+  const item = group?.batches.find(b => b.id === inventoryId) || S.items.find(i => i.id === inventoryId);
+  if (!group || !item) return;
+
+  const orig = {
+    batchNumber: item.batchNumber || '',
+    expiryDate: item.expiry ? String(item.expiry).slice(0, 10) : '',
+    supplier: item.supplier || '',
+    receivedDate: item.receivedDate ? String(item.receivedDate).slice(0, 10) : '',
+  };
+  S.batchEditTarget = { inventoryId, medicineId, medicineName: group.name, orig };
+
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  const medEl = document.getElementById('bed-medicine');
+  if (medEl) medEl.textContent = group.name;
+  const unitEl = document.getElementById('bed-unit');
+  if (unitEl) unitEl.textContent = S.ambulances.find(a => a.id === item.ambulanceId)?.vehicleNumber || '';
+  setVal('bed-lot', orig.batchNumber);
+  setVal('bed-expiry', orig.expiryDate);
+  setVal('bed-supplier', orig.supplier);
+  setVal('bed-received', orig.receivedDate);
+  setVal('bed-reason', '');
+  openModal('modal-batch-edit');
+}
+
+async function confirmBatchEdit(e) {
+  if (e) e.preventDefault();
+  const tgt = S.batchEditTarget;
+  if (!tgt) return;
+  const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const reason = val('bed-reason');
+  if (reason.length < 2) { toast(t('app.batch_edit.error_reason'), 'error'); return; }
+
+  const body = { reason };
+  const lot = val('bed-lot');
+  const expiry = val('bed-expiry');
+  const supplier = val('bed-supplier');
+  const received = val('bed-received');
+  // Only send fields the user actually changed, so untouched lot data is never
+  // accidentally cleared.
+  if (lot !== tgt.orig.batchNumber) body.batchNumber = lot;
+  if (expiry !== tgt.orig.expiryDate) body.expiryDate = expiry;
+  if (supplier !== tgt.orig.supplier) body.supplier = supplier;
+  if (received !== tgt.orig.receivedDate) body.receivedDate = received;
+
+  if (Object.keys(body).length === 1) { closeModal('modal-batch-edit'); toast(t('sup.toast.data_refreshed'), 'success'); return; }
+
+  try {
+    await api.updateInventoryLot(tgt.inventoryId, body);
+    closeModal('modal-batch-edit');
+    toast(t('app.batch_edit.saved'));
+    await loadInventory();
+    renderAll();
+  } catch (err) { toast(err.message, 'error'); }
 }
 
 function loadEditBatchFields() {
@@ -1618,6 +1937,20 @@ async function openDeleteModal(mode = 'stock') {
     warnEl.innerHTML = t('modal.delete.stock_warning', { lot: esc(item.batchNumber || t('ui.batch.lot')) });
     btnEl.textContent = t('modal.delete.stock_btn');
   }
+  const drc = document.getElementById('deleteReasonControl');
+  if (drc) {
+    if (mode === 'medicine') {
+      drc.style.display = 'none';
+      drc.innerHTML = '';
+    } else {
+      drc.style.display = 'block';
+      const cat = S.items.find(i => i.id === S.editInventoryId)?.category;
+      mountReasonControl('deleteReasonControl', {
+        itemType: itemTypeForCategory(cat),
+        action: 'DELETE',
+      });
+    }
+  }
   openModal('modal-delete');
 }
 
@@ -1640,7 +1973,14 @@ async function confirmDelete() {
   if (!target) return;
   try {
     if (target.mode === 'stock') {
-      await api.deleteStock(target.inventoryId);
+      let reason = '';
+      let reasonCode = null;
+      try {
+        const rc = readReasonControl('deleteReasonControl');
+        reason = rc.note || rc.code || '';
+        reasonCode = rc.code;
+      } catch (err) { toast(err.message, 'error'); return; }
+      await api.deleteStock(target.inventoryId, { reason, reasonCode });
       closeModal('modal-delete');
       closeModal('modal-item');
       toast(t('app.toast.lot_deleted', { name: target.name || '' }));
@@ -1652,7 +1992,7 @@ async function confirmDelete() {
         data = await api.deleteMedicine(target.medicineId, false);
       } catch (err) {
         if (err.code !== 'CONFLICT') throw err;
-        if (!confirm(t('app.confirm.delete_medicine_fleet', { name: target.name || '' }))) return;
+        if (!await confirmDialog({ message: t('app.confirm.delete_medicine_fleet', { name: target.name || '' }), tone: 'danger', title: t('ui.dialog.title_delete') })) return;
         data = await api.deleteMedicine(target.medicineId, true);
       }
       closeModal('modal-delete');
@@ -1697,7 +2037,7 @@ function showAllBatches(medicineId) {
         <span class="batch-exp ${bs === 'expired' ? 'batch-exp-expired' : bs === 'warning' ? 'batch-exp-warning' : ''}"><span class="batch-dot"></span>${b.expiry ? fmtDate(b.expiry) : '—'}</span>
         <span class="batch-qty">${b.quantity}</span>
         <span class="batch-ops">
-          <button type="button" class="batch-btn" onclick="App.openEditBatch('${esc(group.medicineId)}','${esc(b.id)}')" title="${t('ui.btn.edit')}"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg></button>
+          <button type="button" class="batch-btn" onclick="App.openBatchEdit('${esc(group.medicineId)}','${esc(b.id)}')" title="${t('ui.btn.edit_lot')}"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg></button>
           ${canDel ? `<button type="button" class="batch-btn danger" onclick="App.deleteStockLine('${esc(b.id)}')" title="${t('ui.btn.delete_lot')}"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>` : ''}
         </span>
       </div>`;
@@ -1741,6 +2081,32 @@ function updateBatchesUI() {
     : `<p style="color:var(--text-muted);font-size:0.82rem;text-align:center;margin:8px 0;">${t('ui.batch.no_batches')}</p>`;
 }
 
+// Live "already exists" hint on the New-item name field. Debounced so typing
+// doesn't hammer the API. Shows how many lots the matching medicine already has
+// and makes clear that saving will simply add a new lot to it.
+let _nameHintTimer = null;
+function onNameInput() {
+  const el = document.getElementById('f-name');
+  const hint = document.getElementById('nameMatchHint');
+  if (!el || !hint) return;
+  const clear = () => { hint.style.display = 'none'; hint.textContent = ''; };
+  clearTimeout(_nameHintTimer);
+  const name = el.value.trim();
+  if (name.length < 3) { clear(); return; }
+  _nameHintTimer = setTimeout(async () => {
+    const size = document.getElementById('f-size')?.value.trim() || '';
+    const existing = await findExistingMedicine(name, size);
+    if (!existing) { clear(); return; }
+    let n = 0;
+    try {
+      const d = await api.batches({ medicineId: existing.id, activeOnly: true, pageSize: MAX_LIST_PAGE_SIZE });
+      n = (d.batches || []).length;
+    } catch {}
+    hint.textContent = t('app.add.existing_hint', { name: existing.name, n });
+    hint.style.display = 'block';
+  }, 350);
+}
+
 async function findExistingMedicine(name, size) {
   const norm = s => (s || '').trim().toLowerCase();
   const nameN = norm(name);
@@ -1757,6 +2123,54 @@ async function findExistingMedicine(name, size) {
   }
 }
 
+/**
+ * Asks what to do about a typed lot number that already exists for the same
+ * medicine. Resolves to 'merge', 'update' or 'cancel'.
+ *
+ * The database enforces one lot per (medicine, number), so a second lot with
+ * the same number is not possible. The real choice is whether the stock joins
+ * the existing lot, and whether the existing lot's details should be corrected
+ * with what the crew just typed.
+ *
+ * `dup` is the existing lot (batchNumber, expiryDate, quantity); `b` is the
+ * line the crew just typed (expiry, quantity).
+ */
+async function promptDuplicateLot({ lot, medicine, b, dup }) {
+  const fmt = (d) => (d ? fmtDate(d) : t('common.not_available'));
+  const existing = t('app.add.dup_existing_line', {
+    expiry: fmt(dup.expiryDate),
+    qty: dup.quantity ?? '—',
+  });
+  const incoming = t('app.add.dup_incoming_line', {
+    expiry: fmt(b.expiry),
+    qty: b.quantity ?? 0,
+  });
+  const expiryDiffers = !!(dup.expiryDate && b.expiry)
+    && String(dup.expiryDate).slice(0, 10) !== String(b.expiry).slice(0, 10);
+
+  const choices = [
+    { value: 'merge', label: t('app.add.dup_merge'), hint: t('app.add.dup_merge_hint'), tone: 'primary' },
+  ];
+  // Only offer the expiry correction when the dates actually disagree AND the
+  // crew may edit shared lots (batch:update gates the endpoint). Offering an
+  // action that would be rejected is worse than not offering it.
+  const canUpdateLot = typeof can === 'function' ? can('batch:update') : true;
+  if (expiryDiffers && canUpdateLot) {
+    choices.push({ value: 'update', label: t('app.add.dup_update'), hint: t('app.add.dup_update_hint', { old: fmt(dup.expiryDate), new: fmt(b.expiry) }) });
+  }
+
+  const pick = await choiceDialog({
+    tone: 'warning',
+    title: t('app.add.dup_title'),
+    message: t('app.add.dup_message', { lot, name: medicine.name || '' })
+      + `\n\n${existing}\n${incoming}`
+      + (expiryDiffers ? `\n\n${t('app.add.dup_expiry_warning', { old: fmt(dup.expiryDate), new: fmt(b.expiry) })}` : ''),
+    cancelLabel: t('common.cancel'),
+    choices,
+  });
+  return pick || 'cancel';
+}
+
 async function onSaveItem(e) {
   e.preventDefault();
   if (S.editMode === 'adjust') {
@@ -1765,14 +2179,23 @@ async function onSaveItem(e) {
     const canQty = !!S.editQtyAllowed;
     const canExp = !!S.editExpiryAllowed;
     const qtyVal = canQty ? parseInt(document.getElementById('f-qty').value, 10) : null;
-    const reason = canQty ? document.getElementById('f-reason').value.trim() : '';
     const expVal = canExp ? document.getElementById('f-expiry').value : '';
     const qtyChanged = canQty && !isNaN(qtyVal) && qtyVal >= 0 && qtyVal !== item.quantity;
     const expChanged = canExp && !!expVal && expVal !== (item.expiry ? item.expiry.slice(0, 10) : '');
     if (!qtyChanged && !expChanged) { closeModal('modal-item'); toast(t('sup.toast.data_refreshed'), 'success'); return; }
-    if (qtyChanged && reason.length < 2) { toast(t('app.adjust.error_reason'), 'error'); return; }
+
+    let reason = '';
+    let reasonCode = null;
+    if (qtyChanged) {
+      try {
+        const rc = readReasonControl('adjustReasonControl');
+        reason = rc.note || rc.code || '';
+        reasonCode = rc.code;
+      } catch (err) { toast(err.message, 'error'); return; }
+      if (reason.length < 2) { toast(t('app.adjust.error_reason'), 'error'); return; }
+    }
     try {
-      if (qtyChanged) await api.adjust({ inventoryId: S.editInventoryId, newQuantity: qtyVal, reason });
+      if (qtyChanged) await api.adjust({ inventoryId: S.editInventoryId, newQuantity: qtyVal, reason, reasonCode });
       if (expChanged) await api.updateItemExpiry(S.editInventoryId, expVal);
       closeModal('modal-item');
       toast(t('app.toast.adjusted'));
@@ -1802,16 +2225,37 @@ async function onSaveItem(e) {
         technicalNotes: gv('f-technotes'),
         barcode: gv('f-storecode'),
       });
+      // Lot numbers typed by the user are matched against the lots this
+      // medicine already has ON THIS UNIT. A match is never merged silently:
+      // the crew is asked whether the stock joins the existing lot and whether
+      // its expiry should be corrected.
       let knownBatches = [];
       try {
-        const bd = await api.batches({ medicineId: med.id, activeOnly: true, pageSize: 500 });
-        knownBatches = (bd.batches || []).map(x => ({ id: x.id, batchNumber: x.batchNumber }));
+        const bd = await api.batches({ medicineId: med.id, activeOnly: true, pageSize: MAX_LIST_PAGE_SIZE });
+        knownBatches = (bd.batches || []).map(x => ({
+          id: x.id,
+          batchNumber: x.batchNumber,
+          expiryDate: x.expiryDate || null,
+          // The batches endpoint has no quantity (stock is per-unit), so take
+          // the on-unit figure from the inventory already loaded for this unit.
+          quantity: S.items.find(i => i.batchId === x.id)?.quantity ?? null,
+        }));
       } catch {}
       for (let i = 0; i < S.tempBatches.length; i++) {
         const b = S.tempBatches[i];
         const lot = (b.batchNumber || '').trim();
         const dup = lot ? knownBatches.find(x => x.batchNumber === lot) : null;
         let batchId = dup ? dup.id : null;
+        if (dup) {
+          const pick = await promptDuplicateLot({ lot, medicine: med, b, dup });
+          if (pick === 'cancel') return;
+          if (pick === 'update') {
+            // Same lot number, corrected expiry: fix the shared lot record
+            // rather than creating a duplicate (which the DB forbids anyway).
+            await api.updateBatch(dup.id, { expiryDate: b.expiry, reason: t('app.reason.initial') });
+            dup.expiryDate = b.expiry;
+          }
+        }
         if (!batchId) {
           const batch = await api.createBatch({
             medicineId: med.id,
@@ -1821,7 +2265,7 @@ async function onSaveItem(e) {
             supplier: b.supplier || '',
           });
           batchId = batch.id;
-          knownBatches.push({ id: batch.id, batchNumber: lot });
+          knownBatches.push({ id: batch.id, batchNumber: lot, expiryDate: b.expiry, quantity: null });
         }
         if (b.quantity > 0) {
           await api.restock({ ambulanceId: S.activeAmbulanceId, batchId, quantity: b.quantity, reason });
@@ -1869,121 +2313,716 @@ async function onSaveItem(e) {
  * the car the moment the sheet is submitted. `focusId` limits the sheet to a
  * single item (tap-to-check), `null` means the whole car.
  */
-/** Resolves a tap-to-check target: a medicine group expands to its lots. */
-function resolveInspectRows(focusId) {
-  if (!focusId) return S.items;
-  const group = findGroup(focusId);
-  if (group) {
-    return group.batches.map((b) => ({
-      id: b.id,
-      name: group.name,
-      size: group.size,
-      quantity: b.quantity,
-      expiry: b.expiry,
-    }));
-  }
-  const single = S.items.find((i) => i.id === focusId);
+// ── Inspection wizard ──────────────────────────────────────────
+// Counting, verdicts and stock corrections are kept apart on purpose:
+//   1. Count  — one category at a time; only that category is in the DOM.
+//   2. Review — ONLY lines that differ (or were flagged) ask for a reason.
+//   3. Submit — saves the draft, completes it, stock reconciles server-side.
+// Nothing changes on the car until the user confirms, and the draft is
+// autosaved so a phone that dies mid-count resumes where it left off.
+const INSP = {
+  step: 'count',   // 'count' | 'review' | 'done'
+  draftId: null,   // server DRAFT being autosaved
+  saving: false,
+  dirty: false,
+  focusId: null,   // quick check of a single medicine
+  cat: null,
+  rows: new Map(), // inventoryId -> row state
+};
+
+const INSP_CONDITIONS = [
+  { key: 'OK',       label: 'app.insp.wz.cond_ok',       col: '#22C55E' },
+  { key: 'MISSING',  label: 'app.insp.wz.cond_missing',  col: '#EF4444' },
+  { key: 'DAMAGED',  label: 'app.insp.wz.cond_damaged',  col: '#F59E0B' },
+  { key: 'EXPIRED',  label: 'app.insp.wz.cond_expired',  col: '#8B5CF6' },
+  { key: 'UNUSABLE', label: 'app.insp.wz.cond_unusable', col: '#F97316' },
+  { key: 'EXTRA',    label: 'app.insp.wz.cond_extra',    col: '#14B8A6' },
+];
+
+/**
+ * Stock lines that belong to the car currently being inspected.
+ *
+ * S.items is scoped to the whole station (every shift, every car of the unit
+ * shares one stock view), but an inspection is filed against ONE car. Sending
+ * another car's lines would be rejected by the server — "One or more lines do
+ * not belong to this ambulance" — so the wizard only ever sees this car's rows.
+ */
+function inspScopedItems() {
+  const car = S.activeAmbulanceId;
+  if (!car) return S.items;
+  const mine = S.items.filter((i) => !i.ambulanceId || i.ambulanceId === car);
+  // If the car genuinely holds nothing, fall back to the full unit view rather
+  // than showing an empty wizard — the server still validates on save.
+  return mine.length ? mine : S.items;
+}
+
+/** Rows to inspect: this car's stock lines, or one medicine's lots for a quick check. */
+function inspRowsFor(focusId) {
+  const items = inspScopedItems();
+  if (!focusId) return items;
+  const group = groupRows(items).find((g) => g.id === focusId);
+  if (group) return group.batches;
+  const single = items.find((i) => i.id === focusId);
   return single ? [single] : [];
 }
 
-function openCountSheet(focusId) {
+/** Small expiry tag: red when expired, amber inside the 90-day window. */
+function inspExpiryTag(expiry) {
+  if (!expiry) return '';
+  const d = new Date(expiry);
+  if (Number.isNaN(d.getTime())) return '';
+  const days = Math.ceil((d - new Date()) / 86400000);
+  const cls = days < 0 ? 'exp' : (days <= 90 ? 'soon' : '');
+  return ` · <span class="iw-exp${cls ? ' ' + cls : ''}">${esc(fmtDate(expiry))}</span>`;
+}
+
+function inspCatKeys() {
+  const order = Object.keys(CATEGORIES);
+  const keys = [];
+  for (const r of INSP.rows.values()) if (!keys.includes(r.category)) keys.push(r.category);
+  return keys.sort((a, b) => {
+    const ai = order.indexOf(a), bi = order.indexOf(b);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  });
+}
+
+function inspCounted() {
+  let n = 0;
+  for (const r of INSP.rows.values()) if (r.qty !== null) n++;
+  return n;
+}
+
+/** Lines the review step must show: a real difference, a flag, or a note. */
+function inspReviewRows() {
+  const out = [];
+  for (const r of INSP.rows.values()) {
+    const diff = r.qty === null ? 0 : r.qty - r.expected;
+    const flagged = !!r.condition && r.condition !== 'OK';
+    if (diff !== 0 || flagged || (r.note && r.note.trim())) out.push(r);
+  }
+  return out;
+}
+
+function inspTitle() { return (document.getElementById('inspType')?.value || 'daily').toUpperCase(); }
+function inspNotesText() {
+  const n = document.getElementById('inspNotes')?.value.trim();
+  return n || t('app.inspect.quick_note', { name: me().name });
+}
+
+/** Opens the wizard. focusId → quick check of one medicine's lots. */
+function startInspection(focusId = null) {
   if (!requireAmbulance()) return;
-  if (!S.items.length) { toast(t('app.inspect.no_items'), 'error'); return; }
-  const rows = resolveInspectRows(focusId);
-  if (!rows.length) return;
+  const items = inspRowsFor(focusId || null);
+  if (!items.length) { toast(t('app.inspect.no_items'), 'error'); return; }
 
-  const sheet = document.getElementById('inspectSheet');
-  const count = document.getElementById('inspSheetCount');
-  if (!sheet) return;
-
-  sheet.innerHTML = rows.map((i) => `
-    <div class="insp-row" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:rgba(255,255,255,.03);">
-      <div style="flex:1;min-width:180px;">
-        <div style="font-size:.9rem;font-weight:600;">${esc(i.name)}${i.size ? ` <span style="font-weight:500;font-size:.75rem;color:var(--text-muted);">(${esc(i.size)})</span>` : ''}</div>
-        <div style="font-size:.72rem;color:var(--text-muted);">${t('app.insp.sheet.col.current')} <strong>${esc(i.quantity)}</strong>${i.expiry ? ` · ${t('ui.pill.expiry')} ${fmtDate(i.expiry)}` : ''}</div>
-      </div>
-      <input type="number" min="0" step="1" class="form-control insp-count" data-id="${esc(i.id)}" data-cur="${esc(i.quantity)}" data-name="${esc(i.name)}"
-             style="width:96px;text-align:center;" aria-label="${t('app.insp.sheet.col.counted')}" oninput="App.markInspectRow(this)">
-      <div class="insp-state" style="font-size:.72rem;font-weight:700;width:96px;text-align:center;color:var(--text3);"></div>
-      <input type="text" class="form-control insp-note" style="width:130px;display:none;" placeholder="${t('app.insp.sheet.col.note')}" aria-label="${t('app.insp.sheet.col.note')}">
-    </div>`).join('');
-
-  if (count) {
-    count.textContent = focusId ? rows[0].name : t('app.insp.sheet.shown', { shown: rows.length, total: S.items.length });
-    count.style.color = focusId ? 'var(--text)' : 'var(--text3)';
-  }
+  INSP.step = 'count';
+  INSP.draftId = null;
+  INSP.dirty = false;
+  INSP.focusId = focusId || null;
+  INSP.rows = new Map(items.map((i) => [i.id, {
+    id: i.id, name: i.name, size: i.size, category: i.category,
+    batchNumber: i.batchNumber, expiry: i.expiry, expected: i.quantity ?? 0,
+    qty: null, condition: null, note: '', reasons: [],
+    // Opt-in write-off for items found present but unusable (expired/damaged/
+    // unusable). Never applied automatically - the crew must ask for it.
+    removeRemaining: false,
+  }]));
+  INSP.cat = items[0].category;
+  renderInspWizard();
   openModal('modal-inspect');
+  if (!focusId) resumeInspDraft();
 }
 
-function markInspectRow(input) {
-  const row = input.parentElement;
-  const cur = parseInt(input.dataset.cur, 10);
-  const raw = input.value.trim();
-  const different = raw !== '' && parseInt(raw, 10) !== cur;
-  const state = row.querySelector('.insp-state');
-  const note = row.querySelector('.insp-note');
-  if (state) {
-    if (raw === '') { state.textContent = ''; state.style.color = 'var(--text3)'; }
-    else if (!different) { state.textContent = t('app.insp.sheet.same'); state.style.color = '#22C55E'; }
-    else { const v = parseInt(raw, 10); state.textContent = `Δ${v > cur ? '+' : ''}${v - cur}`; state.style.color = 'var(--warning)'; }
+// ── Wizard rendering ───────────────────────────────────────────
+
+function renderInspWizard() {
+  renderInspHead();
+  const cats = document.getElementById('iwCats');
+  if (INSP.step === 'count') renderInspCount();
+  else if (INSP.step === 'review') { if (cats) cats.innerHTML = ''; renderInspReview(); }
+  renderInspFoot();
+}
+
+function renderInspHead() {
+  const title = document.getElementById('iwTitle');
+  if (title) title.textContent = INSP.focusId ? t('app.insp.wz.title_one') : t('app.insp.wz.title');
+
+  const steps = document.getElementById('iwSteps');
+  if (steps) {
+    const defs = [['count', 'app.insp.wz.step1'], ['review', 'app.insp.wz.step2'], ['done', 'app.insp.wz.step3']];
+    const at = defs.findIndex((d) => d[0] === INSP.step);
+    steps.innerHTML = defs.map(([k, key], i) =>
+      `<span class="iw-step${INSP.step === k ? ' active' : ''}${i < at ? ' done' : ''}">${i + 1}. ${esc(t(key))}</span>`
+    ).join('<span class="iw-step-sep">›</span>');
   }
-  if (note) note.style.display = different ? 'block' : 'none';
-  updateInspCount();
+  renderInspProgress();
 }
 
-function updateInspCount() {
-  const count = document.getElementById('inspSheetCount');
-  if (!count) return;
-  let mism = 0;
-  document.querySelectorAll('.insp-count').forEach((inp) => {
-    const cur = parseInt(inp.dataset.cur, 10);
-    const raw = inp.value.trim();
-    if (raw !== '' && parseInt(raw, 10) !== cur) mism++;
-  });
-  if (mism) { count.textContent = t('app.insp.sheet.mismatches', { n: mism }); count.style.color = 'var(--warning)'; }
-  else { count.textContent = t('app.insp.sheet.same'); count.style.color = '#22C55E'; }
+/** Cheap repaint used while typing — no step markup rebuild per keystroke. */
+function renderInspProgress() {
+  const bar = document.getElementById('iwProgress');
+  if (!bar) return;
+  const total = INSP.rows.size;
+  const done = inspCounted();
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  bar.innerHTML = `<div class="iw-pbar"><i style="width:${pct}%"></i></div>` +
+    `<span>${esc(t('app.insp.wz.progress', { done, total }))}</span>`;
 }
 
-async function submitCountSheet() {
-  if (!S.activeAmbulanceId) { toast(t('app.inspect.no_car'), 'error'); return; }
-  const items = [];
-  const corrections = [];
-  document.querySelectorAll('.insp-count').forEach((inp) => {
-    const id = inp.dataset.id;
-    const name = inp.dataset.name || '—';
-    const cur = parseInt(inp.dataset.cur, 10) || 0;
-    const raw = inp.value.trim();
-    const v = raw === '' ? null : parseInt(raw, 10);
-    const qty = (v === null || isNaN(v)) ? cur : v;
-    const noteEl = inp.parentElement.querySelector('.insp-note');
-    const note = noteEl && noteEl.value.trim() ? noteEl.value.trim() : null;
-    if (v !== null && !isNaN(v) && v !== cur) corrections.push(`${name}: ${cur} → ${v}${note ? ` (${note})` : ''}`);
-    items.push({ inventoryId: id, actualQuantity: qty, notes: note });
-  });
-  if (!items.length) return;
+function renderInspCount() {
+  const cats = document.getElementById('iwCats');
+  if (cats) {
+    cats.innerHTML = inspCatKeys().map((k) => {
+      const rows = [...INSP.rows.values()].filter((r) => r.category === k);
+      const done = rows.filter((r) => r.qty !== null).length;
+      const cat = CATEGORIES[k] || {};
+      return `<button type="button" class="iw-cat${INSP.cat === k ? ' active' : ''}${done === rows.length ? ' full' : ''}" style="--cc:${cat.color || '#94A3B8'}" onclick="App.inspGoCat('${k}')">
+        ${icon(cat.icon || 'package')} <span>${esc(catLabel(k))}</span> <b>${done}/${rows.length}</b>
+      </button>`;
+    }).join('');
+  }
 
-  if (corrections.length && !window.confirm(t('app.insp.sheet.confirm', { n: corrections.length, list: corrections.join('\n') }))) return;
+  const body = document.getElementById('iwBody');
+  if (!body) return;
+  const rows = [...INSP.rows.values()].filter((r) => r.category === INSP.cat);
+  body.innerHTML = `<div class="iw-hint">${esc(t('app.insp.wz.hint_count'))}</div>` +
+    rows.map(inspCountRow).join('');
+  body.oninput = inspBodyInput;
+}
 
-  const inspType = document.getElementById('inspType')?.value || 'daily';
-  const inspNotes = document.getElementById('inspNotes')?.value.trim() || null;
-  const notes = [inspType.toUpperCase(), inspNotes].filter(Boolean).join(' — ');
-  try {
-    for (let i = 0; i < items.length; i += 400) {
-      await api.createInspection({
-        ambulanceId: S.activeAmbulanceId,
-        notes: i === 0 ? (notes || t('app.inspect.quick_note', { name: me().name })) : null,
-        items: items.slice(i, i + 400),
-      });
+function inspCountRow(r) {
+  // The number the crew types is what they physically FOUND on the unit — not
+  // what was used, and not what should remain. That is stated on the row itself
+  // because the field is otherwise just an unlabelled box.
+  const delta = r.qty === null ? null : r.qty - r.expected;
+  return `<div class="iw-row${delta ? ' diff' : ''}" data-id="${esc(r.id)}">
+    <div class="iw-info">
+      <div class="iw-name">${esc(r.name)}${r.size ? ` <span class="iw-size">(${esc(r.size)})</span>` : ''}</div>
+      <div class="iw-meta">${esc(t('app.insp.wz.expected'))} <strong>${r.expected}</strong>${r.batchNumber ? ` · <span class="iw-lot">#${esc(r.batchNumber)}</span>` : ''}${inspExpiryTag(r.expiry)}</div>
+      <input class="iw-note form-control" type="text" maxlength="300" value="${esc(r.note)}" placeholder="${esc(t('app.insp.wz.note_ph'))}" aria-label="${esc(t('app.insp.wz.note_ph'))}">
+    </div>
+    <div class="iw-qtywrap">
+      <label class="iw-qtylabel" for="qty-${esc(r.id)}">${esc(t('app.insp.wz.counted_label'))}</label>
+      <input class="iw-qty" id="qty-${esc(r.id)}" type="number" min="0" step="1" inputmode="numeric" value="${r.qty === null ? '' : r.qty}" placeholder="—" aria-label="${esc(t('app.insp.wz.counted_label'))}" aria-describedby="delta-${esc(r.id)}">
+      <span class="iw-deltahint" id="delta-${esc(r.id)}" data-delta="${delta === null ? '' : delta}">${inspDeltaText(delta)}</span>
+    </div>
+    <div class="iw-cond">
+      ${INSP_CONDITIONS.map((c) => `<button type="button" class="iw-chip${r.condition === c.key ? ' active' : ''}" data-cond="${c.key}" style="--cc:${c.col}" onclick="App.inspCond(this)">${esc(t(c.label))}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+/**
+ * Plain-language readout under the count box. Says out loud what the typed
+ * number implies, so "did I enter what I found or what I used?" never has to be
+ * guessed: the box is the shelf count, and this line translates it into a delta.
+ */
+function inspDeltaText(delta) {
+  if (delta === null) return t('app.insp.wz.delta_awaiting');
+  if (delta === 0) return t('app.insp.wz.delta_match');
+  if (delta < 0) return t('app.insp.wz.delta_short', { n: Math.abs(delta) });
+  return t('app.insp.wz.delta_over', { n: delta });
+}
+
+/** One delegated listener per render — no per-row handlers, no re-render per keystroke. */
+function inspBodyInput(e) {
+  const inp = e.target;
+  const rowEl = inp.closest('.iw-row');
+  if (!rowEl) return;
+  const r = INSP.rows.get(rowEl.dataset.id);
+  if (!r) return;
+  if (inp.classList.contains('iw-qty')) {
+    const v = inp.value.trim();
+    r.qty = v === '' ? null : Math.max(0, parseInt(v, 10) || 0);
+    const delta = r.qty === null ? null : r.qty - r.expected;
+    rowEl.classList.toggle('diff', !!delta);
+    // Keep the meaning of the number visible while typing (no re-render, so the
+    // caret is never disturbed).
+    const hint = rowEl.querySelector('.iw-deltahint');
+    if (hint) {
+      hint.textContent = inspDeltaText(delta);
+      hint.dataset.delta = delta === null ? '' : String(delta);
     }
-    closeModal('modal-inspect');
-    await loadLastInspection();
-    renderDashboard();
-    toast(corrections.length ? t('app.inspect.started') : t('app.insp.sheet.same'), corrections.length ? 'success' : 'info');
-  } catch (err) { toast(err.message, 'error'); }
+  } else if (inp.classList.contains('iw-note')) {
+    r.note = inp.value;
+  } else return;
+  INSP.dirty = true;
+  renderInspProgress();
+  renderInspCatsProgress();
 }
 
-function startInspection() { openCountSheet(null); }
-function checkItem(id) { openCountSheet(id); }
+function renderInspCatsProgress() {
+  const cats = document.getElementById('iwCats');
+  if (!cats || INSP.step !== 'count') return;
+  [...cats.querySelectorAll('.iw-cat')].forEach((btn, i) => {
+    const k = inspCatKeys()[i];
+    if (!k) return;
+    const rows = [...INSP.rows.values()].filter((r) => r.category === k);
+    const done = rows.filter((r) => r.qty !== null).length;
+    btn.classList.toggle('full', done === rows.length);
+    const b = btn.querySelector('b');
+    if (b) b.textContent = `${done}/${rows.length}`;
+  });
+}
+
+function inspCond(btn) {
+  const rowEl = btn.closest('.iw-row');
+  const r = INSP.rows.get(rowEl.dataset.id);
+  if (!r) return;
+  const key = btn.dataset.cond;
+  r.condition = r.condition === key ? null : key;
+  // MISSING means there are none left, so the count is driven to zero. EXTRA is
+  // the opposite: more than the system knows, so the crew must type the higher
+  // number themselves. Nothing is guessed in either direction.
+  if (r.condition === 'MISSING') {
+    r.qty = 0;
+    const q = rowEl.querySelector('.iw-qty');
+    if (q) q.value = '0';
+    rowEl.classList.add('diff');
+  } else if (r.condition === 'EXTRA') {
+    const q = rowEl.querySelector('.iw-qty');
+    if (q) { q.focus(); q.select?.(); }
+  }
+  // Keep the "found N" readout in step with any change made by the chips.
+  const hint = rowEl.querySelector('.iw-deltahint');
+  if (hint) {
+    const delta = r.qty === null ? null : r.qty - r.expected;
+    hint.textContent = inspDeltaText(delta);
+    hint.dataset.delta = delta === null ? '' : String(delta);
+    rowEl.classList.toggle('diff', !!delta);
+  }
+  rowEl.querySelectorAll('.iw-chip').forEach((c) => c.classList.toggle('active', c.dataset.cond === r.condition));
+  INSP.dirty = true;
+  renderInspProgress();
+  renderInspCatsProgress();
+}
+
+function inspGoCat(k) {
+  if (!k || k === INSP.cat) return;
+  INSP.cat = k;
+  renderInspCount();
+  renderInspFoot();
+  saveInspDraft();
+}
+
+// ── Review step (reasons live ONLY here) ───────────────────────
+
+function inspReasonsFor(cat) {
+  return reasonsFor(itemTypeForCategory(cat), 'INSPECTION');
+}
+
+function renderInspReview() {
+  const body = document.getElementById('iwBody');
+  if (!body) return;
+  body.oninput = null;
+
+  const diffs = inspReviewRows();
+  const uncounted = [...INSP.rows.values()].filter((r) => r.qty === null);
+  const head = `<div class="iw-hint">${esc(t('app.insp.wz.review_hint'))}</div>` +
+    (uncounted.length ? `<div class="iw-uncounted">
+        <span>${icon('alert')} ${esc(t('app.insp.wz.uncounted', { n: uncounted.length }))}</span>
+        <span class="iw-uncounted-actions">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="App.inspMarkRest()">${esc(t('app.insp.wz.mark_ok'))}</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="App.inspFlagRest()">${esc(t('app.insp.wz.flag_nc'))}</button>
+        </span>
+      </div>` : '');
+
+  if (!diffs.length) {
+    body.innerHTML = head + `<div class="iw-empty">${icon('checkCircle')} ${esc(t('app.insp.wz.review_none'))}</div>`;
+    return;
+  }
+  body.innerHTML = head + diffs.map(inspReviewRow).join('');
+}
+
+const WRITE_OFF_CONDITIONS = ['EXPIRED', 'DAMAGED', 'UNUSABLE'];
+
+/** Reason code used when the crew writes off a flagged line. */
+const WRITE_OFF_REASON = {
+  EXPIRED: 'EXPIRED',
+  DAMAGED: 'DAMAGED_PACKAGING',
+  UNUSABLE: 'NO_LONGER_SERVICEABLE',
+};
+
+function inspReviewRow(r) {
+  const diff = r.qty === null ? 0 : r.qty - r.expected;
+  const dc = diff < 0 ? 'neg' : (diff > 0 ? 'pos' : '');
+  const condTag = r.condition
+    ? ` · <span class="iw-cond-tag" data-c="${esc(r.condition)}">${esc(t('app.insp.wz.cond_' + r.condition.toLowerCase()))}</span>`
+    : '';
+  // Stock found present but flagged unusable, and the count was left as-is:
+  // the crew can choose to strike it off the books now. Never automatic.
+  const remaining = r.qty === null ? 0 : r.qty;
+  const canWriteOff = diff === 0 && remaining > 0 && WRITE_OFF_CONDITIONS.includes(r.condition);
+  return `<div class="iw-rev${diff !== 0 ? ' needs' : ''}" data-id="${esc(r.id)}">
+    <div class="iw-rev-head">
+      <div>
+        <div class="iw-name">${esc(r.name)}${r.size ? ` <span class="iw-size">(${esc(r.size)})</span>` : ''}</div>
+        <div class="iw-meta">${r.expected} → <strong>${r.qty === null ? '—' : r.qty}</strong>${diff ? ` <span class="iw-delta ${dc}">Δ${diff > 0 ? '+' : ''}${diff}</span>` : ''}${condTag}</div>
+      </div>
+      ${r.note && r.note.trim() ? `<div class="iw-rev-note">${esc(r.note)}</div>` : ''}
+    </div>
+    ${canWriteOff ? `<div class="iw-writeoff">
+        <label class="iw-writeoff-label">
+          <input type="checkbox" class="iw-writeoff-box"${r.removeRemaining ? ' checked' : ''} onchange="App.inspWriteOff(this)">
+          <span>${esc(t('app.insp.wz.writeoff_label', { n: remaining }))}</span>
+        </label>
+        <div class="iw-writeoff-hint">${esc(t('app.insp.wz.writeoff_hint'))}</div>
+      </div>` : ''}
+    ${diff !== 0 ? `<div class="iw-reasons">${inspReasonChips(r)}</div>` : ''}
+  </div>`;
+}
+
+function inspReasonChips(r) {
+  const opts = inspReasonsFor(r.category);
+  const active = r.reasons[0]?.code;
+  const splitOn = r.reasons.length > 1;
+  // "We used these" is the most common reason a count drops, so it gets a
+  // one-tap shortcut instead of hiding inside the generic reason list. It just
+  // picks USED_PATIENT_CARE; the backend already treats that reason recorded
+  // during an inspection as real consumption.
+  const diff = (r.qty ?? r.expected) - r.expected;
+  const usedCode = 'USED_PATIENT_CARE';
+  const usedAvailable = diff < 0 && opts.some((o) => o.code === usedCode);
+  const usedOn = !splitOn && active === usedCode;
+  const usedQty = Math.abs(diff);
+  return `<div class="iw-chiprow">
+      ${usedAvailable ? `<button type="button" class="iw-chip used${usedOn ? ' active' : ''}" onclick="App.inspUsed(this)">${icon('checkCircle')} ${esc(t('app.insp.wz.used_chip', { n: usedQty }))}</button>` : ''}
+      ${opts.map((o) => `<button type="button" class="iw-chip reason${active === o.code && !splitOn ? ' active' : ''}" onclick="App.inspReason(this,'${esc(o.code)}')">${esc(reasonLabel(o))}</button>`).join('')}
+      <button type="button" class="iw-chip mix${splitOn ? ' active' : ''}" onclick="App.inspSplit(this)">${icon('plus')} ${esc(t('app.insp.wz.split'))}</button>
+    </div>` +
+    (splitOn ? inspSplitEditor(r) : '');
+}
+
+function inspSplitEditor(r) {
+  const diff = Math.abs((r.qty ?? r.expected) - r.expected);
+  const sum = r.reasons.reduce((s, x) => s + (x.quantity || 0), 0);
+  const ok = sum === diff;
+  return `<div class="iw-split" data-diff="${diff}">
+    <div class="iw-split-hint">${esc(t('app.insp.wz.split_hint'))} <b class="${ok ? 'ok' : 'warn'}">${sum}/${diff}</b></div>
+    ${r.reasons.map((x, i) => `<div class="iw-split-row">
+      <select class="form-control iw-split-code" onchange="App.inspSplitCode(this,${i})">
+        <option value="">${esc(t('reason.pick'))}</option>
+        ${inspReasonsFor(r.category).map((o) => `<option value="${esc(o.code)}"${x.code === o.code ? ' selected' : ''}>${esc(reasonLabel(o))}</option>`).join('')}
+      </select>
+      <input type="number" class="form-control iw-split-qty" min="1" step="1" value="${x.quantity || ''}" oninput="App.inspSplitQty(this,${i})" aria-label="${esc(t('app.insp.wz.split_qty'))}">
+      <button type="button" class="icon-btn danger" onclick="App.inspSplitDel(this,${i})" aria-label="${esc(t('ui.remove'))}">${icon('close')}</button>
+    </div>`).join('')}
+    <button type="button" class="btn btn-ghost btn-sm" onclick="App.inspSplitAdd(this)">${icon('plus')} ${esc(t('app.insp.wz.split_add'))}</button>
+  </div>`;
+}
+
+function inspRowFromEl(el) {
+  const rev = el.closest('.iw-rev');
+  return rev ? INSP.rows.get(rev.dataset.id) : null;
+}
+
+function inspWriteOff(box) {
+  const r = inspRowFromEl(box);
+  if (!r) return;
+  r.removeRemaining = !!box.checked;
+  INSP.dirty = true;
+}
+
+function inspUsed(btn) {
+  const r = inspRowFromEl(btn);
+  if (!r) return;
+  const diff = Math.abs((r.qty ?? r.expected) - r.expected);
+  // Toggle off if it was already the chosen reason.
+  const already = r.reasons.length === 1 && r.reasons[0].code === 'USED_PATIENT_CARE';
+  r.reasons = already ? [] : [{ code: 'USED_PATIENT_CARE', quantity: diff }];
+  INSP.dirty = true;
+  renderInspReview();
+}
+
+function inspReason(btn, code) {
+  const r = inspRowFromEl(btn);
+  if (!r) return;
+  const diff = Math.abs((r.qty ?? r.expected) - r.expected);
+  r.reasons = [{ code, quantity: diff }];
+  INSP.dirty = true;
+  renderInspReview();
+}
+
+function inspSplit(btn) {
+  const r = inspRowFromEl(btn);
+  if (!r) return;
+  const diff = Math.abs((r.qty ?? r.expected) - r.expected);
+  r.reasons = r.reasons.length > 1
+    ? [{ code: r.reasons[0]?.code || '', quantity: diff }]
+    : [{ code: r.reasons[0]?.code || '', quantity: diff }, { code: '', quantity: 0 }];
+  INSP.dirty = true;
+  renderInspReview();
+}
+
+function inspSplitAdd(btn) {
+  const r = inspRowFromEl(btn);
+  if (!r) return;
+  r.reasons.push({ code: '', quantity: 0 });
+  renderInspReview();
+}
+
+function inspSplitDel(btn, i) {
+  const r = inspRowFromEl(btn);
+  if (!r) return;
+  r.reasons.splice(i, 1);
+  if (!r.reasons.length) r.reasons = [{ code: '', quantity: Math.abs((r.qty ?? r.expected) - r.expected) }];
+  INSP.dirty = true;
+  renderInspReview();
+}
+
+function inspSplitCode(sel, i) {
+  const r = inspRowFromEl(sel);
+  if (!r) return;
+  r.reasons[i].code = sel.value;
+  INSP.dirty = true;
+}
+
+function inspSplitQty(inp, i) {
+  const r = inspRowFromEl(inp);
+  if (!r) return;
+  r.reasons[i].quantity = Math.max(0, parseInt(inp.value, 10) || 0);
+  INSP.dirty = true;
+  const split = inp.closest('.iw-split');
+  const b = split?.querySelector('b');
+  if (b) {
+    const diff = parseInt(split.dataset.diff, 10) || 0;
+    const sum = r.reasons.reduce((s, x) => s + (x.quantity || 0), 0);
+    b.textContent = `${sum}/${diff}`;
+    b.className = sum === diff ? 'ok' : 'warn';
+  }
+}
+
+function inspMarkRest() {
+  for (const r of INSP.rows.values()) if (r.qty === null) { r.qty = r.expected; r.condition = 'OK'; }
+  INSP.dirty = true;
+  renderInspReview();
+  renderInspHead();
+}
+
+function inspFlagRest() {
+  for (const r of INSP.rows.values()) if (r.qty === null) r.condition = 'NOT_CHECKED';
+  INSP.dirty = true;
+  renderInspReview();
+}
+
+// ── Footer + step navigation ───────────────────────────────────
+
+function renderInspFoot() {
+  const el = document.getElementById('iwFoot');
+  if (!el) return;
+  if (INSP.step === 'count') {
+    const leftover = [...INSP.rows.values()].filter((r) => r.qty === null).length;
+    const diffs = inspReviewRows().length;
+    el.innerHTML = `
+      <button type="button" class="btn btn-ghost btn-sm" onclick="App.inspClose()">${esc(t('ui.dialog.cancel'))}</button>
+      <div class="iw-foot-spacer"></div>
+      <span class="iw-foot-note">${diffs ? esc(t('app.insp.wz.foot_diffs', { n: diffs })) : (leftover ? esc(t('app.insp.wz.foot_left', { n: leftover })) : esc(t('app.insp.wz.foot_ready')))}</span>
+      <button type="button" class="btn btn-primary" onclick="App.inspNext()">${esc(t('app.insp.wz.to_review'))} ›</button>`;
+  } else if (INSP.step === 'review') {
+    el.innerHTML = `
+      <button type="button" class="btn btn-ghost btn-sm" onclick="App.inspBack()">‹ ${esc(t('app.insp.wz.back'))}</button>
+      <div class="iw-foot-spacer"></div>
+      <button type="button" class="btn btn-success btn-lg" onclick="App.inspSubmit()">${icon('checkCircle')} ${esc(t('app.insp.wz.submit'))}</button>`;
+  } else {
+    el.innerHTML = `<div class="iw-foot-spacer"></div><button type="button" class="btn btn-primary" onclick="App.inspClose()">${esc(t('app.insp.wz.done_btn'))}</button>`;
+  }
+}
+
+async function inspNext() {
+  if (INSP.step === 'count') {
+    INSP.step = 'review';
+    renderInspWizard();
+    saveInspDraft();
+  } else if (INSP.step === 'review') {
+    await inspSubmit();
+  }
+}
+
+function inspBack() {
+  if (INSP.step === 'review') {
+    INSP.step = 'count';
+    renderInspWizard();
+  }
+}
+
+async function inspClose() {
+  if (INSP.step === 'count' && INSP.dirty) {
+    const save = await confirmDialog({
+      message: t('app.insp.wz.save_exit'),
+      tone: 'info',
+      confirmLabel: t('app.insp.wz.save_btn'),
+      cancelLabel: t('app.insp.wz.exit_anyway'),
+    });
+    if (save) { await saveInspDraft(); toast(t('app.insp.wz.draft_saved'), 'success'); }
+  }
+  closeModal('modal-inspect');
+}
+
+// ── Submit (draft → complete) ──────────────────────────────────
+
+/** Builds the API payload from the wizard state. Untouched lines are flagged, never guessed. */
+function inspPayload() {
+  const items = [];
+  for (const r of INSP.rows.values()) {
+    const notChecked = r.qty === null;
+    const writeOff = !notChecked && r.removeRemaining && (r.qty ?? 0) > 0;
+    // A write-off is expressed in the existing vocabulary: the counted quantity
+    // becomes zero and the condition's own reason accounts for every unit. That
+    // keeps one correction per line and stays reversible via void.
+    const qty = notChecked ? r.expected : (writeOff ? 0 : r.qty);
+    const condition = notChecked ? 'NOT_CHECKED' : (r.condition || 'OK');
+    const line = {
+      inventoryId: r.id,
+      actualQuantity: qty,
+      condition,
+    };
+    if (r.note && r.note.trim()) line.notes = r.note.trim();
+
+    const diff = qty - r.expected;
+    if (!notChecked && diff !== 0) {
+      let lines = r.reasons
+        .filter((x) => x.code && (x.quantity || 0) > 0)
+        .map((x) => ({ code: x.code, quantity: x.quantity }));
+      if (writeOff) {
+        // Auto-picked write-off of the full remaining count.
+        const code = WRITE_OFF_REASON[r.condition] || 'OTHER';
+        lines = [{ code, quantity: Math.abs(diff) }];
+      }
+      if (lines.length) {
+        line.reasonLines = lines;
+        if (lines.length === 1) line.reasonCode = lines[0].code;
+      }
+    }
+    items.push(line);
+  }
+  return {
+    ambulanceId: S.activeAmbulanceId,
+    title: inspTitle(),
+    notes: inspNotesText(),
+    items,
+  };
+}
+
+/** Best-effort autosave; failures never block the count. */
+async function saveInspDraft() {
+  if (!INSP.dirty || !INSP.rows.size || INSP.saving) return;
+  INSP.saving = true;
+  try {
+    const payload = inspPayload();
+    if (INSP.draftId) {
+      await api.updateInspection(INSP.draftId, payload);
+    } else {
+      const d = await api.createInspection(payload);
+      INSP.draftId = d?.id || d?.inspection?.id || null;
+    }
+    INSP.dirty = false;
+  } catch {
+    // Draft is a convenience — the real save happens on submit.
+  } finally {
+    INSP.saving = false;
+  }
+}
+
+async function inspSubmit() {
+  if (!requireAmbulance()) return;
+  // Every real difference must be fully explained before anything is corrected.
+  for (const r of INSP.rows.values()) {
+    const diff = r.qty === null ? 0 : r.qty - r.expected;
+    if (diff === 0) continue;
+    const sum = r.reasons.reduce((s, x) => s + (x.quantity || 0), 0);
+    if (!r.reasons.length || r.reasons.some((x) => !x.code) || sum !== Math.abs(diff)) {
+      INSP.step = 'review';
+      renderInspWizard();
+      toast(t('app.insp.wz.need_reason', { name: r.name }), 'error');
+      const el = document.querySelector(`.iw-rev[data-id="${r.id}"]`);
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+  }
+
+  const btn = document.querySelector('#iwFoot .btn-success');
+  if (btn) { btn.disabled = true; btn.textContent = t('app.insp.wz.submitting'); }
+
+  try {
+    await saveInspDraft();
+    if (!INSP.draftId) {
+      const d = await api.createInspection(inspPayload());
+      INSP.draftId = d?.id || d?.inspection?.id || null;
+      INSP.dirty = false;
+    }
+    const res = await api.completeInspection(INSP.draftId);
+    const corrections = res?.corrections || [];
+    renderInspDone(corrections);
+    await Promise.all([loadInventory(), loadLastInspection()]);
+    renderDashboard();
+  } catch (err) {
+    toast(err.message || 'Submit failed', 'error');
+    renderInspFoot();
+  }
+}
+
+function renderInspDone(corrections) {
+  INSP.step = 'done';
+  INSP.dirty = false;
+  const cats = document.getElementById('iwCats');
+  if (cats) cats.innerHTML = '';
+  const rows = [...INSP.rows.values()];
+  const checked = rows.filter((r) => r.qty !== null).length;
+  const missing = rows.filter((r) => r.condition === 'MISSING').length;
+  const body = document.getElementById('iwBody');
+  if (body) {
+    body.oninput = null;
+    body.innerHTML = `<div class="iw-done">
+      <div class="iw-done-ic">${icon('checkCircle')}</div>
+      <div class="iw-done-title">${esc(t('app.insp.wz.done_title'))}</div>
+      <div class="iw-done-stats">
+        <span>${esc(t('app.insp.wz.done_counted', { n: checked, total: rows.length }))}</span>
+        <span class="${corrections.length ? 'warn' : 'ok'}">${esc(t('app.insp.wz.done_corr', { n: corrections.length }))}</span>
+        ${missing ? `<span class="neg">${esc(t('app.insp.wz.done_missing', { n: missing }))}</span>` : ''}
+      </div>
+    </div>`;
+  }
+  renderInspHead();
+  renderInspFoot();
+  toast(corrections.length ? t('app.inspect.started') : t('app.insp.sheet.same'), corrections.length ? 'success' : 'info');
+}
+
+/** Offers to resume an unfinished draft for this car (server-side, survives a crash). */
+async function resumeInspDraft() {
+  try {
+    const data = await api.inspections({ ambulanceId: S.activeAmbulanceId, status: 'DRAFT', mine: true, pageSize: 5 });
+    const draft = (data.inspections || [])[0];
+    if (!draft) return;
+    const ok = await confirmDialog({
+      message: t('app.insp.wz.resume_q', { when: fmtDateTime(draft.performedAt || draft.createdAt) }),
+      tone: 'info',
+    });
+    if (!ok) { api.deleteInspection(draft.id).catch(() => {}); return; }
+
+    const detail = await api.inspection(draft.id);
+    INSP.draftId = detail.id;
+    let restored = 0;
+    (detail.items || []).forEach((it) => {
+      const r = INSP.rows.get(it.inventoryId);
+      if (!r) return;
+      r.condition = it.condition || null;
+      r.note = it.notes || '';
+      r.qty = it.condition === 'NOT_CHECKED' ? null : it.actualQuantity;
+      r.reasons = (it.reasonLines || []).filter((l) => l.reasonCode).map((l) => ({ code: l.reasonCode, quantity: l.quantity }));
+      // A saved write-off was already folded into actualQuantity=0, so the box
+      // stays unticked on resume: re-ticking would double-count the write-off.
+      r.removeRemaining = false;
+      restored++;
+    });
+    INSP.dirty = false;
+    renderInspWizard();
+    if (restored) toast(t('app.insp.wz.draft_loaded', { n: restored }), 'info');
+  } catch {
+    // Resume is optional.
+  }
+}
+
+function checkItem(id) { startInspection(id); }
 
 // ── Use ────────────────────────────────────────────────────────
 function openUseModal(id) {
@@ -1992,8 +3031,12 @@ function openUseModal(id) {
   if (!item) return;
   S.useId = item.medicineId;
   document.getElementById('use-qty').value = 1;
-  document.getElementById('use-reason').value = '';
   document.getElementById('use-notes').value = '';
+  mountReasonControl('useReasonControl', {
+    itemType: itemTypeForCategory(item.category),
+    action: 'USE',
+    label: t('modal.use.reason'),
+  });
   document.getElementById('useItemInfo').innerHTML = `
     <div style="background:var(--bg);border-radius:10px;padding:14px 16px;">
       <div style="font-size:1rem;font-weight:700;margin-bottom:6px;">${esc(item.name)}${item.size ? ` <span style="font-weight:600;font-size:.8rem;color:var(--text-muted);">(${esc(item.size)})</span>` : ''}</div>
@@ -2007,25 +3050,30 @@ function openUseModal(id) {
 }
 
 async function confirmUse() {
+  if (!requireAmbulance()) return;
   const item = findGroup(S.useId) || S.items.find(i => i.id === S.useId);
   if (!item) return;
   const qty = parseInt(document.getElementById('use-qty').value, 10);
-  const reason = document.getElementById('use-reason').value.trim();
   if (!qty || qty <= 0) { toast(t('app.use.error_qty'), 'error'); return; }
   if (qty > item.quantity) { toast(t('app.use.error_insufficient', { req: qty, avail: item.quantity }), 'error'); return; }
-  if (reason.length < 2) { toast(t('app.adjust.error_reason'), 'error'); return; }
+  let picked;
+  try { picked = readReasonControl('useReasonControl', { required: true }); }
+  catch (err) { toast(err.message, 'error'); return; }
+  const extra = document.getElementById('use-notes')?.value.trim() || '';
+  const reason = picked.note || extra || picked.code;
   try {
     await api.useMedicine({
       ambulanceId: S.activeAmbulanceId,
       medicineId: item.medicineId,
       quantity: qty,
       reason,
+      reasonCode: picked.code,
     });
     closeModal('modal-use');
     toast(t('app.use.toast_used', { qty, name: item.name }));
     await loadInventory();
     renderAll();
-  } catch (err) { toast(err.message, 'error'); }
+  } catch (err) { toast(err.message || String(err), 'error'); }
 }
 
 // ── Shift Notes ────────────────────────────────────────────────
@@ -2062,8 +3110,8 @@ async function saveNote(e) {
 async function deleteShiftNote(id) {
   const note = S.shiftNotes.find((n) => n.id === id);
   if (!note || !can('shiftnote:delete')) return;
-  if (!confirm(t('app.confirm.delete_note'))) return;
-  const reason = window.prompt(t('app.confirm.delete_note_reason'), '') ?? null;
+  if (!await confirmDialog({ message: t('app.confirm.delete_note'), tone: 'danger', title: t('ui.dialog.title_delete') })) return;
+  const reason = await promptDialog({ message: t('app.confirm.delete_note_reason'), tone: 'danger', title: t('ui.dialog.title_delete'), value: '' }) ?? null;
   if (reason === null) return;
   try {
     await api.deleteShiftNote(id, reason.trim() ? reason.trim() : undefined);
@@ -2076,7 +3124,7 @@ async function deleteShiftNote(id) {
 /** Supervisor/admin undo of a removed shift note. */
 async function restoreShiftNote(id) {
   if (!can('shiftnote:restore')) return;
-  if (!confirm(t('app.confirm.restore_note'))) return;
+  if (!await confirmDialog({ message: t('app.confirm.restore_note'), tone: 'info' })) return;
   try {
     await api.restoreShiftNote(id);
     toast(t('app.toast.note_restored'));
@@ -2601,6 +3649,7 @@ async function init() {
   S.user = session.user;
   S.permissions = session.permissions || [];
   window.AEMS_PERMS = S.permissions;
+  initNotificationCenter();
   S.ambulances = session.ambulances || [];
   S.dutyRoster = session.dutyRoster || [];
   // The active unit is the user's station (server-managed, admin-set roster).
@@ -2667,19 +3716,38 @@ window.App = {
   deleteStockLine,
   openMedicineDelete,
   setAddMode,
+  onNameInput,
+  openBatchEdit,
+  confirmBatchEdit,
   addBatch,
   removeBatch,
   toggleBatches,
   showAllBatches,
   checkItem,
   markChecked: checkItem,
-  markInspectRow,
-  submitCountSheet,
+  inspClose,
+  inspGoCat,
+  inspCond,
+  inspUsed,
+  inspWriteOff,
+  inspNext,
+  inspBack,
+  inspReason,
+  inspSplit,
+  inspSplitAdd,
+  inspSplitDel,
+  inspSplitCode,
+  inspSplitQty,
+  inspMarkRest,
+  inspFlagRest,
+  inspSubmit,
+  onReasonChange,
   openUseModal,
   confirmUse,
   openSupplyModal,
   confirmSupply,
   cancelSupply,
+  receiveSupply,
   startInspection,
   openNoteModal,
   saveNote,
@@ -2699,6 +3767,7 @@ window.App = {
   confirmImport,
   resetImport,
   saveStationInfoAction,
+  openChangePassword: () => openChangePasswordDialog(),
   submitHandover,
   cancelHandoverForm,
   acknowledgeHandoverForm,

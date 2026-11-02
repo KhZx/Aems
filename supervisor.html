@@ -3,11 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEMS — Supervisor Dashboard</title>
-  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <!-- PWA: installable app shell (manifest + service worker, wired up in js/pwa.js) -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="application-name" content="AEMS">
+  <meta name="theme-color" content="#06080F">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="AEMS">
+  <script src="/js/pwa.js" defer></script>
+  <title>AEMS - Supervisor Dashboard</title>
+  <link rel="icon" type="image/png" href="pictures/ECGLOGO.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Outfit:wght@400;500;600;700&family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/reports.css">
+  <link rel="stylesheet" href="css/password.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="js/error-handler.js"></script>
   <style>
@@ -134,6 +146,31 @@
     .badge.none    { background: rgba(255,255,255,.05); color: var(--text3); border: 1px solid var(--border); }
     .badge.sup     { background: rgba(74,155,223,.1); color: var(--blue); border: 1px solid rgba(74,155,223,.2); }
 
+    /* ── INSPECTIONS OVERVIEW PAGE ────────────────────────── */
+    .insp-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+    .insp-filters .spacer { flex: 1; }
+    .insp-row { cursor: pointer; }
+    .insp-row.open { background: rgba(74,155,223,.06); }
+    .insp-detail-cell { padding: 0 !important; }
+    .insp-detail { padding: 10px 14px 12px; background: rgba(255,255,255,.02); border-top: 1px solid var(--border2); }
+    .insp-detail-title { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); font-weight: 700; margin-bottom: 6px; }
+    .insp-exc-list { display: flex; flex-direction: column; gap: 5px; }
+    .insp-exc { display: flex; align-items: center; gap: 8px; font-size: .77rem; flex-wrap: wrap; }
+    .insp-exc .nm { font-weight: 600; }
+    .insp-delta { font-weight: 800; font-family: var(--font-display); }
+    .insp-delta.neg { color: #FCA5A5; }
+    .insp-delta.pos { color: #6EE7B7; }
+    .insp-unit-stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: .74rem; color: var(--text2); }
+    .insp-unit-stats b { font-family: var(--font-display); font-weight: 800; color: var(--text); }
+    .insp-empty { padding: 22px; text-align: center; font-size: .82rem; color: var(--text3); }
+    .insp-section-hint { margin-top: 3px; font-size: .72rem; color: var(--text3); }
+    .insp-change-summary { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .insp-detail-summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+    .insp-detail-metric { min-width: 115px; flex: 1; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.025); }
+    .insp-detail-metric b { display: block; font-family: var(--font-display); font-size: 1.05rem; color: var(--text); }
+    .insp-detail-metric span { display: block; margin-top: 2px; font-size: .67rem; color: var(--text3); }
+    .btn-cancel.danger-text { color: #FCA5A5; border-color: rgba(239,68,68,.25); }
+
     /* ── MANAGE STATIONS PAGE ─────────────────────────────── */
     .manage-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
     @media(max-width:760px) { .manage-layout { grid-template-columns: 1fr; } }
@@ -176,7 +213,7 @@
     .modal-sub { font-size: .8rem; color: var(--text3); margin-bottom: 1.2rem; }
     .modal-field { margin-bottom: .85rem; }
     .modal-field label { display: block; font-size: .68rem; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }
-    .modal-field input, .modal-field textarea, .modal-field select { width: 100%; padding: 9px 12px; background: rgba(255,255,255,.04); border: 1.5px solid rgba(255,255,255,.1); border-radius: 8px; font-family: var(--font-body); font-size: .88rem; color: var(--text); outline: none; transition: border-color .2s; resize: vertical; }
+    .modal-field input, .modal-field textarea, .modal-field select { width: 100%; padding: 9px 12px; background-color: rgba(255,255,255,.04); border: 1.5px solid rgba(255,255,255,.1); border-radius: 8px; font-family: var(--font-body); font-size: .88rem; color: var(--text); outline: none; transition: border-color .2s; resize: vertical; }
     .modal-field input:focus, .modal-field textarea:focus { border-color: var(--red); }
     .modal-actions { display: flex; gap: 9px; margin-top: 1.1rem; }
     .btn-cancel { flex: 1; padding: 10px; background: rgba(255,255,255,.05); color: var(--text2); border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-body); font-size: .86rem; font-weight: 600; cursor: pointer; }
@@ -190,7 +227,7 @@
     .pill { padding: 4px 11px; border-radius: 20px; font-size: .72rem; font-weight: 700; }
     .pill.red { background: rgba(200,16,46,.1); border: 1px solid rgba(200,16,46,.2); color: #FDA4AF; }
     .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-    .filter-select { background: var(--bg3); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 7px 11px; font-size: .8rem; font-family: var(--font-body); outline: none; cursor: pointer; }
+    /* .filter-select lives in css/main.css so admin + supervisor share one look */
     .filter-input { padding: 7px 12px; background: rgba(255,255,255,.04); border: 1.5px solid var(--border); border-radius: 7px; color: var(--text); font-family: var(--font-body); font-size: .82rem; outline: none; flex: 1; min-width: 180px; }
     .filter-input:focus { border-color: rgba(200,16,46,.4); }
     .empty { text-align: center; padding: 2.5rem 1rem; color: var(--text3); }
@@ -367,8 +404,9 @@
 .duty-switch-reason { font-size: .7rem; color: var(--text3); margin-top: 2px; }
 
 </style>
+  <link rel="stylesheet" href="css/glass.css">
 </head>
-<body>
+<body class="has-glass">
 
 <div id="pageLoader"><div class="loader-cross"><div class="loader-ring"></div></div><div class="loader-text" data-i18n="common.loading">Loading...</div></div>
 
@@ -376,7 +414,7 @@
 <aside class="sidebar">
   <div class="sidebar-header">
     <a href="/" style="display:flex;align-items:center;text-decoration:none;margin-bottom:9px;">
-      <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" style="height:32px;width:auto;display:block" decoding="async">
+      <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation of Ambulance Services" style="height:32px;width:auto;display:block" decoding="async">
     </a>
     <div class="sup-badge" data-i18n="sup.badge"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Supervisor</div>
   </div>
@@ -394,18 +432,25 @@
 
   <div class="nav-label" data-i18n="sup.nav.label.nav">Navigation</div>
   <button class="nav-item active" onclick="showPage('overview')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg></span> <span data-i18n="sup.nav.overview">Overview</span></button>
+  <div class="nav-label" data-i18n="sup.nav.label.operations">Operations</div>
   <button class="nav-item" onclick="showPage('stations')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-building"/></svg></span> <span data-i18n="sup.nav.stations">Stations</span> <span class="nav-badge" id="alertNavBadge" style="display:none;">0</span></button>
+  <button class="nav-item" onclick="showPage('inspections')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span> <span data-i18n="sup.nav.inspections">Inspections</span></button>
+  <button class="nav-item" onclick="showPage('handovers')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg></span> <span data-i18n="sup.nav.handovers">Shift Handovers</span> <span class="nav-badge" id="supHandoverBadge" style="display:none;">0</span></button>
   <button class="nav-item" onclick="showPage('duty')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg></span> <span data-i18n="sup.nav.duty">Duty Board</span></button>
-  <button class="nav-item" onclick="showPage('reports')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg></span> <span data-i18n="sup.nav.reports">Reports</span></button>
   <button class="nav-item" onclick="showPage('supply')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></span> <span data-i18n="sup.nav.supply">Supply Requests</span> <span class="nav-badge" id="supSupplyBadge" style="display:none;">0</span></button>
-  <button class="nav-item" onclick="showPage('audit')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span> <span data-i18n="sup.nav.audit">Audit Log</span></button>
+  <div class="nav-label" data-i18n="sup.nav.label.records">Records</div>
+  <button class="nav-item" onclick="showPage('reports')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg></span> <span data-i18n="sup.nav.reports">Reports</span></button>
+  <button class="nav-item" onclick="showPage('analytics')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-trending"/></svg></span> <span data-i18n="sup.nav.analytics">Analytics</span></button>
+  <button class="nav-item" onclick="showPage('audit')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-fileText"/></svg></span> <span data-i18n="sup.nav.audit">Audit Log</span></button>
+  <div class="nav-label" data-i18n="sup.nav.label.access">Access</div>
   <button class="nav-item" onclick="showPage('manage')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span> <span data-i18n="sup.nav.manage">My Stations</span></button>
+  <button class="nav-item" onclick="showPage('settings')"><span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span> <span data-i18n="sup.nav.settings">Settings</span></button>
 
   <div class="nav-label" data-i18n="sup.nav.label.tracked">Tracked Stations</div>
   <div class="st-list" id="stationList"></div>
 
   <div class="sidebar-footer">
-    <a href="#" class="btn-logout" onclick="event.preventDefault();doLogout()" data-i18n="sup.logout"><svg class="ic" aria-hidden="true"><use href="#i-door"/></svg> Sign Out</a>
+    <a href="#" class="btn-logout" onclick="event.preventDefault();doLogout()" data-i18n="sup.logout"><svg class="ic" aria-hidden="true"><use href="#i-logout"/></svg> Sign Out</a>
   </div>
 </aside>
 
@@ -416,28 +461,28 @@
 <div class="main">
   <div class="topbar">
     <button class="mobile-menu-btn" id="supMenuBtn" data-i18n="common.menu" data-i18n-attr="title" aria-label="Menu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg></button>
-    <div class="topbar-title" id="pageTitle">Overview</div>
+    <div class="topbar-title" id="pageTitle" data-i18n="sup.page.overview">Overview</div>
     <div class="topbar-right">
       <span class="pill red" id="topbarPill"></span>
       <span class="conn-status connecting" id="supConnStatus" title="Firebase connection status">
         <span class="conn-dot"></span>
-        <span class="conn-label" id="supConnLabel">Connecting...</span>
+        <span class="conn-label" id="supConnLabel" data-i18n="app.conn.connecting">Connecting...</span>
         <span class="conn-sublabel" id="supConnDetail"></span>
       </span>
-      <select id="supShift" title="Shift" style="padding:5px 10px;background:rgba(255,255,255,.05);color:var(--text3);border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;">
-        <option value="">Shift</option>
+      <select id="supShift" class="filter-select" title="Shift" data-i18n="app.settings.shift" data-i18n-attr="title">
+        <option value="" data-i18n="app.settings.shift">Shift</option>
         <option value="A">A</option>
         <option value="B">B</option>
         <option value="C">C</option>
         <option value="D">D</option>
       </select>
-      <select id="supPeriod" title="Shift period" style="padding:5px 10px;background:rgba(255,255,255,.05);color:var(--text3);border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;">
-        <option value="">Period</option>
+      <select id="supPeriod" class="filter-select" title="Shift period" data-i18n="app.settings.shift_period" data-i18n-attr="title">
+        <option value="" data-i18n="app.settings.shift_period">Period</option>
         <option value="Morning" data-i18n="app.settings.period_morning">Morning</option>
         <option value="Night" data-i18n="app.settings.period_night">Night</option>
       </select>
       <span class="pill" id="supShiftChip" style="display:none;background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.32);color:#6EE7B7;padding:4px 10px;border-radius:999px;font-size:.72rem;font-weight:800;"></span>
-      <button class="lang-toggle" id="supLangToggle" style="padding:5px 12px;background:rgba(255,255,255,.05);color:var(--text3);border:1px solid var(--border);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;transition:all .2s;">عربي</button>
+      <button class="lang-toggle" id="supLangToggle" type="button">عربي</button>
     </div>
   </div>
 
@@ -477,6 +522,20 @@
       </div>
     </div>
 
+    <!-- ══ SHIFT HANDOVERS ═════════════════════════════════ -->
+    <div class="page" id="page-handovers">
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="section-title" data-i18n="sup.handover.title"><svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg> Shift Handovers</div>
+            <div class="section-subtitle" data-i18n="sup.handover.subtitle">Crew handovers across your tracked stations.</div>
+          </div>
+          <button class="btn-sm" type="button" onclick="refreshSupervisorHandovers()"><svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg> <span data-i18n="sup.handover.refresh">Refresh</span></button>
+        </div>
+        <div class="section-body" id="supHandoversList" aria-live="polite"></div>
+      </div>
+    </div>
+
     <!-- ══ STATIONS (expandable full detail) ═════════════ -->
     <div class="page" id="page-stations">
       <div class="filter-row" style="margin-bottom:1rem;">
@@ -488,9 +547,48 @@
           <option value="ok" data-i18n="sup.filter.ok">All Good</option>
         </select>
         <button class="big-btn ghost" onclick="showPage('reports')" data-i18n="sup.btn.generate"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg> Generate Report</button>
-        <button class="big-btn ghost" onclick="refreshData()" id="refreshBtn" style="border-color:rgba(74,155,223,.3);color:var(--blue);"><svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg> Refresh</button>
+        <button class="big-btn ghost" onclick="refreshData()" id="refreshBtn" style="border-color:rgba(74,155,223,.3);color:var(--blue);"><svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg> <span data-i18n="sup.duty.refresh">Refresh</span></button>
       </div>
       <div id="stationsPageGrid"></div>
+    </div>
+
+    <!-- ══ INSPECTIONS OVERVIEW ═══════════════════════════ -->
+    <div class="page" id="page-inspections">
+      <div class="insp-filters">
+        <select class="filter-select" id="inspStationFilter" onchange="window.setInspStation(this.value)">
+          <option value="" data-i18n="sup.filter.all_units">All Units</option>
+        </select>
+        <select class="filter-select" id="inspRange" onchange="window.setInspRange(this.value)">
+          <option value="1" data-i18n="sup.insp.range.24h">Last 24 hours</option>
+          <option value="7" data-i18n="sup.insp.range.7d">Last 7 days</option>
+          <option value="30" selected data-i18n="sup.insp.range.30d">Last 30 days</option>
+          <option value="90" data-i18n="sup.insp.range.90d">Last 90 days</option>
+          <option value="0" data-i18n="sup.insp.range.all">All time</option>
+        </select>
+        <span class="spacer"></span>
+        <button class="btn-sm" onclick="window.refreshInspections()" data-i18n="sup.insp.refresh">Refresh</button>
+      </div>
+
+      <div class="stat-row" id="inspKpi"></div>
+
+      <div class="section">
+        <div class="section-head">
+          <div>
+            <div class="section-title" data-i18n="sup.insp.changes_title"><svg class="ic" aria-hidden="true"><use href="#i-activity"/></svg> Changes since previous inspection</div>
+            <div class="insp-section-hint" data-i18n="sup.insp.changes_hint">Each ambulance is compared with its own last completed inspection. Open details only when you need them.</div>
+          </div>
+        </div>
+        <div class="section-body" style="padding:0;">
+          <div class="tbl-wrap" id="inspChanges"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><div class="section-title" data-i18n="sup.insp.history_title"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Recent inspection snapshots</div></div>
+        <div class="section-body" style="padding:0;">
+          <div class="tbl-wrap" id="inspRecent"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ══ REPORTS ════════════════════════════════════════ -->
@@ -513,6 +611,21 @@
         <button class="big-btn green-btn" onclick="exportReportCSV()" data-i18n="sup.btn.export_csv">⬇ Export CSV</button>
         <button class="big-btn ghost" onclick="window.print()" style="margin-left:8px;" data-i18n="sup.btn.print"><svg class="ic" aria-hidden="true"><use href="#i-print"/></svg> Print</button>
       </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-title" data-i18n="sup.report.saved_title"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Saved Reports</div>
+        </div>
+        <div class="section-body">
+          <div style="font-size:.75rem;color:var(--text3);margin-bottom:10px;" data-i18n="sup.report.saved_hint">Every report you generate is stored automatically and stays available, whenever you look.</div>
+          <div id="savedReportList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ ANALYTICS (REPORTS DASHBOARD) ═════════════════ -->
+    <div class="page" id="page-analytics">
+      <div id="supReports"></div>
     </div>
 
     <!-- ══ DUTY BOARD ═════════════════════════════════════ -->
@@ -548,7 +661,7 @@
     <!-- ══ AUDIT LOG ══════════════════════════════════════ -->
     <div class="page" id="page-audit">
       <div class="filter-row">
-        <select class="filter-select" id="auditStationFilter"><option value="">All Stations</option></select>
+        <select class="filter-select" id="auditStationFilter"><option value="" data-i18n="sup.filter.all">All Stations</option></select>
         <select class="filter-select" id="auditTypeFilter">
           <option value="" data-i18n="sup.filter.all_actions">All Actions</option>
           <option value="add" data-i18n="sup.audit.action.add">Add</option>
@@ -570,7 +683,7 @@
         <div class="section-body" style="padding:0;">
           <div id="auditList" style="padding:0 1.25rem;"></div>
           <div id="auditLoadMore" style="padding:12px 1.25rem;display:none;">
-            <button class="big-btn ghost" onclick="loadMoreAudit()" style="width:100%;font-size:.8rem;">Load More</button>
+            <button class="big-btn ghost" onclick="loadMoreAudit()" style="width:100%;font-size:.8rem;" data-i18n="sup.btn.load_more">Load More</button>
           </div>
         </div>
       </div>
@@ -617,6 +730,33 @@
       </div>
     </div>
 
+    <!-- ══ SETTINGS ════════════════════════════════════════ -->
+    <div class="page" id="page-settings">
+      <div class="section">
+        <div class="section-head">
+          <div class="section-title" data-i18n="pwd.security_title"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg> Account Security</div>
+        </div>
+        <div class="section-body">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div style="min-width:0;flex:1 1 200px;">
+              <div id="settingsProfileName" style="font-weight:700;">—</div>
+              <div id="settingsProfileEmail" style="font-size:.78rem;color:var(--text3);overflow-wrap:anywhere;">—</div>
+            </div>
+            <button class="big-btn primary" onclick="openChangePasswordDialog()"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> <span data-i18n="pwd.change">Change password</span></button>
+          </div>
+          <div class="settings-zone-field">
+            <label class="form-label" for="settingsSupervisorZone" data-i18n="sup.settings.zone_label">Supervisor zone / area</label>
+            <div class="settings-zone-row">
+              <input class="form-control" id="settingsSupervisorZone" type="text" maxlength="100" autocomplete="off" data-i18n-placeholder="sup.settings.zone_ph" placeholder="Enter your zone or area">
+              <button class="big-btn primary" id="saveSupervisorZone" type="button" data-i18n="sup.settings.zone_save">Save zone</button>
+            </div>
+            <p class="settings-zone-hint" data-i18n="sup.settings.zone_hint">This zone appears on your supervisor profile.</p>
+          </div>
+          <p style="font-size:.8rem;color:var(--text2);margin-top:12px;" data-i18n="pwd.security_desc">Change the password you use to sign in to AEMS.</p>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -657,6 +797,37 @@
     <div class="modal-actions">
       <button class="btn-cancel" id="confirmNo" data-i18n="sup.btn.cancel">Cancel</button>
       <button class="btn-confirm go" id="confirmYes" data-i18n="sup.btn.confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── REPORT VIEW MODAL ─────────────────────────────────── -->
+<div class="modal-overlay" id="reportViewModal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-title" id="reportViewTitle" data-i18n="sup.report.view_title">Saved Report</div>
+    <div class="modal-sub" id="reportViewSub"></div>
+    <div class="modal-field">
+      <pre id="reportViewBody" style="white-space:pre-wrap;word-break:break-word;font-family:var(--font-body);font-size:.8rem;line-height:1.5;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px;padding:12px;margin:0;max-height:52vh;overflow:auto;color:var(--text2);"></pre>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeReportView()" data-i18n="sup.btn.close">Close</button>
+      <button class="btn-confirm" onclick="exportSavedReportCsv()" data-i18n="sup.report.download_csv">Download CSV</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="inspectionDetailsModal">
+  <div class="modal" style="max-width:960px;width:min(960px,95vw);">
+    <div class="modal-title" id="inspectionDetailsTitle" data-i18n="sup.insp.details_title">Inspection changes</div>
+    <div class="modal-sub" id="inspectionDetailsMeta"></div>
+    <div id="inspectionDetailsSummary" class="insp-detail-summary"></div>
+    <div style="display:flex;justify-content:flex-end;margin:10px 0;">
+      <button class="btn-sm" id="inspectionDetailsToggle" onclick="window.toggleInspectionFullDetails()" data-i18n="sup.insp.show_full">Show full inspection</button>
+    </div>
+    <div id="inspectionDetailsItems" class="tbl-wrap" style="max-height:48vh;overflow:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="window.closeInspectionDetails()" data-i18n="sup.btn.close">Close</button>
+      <button class="btn-cancel danger-text" id="inspectionVoidBtn" onclick="window.voidInspectionRecord()" data-i18n="sup.insp.void_record">Void erroneous inspection</button>
     </div>
   </div>
 </div>

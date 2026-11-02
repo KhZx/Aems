@@ -99,3 +99,15 @@ export const me = asyncHandler(async (req: Request, res: Response) => {
   const payload = await sessionPayload(req.authUser!.id);
   res.json({ success: true, data: payload });
 });
+
+/**
+ * POST /api/auth/password-changed — records a self-service password change.
+ * The password itself is updated client-side through the Firebase SDK (after
+ * the user re-authenticates with their current password); this only writes the
+ * audit trail so the change is traceable.
+ */
+export const passwordChanged = asyncHandler(async (req: Request, res: Response) => {
+  const { ipAddress, userAgent } = requestMeta(req);
+  await userService.recordPasswordChange(req.authUser!.id, { ipAddress, userAgent });
+  res.json({ success: true });
+});

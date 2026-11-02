@@ -6,12 +6,17 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
+    "predev": "node scripts/dev-db.mjs",
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "db:start": "node scripts/dev-db.mjs",
     "db:generate": "prisma generate",
+    "predb:migrate": "node scripts/dev-db.mjs",
     "db:migrate": "prisma migrate dev",
+    "predb:deploy": "node scripts/dev-db.mjs",
     "db:deploy": "prisma migrate deploy",
+    "predb:seed": "node scripts/dev-db.mjs",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "test": "vitest run",
@@ -23,7 +28,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22 <25"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

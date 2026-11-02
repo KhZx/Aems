@@ -33,6 +33,8 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
     ambulanceId: req.query.ambulanceId as string | undefined,
     from: req.query.from as string | undefined,
     to: req.query.to as string | undefined,
+    // Units/supervisors only see operational events; admins see everything.
+    audience: me.role === 'ADMIN' ? 'all' : 'operational',
     page: Number(req.query.page) || 1,
     pageSize: Number(req.query.pageSize) || 50,
   });

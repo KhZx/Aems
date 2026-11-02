@@ -11,7 +11,8 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
   const data = await medicineService.listMedicines({
     search: req.query.search as string | undefined,
     category: req.query.category as never,
-    includeInactive: req.query.includeInactive === 'true',
+    // The validator coerces this to a boolean, so accept both forms.
+    includeInactive: String(req.query.includeInactive ?? '') === 'true',
     page: (req.query.page as never) ?? 1,
     pageSize: (req.query.pageSize as never) ?? 50,
   });

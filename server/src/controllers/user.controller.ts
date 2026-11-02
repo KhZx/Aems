@@ -54,6 +54,13 @@ export const changeRole = asyncHandler(async (req: Request, res: Response) => {
   res.json({ success: true, data: user });
 });
 
+/** PUT /api/users/:id/password — admin sets a new password for another user. */
+export const setPassword = asyncHandler(async (req: Request, res: Response) => {
+  const meta = requestMeta(req);
+  const result = await userService.setUserPassword(actor(req), reqParam(req, 'id'), req.body.password, meta);
+  res.json({ success: true, data: result });
+});
+
 /** DELETE /api/users/:id */
 export const remove = asyncHandler(async (req: Request, res: Response) => {
   const id = reqParam(req, 'id');
@@ -85,6 +92,15 @@ export const setMyManagedStations = asyncHandler(async (req: Request, res: Respo
   const me = actor(req);
   const managedStations = await userService.setManagedStationsForUser(me, me, req.body.stationCodes, requestMeta(req));
   res.json({ success: true, data: { managedStations } });
+});
+
+/** PUT /api/me/supervisor-zone — supervisors may update only their own zone. */
+export const updateMySupervisorZone = asyncHandler(async (req: Request, res: Response) => {
+  if (req.authUser?.role !== 'SUPERVISOR') {
+    throw AppError.forbidden('Only supervisors can update a supervisor zone');
+  }
+  const user = await userService.updateMySupervisorZone(actor(req), req.body.supervisorZone, requestMeta(req));
+  res.json({ success: true, data: user });
 });
 
 /** PUT /api/users/:id/units — replaces the user's roster allow-list. */

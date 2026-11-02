@@ -1,0 +1,90 @@
+/* Shared bilingual segmented control. The active-language pill animates between
+   the EN and Arabic labels; the opposite language remains visibly available. */
+.lang-toggle {
+  --lang-accent: var(--brand, var(--red, #C8102E));
+  position: relative;
+  isolation: isolate;
+  display: inline-grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 0;
+  min-width: 112px;
+  height: 36px;
+  padding: 3px;
+  overflow: hidden;
+  direction: ltr;
+  color: var(--text, #F1F5F9);
+  background: linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.025));
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 3px 12px rgba(0,0,0,.18);
+  font-family: var(--font-body, 'Outfit', sans-serif);
+  font-size: .72rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .025em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color .22s ease, box-shadow .22s ease, transform .18s ease;
+}
+
+.lang-toggle::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border: 1px solid color-mix(in srgb, var(--lang-accent) 65%, white 8%);
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--lang-accent), color-mix(in srgb, var(--lang-accent) 70%, #590919));
+  box-shadow: 0 2px 9px color-mix(in srgb, var(--lang-accent) 35%, transparent), inset 0 1px 0 rgba(255,255,255,.22);
+  transition: transform .34s cubic-bezier(.2,.8,.2,1), box-shadow .22s ease;
+}
+
+/* Column step is exactly the pill width (calc(50% - 3px) inside a 2-column
+   grid), and the pill already rests on column 1 via `left: 3px`, so a bare
+   100% lands it precisely on the Arabic label. Re-adding the 3px padding
+   overshot by 3px and pushed the pill past the right padding. */
+.lang-toggle[data-lang="ar"]::before { transform: translateX(100%); }
+.lang-toggle:hover { border-color: color-mix(in srgb, var(--lang-accent) 58%, white 18%); box-shadow: 0 5px 18px rgba(0,0,0,.25), 0 0 0 3px color-mix(in srgb, var(--lang-accent) 13%, transparent); transform: translateY(-1px); }
+.lang-toggle:hover::before { box-shadow: 0 3px 13px color-mix(in srgb, var(--lang-accent) 48%, transparent), inset 0 1px 0 rgba(255,255,255,.28); }
+.lang-toggle:active { transform: translateY(0) scale(.97); }
+.lang-toggle:focus-visible { outline: 2px solid color-mix(in srgb, var(--lang-accent) 70%, white); outline-offset: 3px; }
+.lang-toggle .lang-option { position: relative; z-index: 1; display: grid; place-items: center; min-width: 0; height: 100%; padding: 0 7px; color: rgba(226,232,240,.68); transition: color .22s ease, transform .22s ease; }
+.lang-toggle[data-lang="en"] .lang-option[lang="en"],
+.lang-toggle[data-lang="ar"] .lang-option[lang="ar"] { color: #fff; }
+.lang-toggle[data-lang="en"] .lang-option[lang="en"] { transform: scale(1.04); }
+.lang-toggle[data-lang="ar"] .lang-option[lang="ar"] { transform: scale(1.04); font-family: 'Cairo', var(--font-body, sans-serif); }
+.lang-toggle.lang-flip { animation: lang-toggle-pop .38s ease-out; }
+
+/* The operator app also uses the shared control alongside its generic button classes. */
+.btn.lang-toggle {
+  display: inline-grid !important;
+  height: 36px;
+  padding: 3px;
+  color: var(--text, #F1F5F9);
+  background: linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.025));
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 3px 12px rgba(0,0,0,.18);
+  font-size: .72rem;
+}
+.btn.lang-toggle:hover { border-color: color-mix(in srgb, var(--lang-accent) 58%, white 18%); background: linear-gradient(145deg, rgba(255,255,255,.1), rgba(255,255,255,.035)); }
+.btn.lang-toggle:active { transform: translateY(0) scale(.97); }
+
+.sidebar .lang-toggle,
+.settings-lang.lang-toggle { width: 100%; }
+
+@keyframes lang-toggle-pop {
+  0% { transform: scale(.96); }
+  55% { transform: scale(1.045); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lang-toggle, .lang-toggle::before, .lang-toggle .lang-option { transition: none; }
+  .lang-toggle.lang-flip { animation: none; }
+}

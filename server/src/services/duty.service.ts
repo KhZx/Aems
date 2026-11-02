@@ -110,8 +110,10 @@ export async function switchDutyUnit(input: SwitchDutyInput): Promise<DutyState>
       reason,
       from: from?.code ?? null,
       fromName: from?.name ?? null,
+      fromStationId: before?.stationId ?? null,
       to: target.code,
       toName: target.name,
+      toStationId: stationId,
     },
     ...meta,
   });

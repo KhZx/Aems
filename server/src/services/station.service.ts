@@ -11,6 +11,7 @@ export interface CreateStationInput {
 }
 
 export interface UpdateStationInput {
+  code?: string;
   name?: string;
   location?: string | null;
   status?: StationStatus;
@@ -57,16 +58,71 @@ export async function updateStation(
   input: UpdateStationInput,
   meta: AuditEntryInput = {},
 ) {
-  const before = await prisma.station.findUnique({ where: { id } });
+  const before = await prisma.station.findUnique({
+    where: { id },
+    include: { ambulances: { take: 1 } },
+  });
   if (!before) throw AppError.notFound('Station not found');
 
-  const station = await prisma.station.update({
-    where: { id },
-    data: {
-      name: input.name !== undefined ? input.name.trim() : undefined,
-      location: input.location !== undefined ? input.location : undefined,
-      status: input.status,
-    },
+  const data: Prisma.StationUpdateInput = {};
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+
+  if (input.code !== undefined) {
+    const code = input.code.trim();
+    if (!STATION_CODE_RE.test(code)) {
+      throw AppError.badRequest('Station code must be the unit/car number: digits only (max 6)');
+    }
+    if (code !== before.code) {
+      const clash = await prisma.station.findUnique({ where: { code } });
+      if (clash && clash.id !== id) throw AppError.conflict(`Station code "${code}" already exists`);
+      // vehicleNumber is @unique across the fleet; guard it before re-numbering
+      // this unit's own car so we never collide with another unit's car. A
+      // station normally has exactly one car, but compare by car id to be safe.
+      const ownCar = before.ambulances[0];
+      const carClash = await prisma.ambulance.findUnique({ where: { vehicleNumber: code } });
+      if (carClash && carClash.id !== ownCar?.id) {
+        throw AppError.conflict(`Ambulance number "${code}" is already used by another unit`);
+      }
+      data.code = code;
+      changes.code = { from: before.code, to: code };
+    }
+  }
+
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (name !== before.name) {
+      data.name = name;
+      changes.name = { from: before.name, to: name };
+    }
+  }
+
+  if (input.location !== undefined) {
+    const location = input.location?.trim() || null;
+    if ((before.location ?? null) !== location) {
+      data.location = location;
+      changes.location = { from: before.location ?? null, to: location };
+    }
+  }
+
+  if (input.status !== undefined && input.status !== before.status) {
+    data.status = input.status;
+    changes.status = { from: before.status, to: input.status };
+  }
+
+  if (Object.keys(data).length === 0) throw AppError.badRequest('No changes to save');
+
+  const station = await prisma.$transaction(async (tx) => {
+    const st = await tx.station.update({ where: { id }, data });
+    if (changes.code) {
+      const car = before.ambulances[0];
+      if (car) {
+        await tx.ambulance.update({
+          where: { id: car.id },
+          data: { vehicleNumber: changes.code.to as string },
+        });
+      }
+    }
+    return st;
   });
 
   await createAudit(prisma, {
@@ -75,7 +131,9 @@ export async function updateStation(
     entityType: 'Station',
     entityId: station.id,
     stationId: station.id,
-    metadata: { before: { name: before.name }, after: { name: station.name } },
+    // `code` keeps the existing admin-log rendering working; `changes` carries
+    // the full field-level diff (same shape as UPDATE_MEDICINE).
+    metadata: { code: station.code, changes },
     ...meta,
   });
 
@@ -85,36 +143,93 @@ export async function updateStation(
 export async function deleteStation(actorId: string, id: string, meta: AuditEntryInput = {}): Promise<void> {
   const station = await prisma.station.findUnique({
     where: { id },
-    include: { ambulances: { take: 1 }, users: { take: 1 } },
+    include: {
+      _count: {
+        select: {
+          users: true,
+          shiftNotes: true,
+          handovers: true,
+          reports: true,
+          distributions: true,
+          // The station's OWN lifecycle entries (create/edit) always exist and
+          // are not "history" — exclude them so a never-used unit stays
+          // deletable. Any other station-tagged audit blocks the delete.
+          auditLogs: { where: { action: { notIn: ['CREATE_STATION', 'UPDATE_STATION'] } } },
+          managedBy: true,
+          dutyAssignments: true,
+        },
+      },
+      ambulances: {
+        include: {
+          _count: {
+            select: {
+              inventory: true,
+              inspections: true,
+              transfers: true,
+              transfersFromDestination: true,
+              supplyRequests: true,
+              auditLogs: true,
+            },
+          },
+        },
+      },
+    },
   });
   if (!station) throw AppError.notFound('Station not found');
-  if (station.users.length > 0) {
-    throw AppError.conflict('Station has users assigned; reassign them first');
+
+  // A station is only hard-deleted when NOTHING references it. Anything else
+  // is real operational history that must survive for audit — and some of it
+  // (shift notes, handovers) even cascades on delete — so those stations are
+  // deactivated instead. Each blocker is reported explicitly.
+  const blockers: string[] = [];
+  const c = station._count;
+  if (c.users > 0) blockers.push(`${c.users} assigned user(s)`);
+  if (c.shiftNotes > 0) blockers.push(`${c.shiftNotes} shift note(s)`);
+  if (c.handovers > 0) blockers.push(`${c.handovers} handover(s)`);
+  if (c.reports > 0) blockers.push(`${c.reports} report(s)`);
+  if (c.distributions > 0) blockers.push(`${c.distributions} distribution(s)`);
+  if (c.auditLogs > 0) blockers.push(`${c.auditLogs} audit entr${c.auditLogs === 1 ? 'y' : 'ies'}`);
+  if (c.managedBy > 0) blockers.push(`${c.managedBy} supervisor assignment(s)`);
+  if (c.dutyAssignments > 0) blockers.push(`${c.dutyAssignments} duty assignment(s)`);
+
+  const amb = station.ambulances.reduce(
+    (acc, a) => ({
+      inventory: acc.inventory + a._count.inventory,
+      inspections: acc.inspections + a._count.inspections,
+      transfers: acc.transfers + a._count.transfers + a._count.transfersFromDestination,
+      supplyRequests: acc.supplyRequests + a._count.supplyRequests,
+      auditLogs: acc.auditLogs + a._count.auditLogs,
+    }),
+    { inventory: 0, inspections: 0, transfers: 0, supplyRequests: 0, auditLogs: 0 },
+  );
+  if (amb.inventory > 0) blockers.push(`${amb.inventory} stock line(s)`);
+  if (amb.inspections > 0) blockers.push(`${amb.inspections} inspection(s)`);
+  if (amb.transfers > 0) blockers.push(`${amb.transfers} transfer(s)`);
+  if (amb.supplyRequests > 0) blockers.push(`${amb.supplyRequests} supply request(s)`);
+  if (amb.auditLogs > 0) blockers.push(`${amb.auditLogs} equipment audit entr${amb.auditLogs === 1 ? 'y' : 'ies'}`);
+
+  if (blockers.length > 0) {
+    throw AppError.conflict(
+      `Station ${station.code} cannot be deleted — it still has ${blockers.join(', ')}. ` +
+        `Mark it INACTIVE instead to remove it from active lists while keeping its history for audit.`,
+    );
   }
 
-  // The unit's car may be removed too, but never if it still holds stock.
-  const stock = await prisma.inventory.count({ where: { ambulance: { stationId: id } } });
-  if (stock > 0) {
-    throw AppError.conflict('Station still has stock; move or consume it before deleting');
-  }
-
-  try {
-    await prisma.$transaction(async (tx) => {
-      await tx.ambulance.deleteMany({ where: { stationId: id } });
-      await tx.station.delete({ where: { id } });
-    });
-  } catch (err) {
-    // Historical records (audits, inspections, transfers) may reference the car.
-    throw AppError.conflict('Station is referenced by historical records; mark it INACTIVE instead');
-  }
+  // Genuinely empty (a freshly registered unit): safe to hard-delete. The
+  // DELETE_STATION audit entry is written WITHOUT a stationId because the row
+  // is now gone — a dangling FK would be rejected — so the deletion is
+  // attributed to the acting admin instead.
+  await prisma.$transaction(async (tx) => {
+    await tx.ambulance.deleteMany({ where: { stationId: id } });
+    await tx.station.delete({ where: { id } });
+  });
 
   await createAudit(prisma, {
     userId: actorId,
     action: 'DELETE_STATION',
     entityType: 'Station',
     entityId: id,
-    stationId: id,
-    metadata: { code: station.code, name: station.name },
+    metadata: { code: station.code, name: station.name, hardDeleted: true },
     ...meta,
   });
 }

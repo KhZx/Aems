@@ -1,17 +1,34 @@
-// Bootstrap: reconciles the database with prisma/seed-data.json on every deploy.
-// All writes are upserts — idempotent, safe on empty, partial or fully-seeded
-// databases. A failure here is logged but never blocks the API from starting.
+// Bootstrap: reconciles reference data with prisma/seed-data.json on every
+// deploy. All writes are upserts — idempotent, safe on empty, partial or
+// fully-seeded databases. Demo users, stock and history are only seeded when
+// SEED_DEMO_DATA=true (or in development/test), so a production deploy can
+// never resurrect a deleted account or overwrite live stock.
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'node:fs';
 
 const prisma = new PrismaClient();
 
 const d = (v) => (v == null ? null : new Date(v));
+const seedDemo =
+  process.env.SEED_DEMO_DATA === 'true' ||
+  process.env.NODE_ENV === 'development' ||
+  process.env.NODE_ENV === 'test';
 
 async function main() {
   const raw = JSON.parse(readFileSync(new URL('../prisma/seed-data.json', import.meta.url), 'utf8'));
   let created = 0;
   const note = (n) => { created += n; };
+
+  // Once the database is initialised, never re-run the demo fixture: the seed
+  // uses fixed IDs, which collide with the unique `Station.code` when a real
+  // database was created independently (e.g. restored from production).
+  const existingStations = await prisma.station.count();
+  if (existingStations > 0) {
+    console.log(
+      `bootstrap: database already initialised (${existingStations} stations); skipping seed`,
+    );
+    return;
+  }
 
   // Order respects foreign keys: users before the transactions that reference them.
   for (const s of raw.stations) {
@@ -57,53 +74,64 @@ async function main() {
   }
   note(raw.batches.length);
 
-  for (const i of raw.inventory) {
-    await prisma.inventory.upsert({
-      where: { id: i.id },
-      create: { ...i, deletedAt: d(i.deletedAt), createdAt: d(i.createdAt), updatedAt: d(i.updatedAt) },
-      update: {},
-    });
+  if (seedDemo) {
+    for (const i of raw.inventory) {
+      await prisma.inventory.upsert({
+        where: { id: i.id },
+        create: { ...i, deletedAt: d(i.deletedAt), createdAt: d(i.createdAt), updatedAt: d(i.updatedAt) },
+        update: {},
+      });
+    }
+    note(raw.inventory.length);
   }
-  note(raw.inventory.length);
 
-  for (const u of raw.users) {
-    await prisma.user.upsert({
-      where: { firebaseUid: u.firebaseUid },
-      create: {
-        ...u,
-        approvedAt: d(u.approvedAt),
-        createdAt: d(u.createdAt),
-        updatedAt: d(u.updatedAt),
-        lastLoginAt: d(u.lastLoginAt),
-      },
-      update: {},
-    });
+  if (seedDemo) {
+    for (const u of raw.users) {
+      await prisma.user.upsert({
+        where: { firebaseUid: u.firebaseUid },
+        create: {
+          ...u,
+          approvedAt: d(u.approvedAt),
+          createdAt: d(u.createdAt),
+          updatedAt: d(u.updatedAt),
+          lastLoginAt: d(u.lastLoginAt),
+        },
+        update: {},
+      });
+    }
+    note(raw.users.length);
   }
-  note(raw.users.length);
 
-  for (const t of raw.inventoryTransactions) {
-    await prisma.inventoryTransaction.upsert({
-      where: { id: t.id },
-      create: { ...t, createdAt: d(t.createdAt) },
-      update: {},
-    });
+  if (seedDemo) {
+    for (const t of raw.inventoryTransactions) {
+      await prisma.inventoryTransaction.upsert({
+        where: { id: t.id },
+        create: { ...t, createdAt: d(t.createdAt) },
+        update: {},
+      });
+    }
+    note(raw.inventoryTransactions.length);
   }
-  note(raw.inventoryTransactions.length);
 
-  for (const m of raw.managedStations) {
-    await prisma.managedStation.upsert({
-      where: { userId_stationId: { userId: m.userId, stationId: m.stationId } },
-      create: { ...m },
-      update: {},
-    });
+  if (seedDemo) {
+    for (const m of raw.managedStations) {
+      await prisma.managedStation.upsert({
+        where: { userId_stationId: { userId: m.userId, stationId: m.stationId } },
+        create: { ...m },
+        update: {},
+      });
+    }
+    note(raw.managedStations.length);
   }
-  note(raw.managedStations.length);
 
-  console.log(`bootstrap: database now holds ${created} seeded rows (upserts, idempotent)`);
+  console.log(
+    `bootstrap: database now holds ${created} seeded rows (upserts, idempotent; demo data ${seedDemo ? 'enabled' : 'skipped'})`,
+  );
 }
 
 main()
   .catch((err) => {
-    console.error('bootstrap failed (service will still start):', err.message);
+    console.error('bootstrap failed:', err.message);
+    process.exitCode = 1;
   })
   .finally(() => prisma.$disconnect());

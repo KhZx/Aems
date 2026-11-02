@@ -4,8 +4,12 @@ import { requestMeta } from '../utils/request.js';
 import { reqParam } from '../utils/param.js';
 import {
   cancelSupplyRequest,
+  closeSupplyRequest,
+  confirmSupplyRequest,
   createSupplyRequest,
+  dispatchSupplyRequest,
   listSupplyRequests,
+  receiveSupplyRequest,
   reviewSupplyRequest,
 } from '../services/supplyRequest.service.js';
 
@@ -34,5 +38,25 @@ export const review = asyncHandler(async (req: Request, res: Response) => {
 
 export const cancel = asyncHandler(async (req: Request, res: Response) => {
   const request = await cancelSupplyRequest(actor(req), reqParam(req, 'id'), requestMeta(req));
+  res.json({ success: true, data: request });
+});
+
+export const dispatch = asyncHandler(async (req: Request, res: Response) => {
+  const request = await dispatchSupplyRequest(actor(req), reqParam(req, 'id'), req.body, requestMeta(req));
+  res.json({ success: true, data: request });
+});
+
+export const receive = asyncHandler(async (req: Request, res: Response) => {
+  const request = await receiveSupplyRequest(actor(req), reqParam(req, 'id'), req.body, requestMeta(req));
+  res.json({ success: true, data: request });
+});
+
+export const confirm = asyncHandler(async (req: Request, res: Response) => {
+  const request = await confirmSupplyRequest(actor(req), reqParam(req, 'id'), requestMeta(req));
+  res.json({ success: true, data: request });
+});
+
+export const close = asyncHandler(async (req: Request, res: Response) => {
+  const request = await closeSupplyRequest(actor(req), reqParam(req, 'id'), requestMeta(req));
   res.json({ success: true, data: request });
 });

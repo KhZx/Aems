@@ -9,6 +9,15 @@ import { env, isProduction } from '../config/env.js';
 export const logger = pino({
   level: isProduction ? 'info' : 'debug',
   base: { service: 'aems-api', env: env.NODE_ENV },
+  redact: {
+    paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'req.headers["x-api-key"]',
+      'res.headers["set-cookie"]',
+    ],
+    censor: '[redacted]',
+  },
   transport: isProduction
     ? undefined
     : {

@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { requestMeta } from '../utils/request.js';
+import { reqParam } from '../utils/param.js';
 import * as batchService from '../services/batch.service.js';
 
 const actorId = (req: Request) => req.authUser!.id;
@@ -21,4 +22,11 @@ export const create = asyncHandler(async (req: Request, res: Response) => {
   const meta = requestMeta(req);
   const batch = await batchService.createBatch(actorId(req), req.body, meta);
   res.status(201).json({ success: true, data: batch });
+});
+
+/** PATCH /api/batches/:id — edit a lot (reason required, audited). */
+export const update = asyncHandler(async (req: Request, res: Response) => {
+  const meta = requestMeta(req);
+  const batch = await batchService.updateBatch(actorId(req), reqParam(req, 'id'), req.body, meta);
+  res.json({ success: true, data: batch });
 });

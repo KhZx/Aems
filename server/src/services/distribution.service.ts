@@ -2,6 +2,7 @@ import { Prisma, MedicineCategory } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { createAudit, type AuditEntryInput } from './audit.service.js';
+import * as notificationService from './notification.service.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -338,6 +339,7 @@ export async function applyTemplate(
   const applied: AmbulanceApplyResult[] = [];
   const skipped: AmbulanceApplyResult[] = [];
   const stockedStations = new Set<string>();
+  const restoredStock = new Map<string, { ambulanceId: string; medicineId: string }>();
   let totalItems = 0;
   let totalUnits = 0;
 
@@ -376,7 +378,8 @@ export async function applyTemplate(
         let rowsApplied = 0;
         for (const row of flat) {
           if (!row.medicineId) continue;
-          const qty = await addStockToAmbulance(tx, ambulance.id, row, template.name);
+          const qty = await addStockToAmbulance(tx, ambulance.id, row, template.name, actorId);
+          if (qty > 0) restoredStock.set(`${ambulance.id}:${row.medicineId}`, { ambulanceId: ambulance.id, medicineId: row.medicineId });
           unitsAdded += qty;
           rowsApplied += 1;
         }
@@ -413,6 +416,9 @@ export async function applyTemplate(
     }
   });
 
+  await Promise.all([...restoredStock.values()].map((item) =>
+    notificationService.resolveStockUnavailable(item.ambulanceId, item.medicineId)));
+
   // The template stays usable: a standard fleet load-out is applied again the
   // next time stock needs topping up.
   return {
@@ -440,6 +446,7 @@ async function addStockToAmbulance(
   ambulanceId: string,
   row: FlatItem,
   templateName: string,
+  actorId: string,
 ): Promise<number> {
   const key = { medicineId: row.medicineId, batchNumber: row.batchNumber.trim() };
   const existing = await tx.medicineBatch.findUnique({ where: { medicineId_batchNumber: key } });
@@ -470,11 +477,13 @@ async function addStockToAmbulance(
       inventoryId: inventory.id,
       transactionType: 'DISTRIBUTION',
       quantityChange: row.quantity,
-      quantityBefore: row.quantity > inventory.quantity ? inventory.quantity - row.quantity : 0,
+      // `inventory.quantity` is read after the increment, so subtracting the
+      // added quantity always yields the true pre-increment balance.
+      quantityBefore: inventory.quantity - row.quantity,
       quantityAfter: inventory.quantity,
       reason: `Admin distribution — ${templateName}`,
       referenceId: crypto.randomUUID(),
-      performedById: null,
+      performedById: actorId,
     },
   });
 

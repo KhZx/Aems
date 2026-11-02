@@ -41,7 +41,10 @@ export function createApp(): Express {
         if (!origin || allowedOrigins.includes(origin)) {
           callback(null, true);
         } else {
-          callback(new Error(`Origin not allowed by CORS: ${origin}`));
+          // A denied origin is a client problem, not a server error: omit the
+          // CORS headers instead of throwing (which produced a noisy 500).
+          logger.warn({ origin }, 'Blocked CORS origin');
+          callback(null, false);
         }
       },
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -51,7 +54,6 @@ export function createApp(): Express {
 
   app.use(express.json({ limit: '1mb' }));
 
-  // API routes behind the global rate limiter.
   // API routes behind the global rate limiter.
   app.use('/api', apiRateLimiter, routes);
   // 404 for unknown API routes, then the central error handler.

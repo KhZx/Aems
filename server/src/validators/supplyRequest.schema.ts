@@ -10,8 +10,23 @@ export const createSupplyRequestSchema = z.object({
   reason: z.string().trim().max(500).optional().or(z.literal('')),
 });
 
+// The generic review endpoint only approves or rejects; every later transition
+// (dispatch/receive/confirm/close) has its own endpoint so the right actor and
+// timestamps are always recorded.
 export const reviewSupplyRequestSchema = z.object({
-  status: z.enum(['APPROVED', 'REJECTED', 'FULFILLED']),
+  status: z.enum(['APPROVED', 'REJECTED']),
+});
+
+export const dispatchSupplyRequestSchema = z.object({
+  expectedArrivalAt: z.string().datetime().optional().or(z.literal('')),
+  batchId: z.string().uuid().optional().or(z.literal('')),
+  notes: z.string().trim().max(500).optional().or(z.literal('')),
+});
+
+export const receiveSupplyRequestSchema = z.object({
+  receivedQuantity: z.number().int().min(0).max(1_000_000).optional(),
+  batchId: z.string().uuid().optional().or(z.literal('')),
+  notes: z.string().trim().max(500).optional().or(z.literal('')),
 });
 
 export const listSupplyRequestsQuerySchema = z.object({

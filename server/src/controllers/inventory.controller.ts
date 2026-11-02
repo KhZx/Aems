@@ -14,32 +14,34 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
   const me = user(req);
   const stationId = req.query.stationId as string | undefined;
   const ambulanceId = req.query.ambulanceId as string | undefined;
-
-  let rows;
+  let scope: Pick<inventoryService.ListInventoryInput, 'stationIds'> = {};
   if (stationId) {
     const managed = await scopeService.managedStationIds(me.id);
     await scopeService.requireStationAccess(me, stationId, managed);
-    rows = await inventoryService.listInventory({
-      stationIds: [stationId],
-      ambulanceId,
-      medicineId: req.query.medicineId as string | undefined,
-      category: req.query.category as string | undefined,
-      search: req.query.search as string | undefined,
-      includeEmpty: req.query.includeEmpty === 'true',
-    });
+    scope = { stationIds: [stationId] };
   } else {
     const accessible = await scopeService.accessibleStationIds(me);
-    rows = await inventoryService.listInventory({
-      ambulanceId,
-      medicineId: req.query.medicineId as string | undefined,
-      category: req.query.category as string | undefined,
-      search: req.query.search as string | undefined,
-      includeEmpty: req.query.includeEmpty === 'true',
-      stationIds: me.role === 'ADMIN' ? undefined : accessible,
-    });
+    scope = me.role === 'ADMIN' ? {} : { stationIds: accessible };
   }
 
-  res.json({ success: true, data: rows });
+  const input = {
+    ...scope,
+    ambulanceId,
+    medicineId: req.query.medicineId as string | undefined,
+    category: req.query.category as string | undefined,
+    search: req.query.search as string | undefined,
+    // The validator coerces this to a boolean, so accept both forms.
+    includeEmpty: String(req.query.includeEmpty ?? '') === 'true',
+  };
+  const paged = req.query.page !== undefined || req.query.pageSize !== undefined;
+  const data = paged
+    ? await inventoryService.listInventoryPage({
+        ...input,
+        page: Number(req.query.page) || 1,
+        pageSize: Number(req.query.pageSize) || 200,
+      })
+    : await inventoryService.listInventory(input);
+  res.json({ success: true, data });
 });
 
 /** GET /api/inventory/:id */
@@ -66,6 +68,8 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
   const meta = requestMeta(req);
   const data = await inventoryService.removeStockLine({
     inventoryId: row.id,
+    reason: req.body?.reason ?? null,
+    reasonCode: req.body?.reasonCode ?? null,
     performedById: me.id,
     meta,
   });
@@ -82,6 +86,7 @@ export const use = asyncHandler(async (req: Request, res: Response) => {
     medicineId: req.body.medicineId,
     quantity: req.body.quantity,
     reason: req.body.reason,
+    reasonCode: req.body.reasonCode,
     performedById: me.id,
     meta,
   });
@@ -98,6 +103,7 @@ export const restock = asyncHandler(async (req: Request, res: Response) => {
     batchId: req.body.batchId,
     quantity: req.body.quantity,
     reason: req.body.reason,
+    reasonCode: req.body.reasonCode,
     performedById: me.id,
     meta,
   });
@@ -114,6 +120,7 @@ export const adjust = asyncHandler(async (req: Request, res: Response) => {
     inventoryId: req.body.inventoryId,
     newQuantity: req.body.newQuantity,
     reason: req.body.reason,
+    reasonCode: req.body.reasonCode,
     performedById: me.id,
     meta,
   });
@@ -130,6 +137,7 @@ export const damaged = asyncHandler(async (req: Request, res: Response) => {
     inventoryId: req.body.inventoryId,
     quantity: req.body.quantity,
     reason: req.body.reason,
+    reasonCode: req.body.reasonCode,
     performedById: me.id,
     meta,
   });
@@ -146,6 +154,7 @@ export const expired = asyncHandler(async (req: Request, res: Response) => {
     inventoryId: req.body.inventoryId,
     quantity: req.body.quantity,
     reason: req.body.reason,
+    reasonCode: req.body.reasonCode,
     performedById: me.id,
     meta,
   });
@@ -183,6 +192,25 @@ export const updateExpiry = asyncHandler(async (req: Request, res: Response) => 
   res.json({ success: true, data });
 });
 
+/** PATCH /api/inventory/:id/lot — edit this unit's lot metadata only (audited). */
+export const updateLot = asyncHandler(async (req: Request, res: Response) => {
+  const me = user(req);
+  const row = await inventoryService.getInventoryDetail(reqParam(req, 'id'));
+  await requireAmbulanceFor(req, row.ambulanceId);
+  const meta = requestMeta(req);
+  const data = await inventoryService.updateStockLot({
+    inventoryId: row.id,
+    batchNumber: req.body.batchNumber,
+    expiryDate: req.body.expiryDate,
+    supplier: req.body.supplier,
+    receivedDate: req.body.receivedDate,
+    reason: req.body.reason,
+    performedById: me.id,
+    meta,
+  });
+  res.json({ success: true, data });
+});
+
 /** POST /api/inventory/return */
 export const returnStock = asyncHandler(async (req: Request, res: Response) => {
   const me = user(req);
@@ -193,6 +221,7 @@ export const returnStock = asyncHandler(async (req: Request, res: Response) => {
     batchId: req.body.batchId,
     quantity: req.body.quantity,
     reason: req.body.reason,
+    reasonCode: req.body.reasonCode,
     performedById: me.id,
     meta,
   });

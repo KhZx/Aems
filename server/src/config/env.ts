@@ -17,6 +17,30 @@ const EnvSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
 
   BOOTSTRAP_ADMIN_UID: z.string().optional().default(''),
+}).superRefine((value, ctx) => {
+  // Production must fail closed: a missing Firebase key or a bad frontend
+  // origin otherwise leaves Railway "healthy" while every login/CORS call fails.
+  if (value.NODE_ENV !== 'production') return;
+
+  for (const key of ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY'] as const) {
+    if (!value[key]) {
+      ctx.addIssue({ code: 'custom', path: [key], message: `${key} is required in production` });
+    }
+  }
+
+  const origins = value.FRONTEND_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
+  if (origins.length === 0) {
+    ctx.addIssue({ code: 'custom', path: ['FRONTEND_ORIGIN'], message: 'FRONTEND_ORIGIN is required in production' });
+  }
+  for (const origin of origins) {
+    if (!origin.startsWith('https://') || /localhost|127\.0\.0\.1/.test(origin)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['FRONTEND_ORIGIN'],
+        message: `Production origins must be public https:// URLs (got "${origin}")`,
+      });
+    }
+  }
 });
 
 const parsed = EnvSchema.safeParse(process.env);

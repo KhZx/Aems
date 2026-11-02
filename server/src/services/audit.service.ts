@@ -18,6 +18,41 @@ export interface AuditEntryInput {
 export type AuditEntry = AuditEntryInput & { action: string };
 
 /**
+ * Actions that describe platform administration rather than day-to-day unit
+ * operations: account/role management, station & ambulance configuration,
+ * login events and fleet-wide distribution templates. Units and supervisors
+ * never see these — only admins do. Every action NOT listed here is treated as
+ * operational and is visible (scoped) to the owning unit.
+ */
+export const SYSTEM_AUDIT_ACTIONS: readonly string[] = [
+  'LOGIN',
+  'SECURITY_SCOPE_DENIED',
+  'CREATE_USER',
+  'APPROVE_USER',
+  'REJECT_USER',
+  'DISABLE_USER',
+  'SUSPEND_USER',
+  'CHANGE_ROLE',
+  'CHANGE_PASSWORD',
+  'RESET_USER_PASSWORD',
+  'DELETE_USER',
+  'SET_MANAGED_STATIONS',
+  'UPDATE_USER_UNITS',
+  'CREATE_STATION',
+  'UPDATE_STATION',
+  'DELETE_STATION',
+  'CREATE_AMBULANCE',
+  'UPDATE_AMBULANCE',
+  'DELETE_AMBULANCE',
+  'CREATE_DISTRIBUTION_TEMPLATE',
+  'UPDATE_DISTRIBUTION_TEMPLATE',
+];
+
+export function isSystemAuditAction(action: string): boolean {
+  return SYSTEM_AUDIT_ACTIONS.includes(action);
+}
+
+/**
  * Appends an entry to the audit log. Audit logs are append-only: there is no
  * update/delete service anywhere in the application, and no normal user can
  * modify them.
@@ -63,6 +98,8 @@ export interface ListAuditLogsInput {
   ambulanceId?: string;
   from?: string;
   to?: string;
+  /** 'all' (admins) includes system/admin events; 'operational' hides them. */
+  audience?: 'all' | 'operational';
   page?: number;
   pageSize?: number;
 }
@@ -80,15 +117,37 @@ export async function listAuditLogs(input: ListAuditLogsInput = {}) {
     ambulanceId,
     from,
     to,
+    audience = 'all',
     page = 1,
     pageSize = 50,
   } = input;
 
+  const and: Prisma.AuditLogWhereInput[] = [];
+  if (action) and.push({ action });
+  if (audience === 'operational') and.push({ action: { notIn: [...SYSTEM_AUDIT_ACTIONS] } });
+
+  // Station scope. A row belongs to a station when it is filed under it, OR when
+  // it is a duty switch that moved someone INTO or OUT of it. Recording both ends
+  // means the unit a crew member LEFT sees the move in its log too, not just the
+  // unit they joined — otherwise the origin supervisor watches someone vanish.
+  const scopeIds = stationId ? [stationId] : stationIds;
+  if (scopeIds) {
+    and.push(
+      scopeIds.length === 0
+        ? { id: '__no_station__' }
+        : {
+            OR: [
+              { stationId: { in: scopeIds } },
+              ...scopeIds.map((sid) => ({ metadata: { path: ['fromStationId'], equals: sid } })),
+              ...scopeIds.map((sid) => ({ metadata: { path: ['toStationId'], equals: sid } })),
+            ],
+          },
+    );
+  }
+
   const where: Prisma.AuditLogWhereInput = {
-    ...(action ? { action } : {}),
+    ...(and.length ? { AND: and } : {}),
     ...(userId ? { userId } : {}),
-    ...(stationId ? { stationId } : {}),
-    ...(stationIds ? { stationId: { in: stationIds } } : {}),
     ...(ambulanceId ? { ambulanceId } : {}),
     ...(from || to
       ? {

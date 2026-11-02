@@ -103,6 +103,28 @@ describe('RBAC permission model', () => {
     expect(p.has('supply:review')).toBe(false);
   });
 
+  it('every role may edit the shared batch catalogue (batch:update) — reason + audit is the safety net', () => {
+    for (const role of ['ADMIN', 'SUPERVISOR', 'PARAMEDIC', 'EMT', 'TECHNICIAN', 'DOCTOR'] as const) {
+      expect(permissionsFor(role).has('batch:update')).toBe(true);
+    }
+  });
+
+  it('field crews may edit their own unit lot (inventory:update-lot), but not DOCTOR', () => {
+    for (const role of ['ADMIN', 'SUPERVISOR', 'PARAMEDIC', 'EMT', 'TECHNICIAN'] as const) {
+      expect(permissionsFor(role).has('inventory:update-lot')).toBe(true);
+    }
+    expect(permissionsFor('DOCTOR').has('inventory:update-lot')).toBe(false);
+  });
+
+  it('only ADMIN and SUPERVISOR may review (acknowledge/void) inspections', () => {
+    for (const role of ['ADMIN', 'SUPERVISOR'] as const) {
+      expect(permissionsFor(role).has('inspection:review')).toBe(true);
+    }
+    for (const role of ['PARAMEDIC', 'EMT', 'TECHNICIAN', 'DOCTOR'] as const) {
+      expect(permissionsFor(role).has('inspection:review')).toBe(false);
+    }
+  });
+
   it('every role has an explicit entry', () => {
     for (const role of ['PARAMEDIC', 'EMT', 'TECHNICIAN', 'DOCTOR', 'SUPERVISOR', 'ADMIN'] as const) {
       expect(ROLE_PERMISSIONS[role].length).toBeGreaterThan(0);

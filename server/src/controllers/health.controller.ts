@@ -18,6 +18,7 @@ export const health = async (_req: Request, res: Response): Promise<void> => {
   }
 
   const dbUp = database === 'ok';
+  res.set('Cache-Control', 'no-store');
   res.status(dbUp ? 200 : 503).json({
     success: true,
     data: {

@@ -1,7 +1,9 @@
 import type { Prisma, Role, UserStatus } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
+import { adminAuth } from '../config/firebase.js';
 import { AppError } from '../utils/AppError.js';
+import { logger } from '../utils/logger.js';
 import { createAudit, type AuditEntryInput } from './audit.service.js';
 
 export interface RegisterInput {
@@ -63,6 +65,36 @@ function publicUser(user: RawUser): PublicUser {
     managedStations: user.managedStations.map((m) => m.station),
     dutyUnitIds: user.dutyRoster.map((r) => r.stationId),
   };
+}
+
+/** A supervisor can edit only their own display zone. */
+export async function updateMySupervisorZone(
+  userId: string,
+  supervisorZone: string,
+  meta: AuditEntryInput = {},
+): Promise<PublicUser> {
+  const current = await prisma.user.findUnique({ where: { id: userId }, select: USER_SELECT });
+  if (!current) throw AppError.notFound('User not found');
+  if (current.role !== 'SUPERVISOR') throw AppError.forbidden('Only supervisors can update a supervisor zone');
+
+  const normalizedZone = supervisorZone.trim() || null;
+  if (current.supervisorZone === normalizedZone) return publicUser(current);
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { supervisorZone: normalizedZone },
+    select: USER_SELECT,
+  });
+  await createAudit(prisma, {
+    userId,
+    action: 'UPDATE_SUPERVISOR_ZONE',
+    entityType: 'User',
+    entityId: userId,
+    stationId: current.stationId ?? undefined,
+    metadata: { self: true, previousZone: current.supervisorZone, supervisorZone: normalizedZone },
+    ...meta,
+  });
+  return publicUser(updated);
 }
 
 /** Bootstraps the first administrator when BOOTSTRAP_ADMIN_UID is configured. */
@@ -199,6 +231,16 @@ async function assertStationExists(code: string): Promise<string> {
   return station.id;
 }
 
+/**
+ * Ids of every ACTIVE station. Crew rosters default to this full set so a
+ * paramedic can switch to any unit out of the box; admins may narrow the
+ * roster afterwards from Users → Units.
+ */
+async function defaultRosterStationIds(tx: Prisma.TransactionClient): Promise<string[]> {
+  const rows = await tx.station.findMany({ where: { status: 'ACTIVE' }, select: { id: true } });
+  return rows.map((s) => s.id);
+}
+
 /** Approves a pending user and assigns role/station. Admin-only. */
 export async function approveUser(
   actorId: string,
@@ -229,15 +271,20 @@ export async function approveUser(
       await tx.managedStation.createMany({ data: managed, skipDuplicates: true });
     }
 
-    // Crew get a roster allow-list (their assigned unit to start) and begin
-    // on it; supervisors/admins have global scope and no duty unit.
+    // Crew default to every active unit on their roster (their assigned unit
+    // is always included); admins can narrow it later. Supervisors/admins have
+    // global scope and hold no duty unit.
     const isCrewRole = input.role !== 'ADMIN' && input.role !== 'SUPERVISOR';
     await tx.dutyRoster.deleteMany({ where: { userId: target.id } });
-    if (isCrewRole && stationId) {
-      await tx.dutyRoster.createMany({
-        data: [{ userId: target.id, stationId, createdBy: actorId }],
-        skipDuplicates: true,
-      });
+    if (isCrewRole) {
+      const unitIds = new Set(await defaultRosterStationIds(tx));
+      if (stationId) unitIds.add(stationId);
+      if (unitIds.size) {
+        await tx.dutyRoster.createMany({
+          data: [...unitIds].map((id) => ({ userId: target.id, stationId: id, createdBy: actorId })),
+          skipDuplicates: true,
+        });
+      }
     }
 
     return tx.user.update({
@@ -353,7 +400,6 @@ export async function changeRole(
   // No stationCode in the payload → the unit stays where it is (role edits
   // must not silently clear someone's station).
   const effectiveStationId = input.stationCode ? stationId : target.stationId;
-  const stationChanged = effectiveStationId !== before.stationId;
   const isCrewRole = input.role !== 'ADMIN' && input.role !== 'SUPERVISOR';
 
   const user = await prisma.$transaction(async (tx) => {
@@ -363,23 +409,28 @@ export async function changeRole(
     if (!isCrewRole) {
       // Staff hold no duty roster.
       await tx.dutyRoster.deleteMany({ where: { userId: target.id } });
-    } else if (stationChanged) {
-      // Unit moved: the roster restarts from the new unit; admin can widen it later.
-      await tx.dutyRoster.deleteMany({ where: { userId: target.id } });
-      if (effectiveStationId) {
+    } else {
+      const existing = await tx.dutyRoster.findMany({
+        where: { userId: target.id },
+        select: { stationId: true },
+      });
+      if (!existing.length) {
+        // No roster yet → default to every active unit (plus their own unit).
+        const unitIds = new Set(await defaultRosterStationIds(tx));
+        if (effectiveStationId) unitIds.add(effectiveStationId);
+        if (unitIds.size) {
+          await tx.dutyRoster.createMany({
+            data: [...unitIds].map((id) => ({ userId: target.id, stationId: id, createdBy: actorId })),
+            skipDuplicates: true,
+          });
+        }
+      } else if (effectiveStationId && !existing.some((r) => r.stationId === effectiveStationId)) {
+        // Keep an admin-narrowed roster, but always let them reach their unit.
         await tx.dutyRoster.createMany({
           data: [{ userId: target.id, stationId: effectiveStationId, createdBy: actorId }],
           skipDuplicates: true,
         });
       }
-    } else if (
-      effectiveStationId &&
-      (await tx.dutyRoster.count({ where: { userId: target.id } })) === 0
-    ) {
-      await tx.dutyRoster.createMany({
-        data: [{ userId: target.id, stationId: effectiveStationId, createdBy: actorId }],
-        skipDuplicates: true,
-      });
     }
 
     return tx.user.update({
@@ -603,4 +654,84 @@ export async function recordLogin(firebaseUid: string, meta: AuditEntryInput = {
   });
 
   return publicUser(updated);
+}
+
+/**
+ * Admin-only: sets a new password for another user's Firebase account.
+ *
+ * The change happens through the Firebase Admin SDK, so the target's current
+ * password is never required (this is a reset, not a change). Their refresh
+ * tokens are revoked afterwards so every device has to sign in again with the
+ * new password. Guards against resetting your own account — administrators use
+ * the self-service "change password" flow, which proves the current password.
+ */
+export async function setUserPassword(
+  actorId: string,
+  targetId: string,
+  password: string,
+  meta: AuditEntryInput = {},
+): Promise<{ id: string; email: string }> {
+  if (actorId === targetId) {
+    throw AppError.badRequest('Use your own account settings to change your password');
+  }
+
+  const target = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { id: true, firebaseUid: true, email: true, displayName: true, stationId: true },
+  });
+  if (!target) throw AppError.notFound('User not found');
+
+  try {
+    await adminAuth().updateUser(target.firebaseUid, { password });
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === 'auth/user-not-found') {
+      throw AppError.notFound('Firebase account not found for this user');
+    }
+    if (code === 'auth/invalid-password' || code === 'auth/password-does-not-meet-requirements') {
+      throw AppError.badRequest('Password does not meet Firebase requirements');
+    }
+    throw err;
+  }
+
+  // Force every device to authenticate again with the new password. The
+  // password is already changed, so a revoke failure must not fail the call.
+  await adminAuth().revokeRefreshTokens(target.firebaseUid).catch((err: unknown) => {
+    logger.warn(`Failed to revoke refresh tokens for user ${target.id}: ${(err as Error).message}`);
+  });
+
+  await createAudit(prisma, {
+    userId: actorId,
+    action: 'RESET_USER_PASSWORD',
+    entityType: 'User',
+    entityId: target.id,
+    stationId: target.stationId ?? undefined,
+    metadata: { targetUserId: target.id, targetEmail: target.email },
+    ...meta,
+  });
+
+  return { id: target.id, email: target.email };
+}
+
+/**
+ * Records a self-service password change for the given user. The password
+ * itself is changed client-side via Firebase Auth (after re-authentication),
+ * so this endpoint only writes the audit trail.
+ */
+export async function recordPasswordChange(userId: string, meta: AuditEntryInput = {}): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, stationId: true },
+  });
+  if (!user) throw AppError.notFound('User not found');
+
+  await createAudit(prisma, {
+    userId: user.id,
+    action: 'CHANGE_PASSWORD',
+    entityType: 'User',
+    entityId: user.id,
+    stationId: user.stationId ?? undefined,
+    metadata: { self: true },
+    ...meta,
+  });
 }

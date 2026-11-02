@@ -3,12 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEMS — Admin Panel</title>
-  <link rel="icon" href="pictures/small%20logo%20for%20tab%20view%20and%20other%20things.jpg">
+  <!-- PWA: installable app shell (manifest + service worker, wired up in js/pwa.js) -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="application-name" content="AEMS">
+  <meta name="theme-color" content="#06080F">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="AEMS">
+  <script src="/js/pwa.js" defer></script>
+  <title>AEMS - Admin Panel</title>
+  <link rel="icon" type="image/png" href="pictures/ECGLOGO.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Outfit:wght@400;500;600;700&family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/reports.css">
+  <link rel="stylesheet" href="css/password.css">
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="js/error-handler.js"></script>
   <style>
     .ic { width:1.15em; height:1.15em; vertical-align:-0.2em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; pointer-events:none; }
@@ -67,8 +80,7 @@
     .btn-logout { width:100%; padding:8px; background:rgba(239,68,68,.08); color:#FCA5A5; border:1px solid rgba(239,68,68,.2); border-radius:8px; font-family:var(--font-body); font-size:0.8rem; font-weight:600; cursor:pointer; transition:all .2s; display:flex; align-items:center; justify-content:center; gap:6px; text-decoration:none; }
     .btn-logout:hover { background:rgba(239,68,68,.15); }
 
-    .lang-toggle { width:100%; margin-top:8px; padding:6px; background:rgba(255,255,255,.04); color:var(--text3); border:1px solid var(--border); border-radius:7px; font-family:var(--font-body); font-size:0.75rem; font-weight:700; cursor:pointer; transition:all .2s; }
-    .lang-toggle:hover { background:rgba(255,255,255,.08); color:var(--text); }
+    .sidebar .lang-toggle { width:100%; margin-top:8px; }
 
     /* ── MAIN ── */
     .sidebar-overlay {
@@ -153,6 +165,15 @@
     .btn-deact:hover { background:rgba(71,85,105,.2); }
     .btn-delete  { padding:5px 10px; background:transparent; color:#EF4444; border:1px solid rgba(239,68,68,.2); border-radius:6px; font-family:var(--font-body); font-size:0.72rem; cursor:pointer; transition:all .2s; }
     .btn-delete:hover { background:rgba(239,68,68,.1); }
+    .btn-edit    { padding:5px 10px; background:transparent; color:#4A9BDF; border:1px solid rgba(74,155,223,.2); border-radius:6px; font-family:var(--font-body); font-size:0.72rem; cursor:pointer; transition:all .2s; }
+    .btn-edit:hover { background:rgba(74,155,223,.1); }
+    .btn-toggle  { padding:5px 10px; background:transparent; color:#F59E0B; border:1px solid rgba(245,158,11,.2); border-radius:6px; font-family:var(--font-body); font-size:0.72rem; cursor:pointer; transition:all .2s; }
+    .btn-toggle:hover { background:rgba(245,158,11,.1); }
+    .btn-toggle.is-active { color:#10B981; border-color:rgba(16,185,129,.2); }
+    .btn-toggle.is-active:hover { background:rgba(16,185,129,.1); }
+    .station-status { font-size:.6rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:2px 8px; border-radius:100px; white-space:nowrap; }
+    .station-status.st-active { background:rgba(16,185,129,.1); color:#6EE7B7; border:1px solid rgba(16,185,129,.2); }
+    .station-status.st-inactive { background:rgba(148,163,184,.1); color:#94A3B8; border:1px solid rgba(148,163,184,.2); }
     .action-row { display:flex; gap:5px; flex-wrap:wrap; }
 
     /* ── EMPTY STATE ── */
@@ -177,7 +198,7 @@
     /* ── SETTINGS FORM ── */
     .settings-field { margin-bottom:1rem; }
     .settings-field label { display:block; font-size:0.72rem; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.08em; margin-bottom:5px; }
-    .settings-field input, .settings-field select { width:100%; max-width:400px; padding:9px 12px; background:rgba(255,255,255,.04); border:1.5px solid rgba(255,255,255,.1); border-radius:8px; font-family:var(--font-body); font-size:0.88rem; color:var(--text); outline:none; transition:border-color .2s; }
+    .settings-field input, .settings-field select { width:100%; max-width:400px; padding:9px 12px; background-color:rgba(255,255,255,.04); border:1.5px solid rgba(255,255,255,.1); border-radius:8px; font-family:var(--font-body); font-size:0.88rem; color:var(--text); outline:none; transition:border-color .2s; }
     .settings-field input:focus, .settings-field select:focus { border-color:var(--red); }
     .btn-save { padding:9px 22px; background:var(--red); color:white; border:none; border-radius:8px; font-family:var(--font-body); font-size:0.85rem; font-weight:700; cursor:pointer; transition:all .2s; }
     .btn-save:hover { background:var(--red-bright); }
@@ -293,8 +314,9 @@
     .units-save:disabled { opacity: .6; cursor: wait; }
     .units-empty { color: var(--text3); font-size: .84rem; }
   </style>
+  <link rel="stylesheet" href="css/glass.css">
 </head>
-<body>
+<body class="has-glass">
 
 <div id="pageLoader"><div class="loader-cross"><div class="loader-ring"></div></div><div class="loader-text" data-i18n="common.loading">Loading...</div></div>
 
@@ -302,7 +324,7 @@
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <a href="/" style="display:flex;align-items:center;text-decoration:none;margin-bottom:4px;">
-      <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation for Ambulance Services" style="height:34px;width:auto;display:block" decoding="async">
+      <img src="assets/DubaiAmbulance.svg" alt="Dubai Corporation of Ambulance Services" style="height:34px;width:auto;display:block" decoding="async">
     </a>
     <div class="admin-badge"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg> <span data-i18n="admin.title">Admin Panel</span></div>
   </div>
@@ -327,10 +349,13 @@
       <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg></span> <span data-i18n="admin.nav.equipment">Equipment Overview</span>
     </button>
     <button class="nav-item" data-page="distributions" onclick="navTo('distributions')">
-      <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span> <span data-i18n="admin.nav.distributions">Distributions</span>
+      <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg></span> <span data-i18n="admin.nav.distributions">Distributions</span>
     </button>
     <button class="nav-item" data-page="logs" onclick="navTo('logs')">
       <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg></span> <span data-i18n="admin.nav.logs">Audit Log</span>
+    </button>
+    <button class="nav-item" data-page="reports" onclick="navTo('reports')">
+      <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-trending"/></svg></span> <span data-i18n="admin.nav.reports">Reports</span>
     </button>
     <button class="nav-item" data-page="settings" onclick="navTo('settings')">
       <span class="nav-icon"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span> <span data-i18n="admin.nav.settings">Settings</span>
@@ -345,7 +370,7 @@
         <div class="user-role" data-i18n="admin.user.role">System Admin</div>
       </div>
     </div>
-    <a href="#" class="btn-logout" onclick="event.preventDefault(); logout()"><span><svg class="ic" aria-hidden="true"><use href="#i-door"/></svg></span> <span data-i18n="admin.logout">Sign Out</span></a>
+    <a href="#" class="btn-logout" onclick="event.preventDefault(); logout()"><span><svg class="ic" aria-hidden="true"><use href="#i-logout"/></svg></span> <span data-i18n="admin.logout">Sign Out</span></a>
     <button class="lang-toggle" id="langToggle">عربي</button>
   </div>
 </aside>
@@ -405,7 +430,7 @@
       <div class="section">
         <div class="section-head">
           <div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg> <span data-i18n="admin.pending.title">Pending Approvals</span></div>
-          <button onclick="navTo('pending')" style="font-size:0.78rem;color:#FDA4AF;background:none;border:none;cursor:pointer;">View All →</button>
+          <button onclick="navTo('pending')" style="font-size:0.78rem;color:#FDA4AF;background:none;border:none;cursor:pointer;"><span data-i18n="admin.btn.view_all">View All</span> →</button>
         </div>
         <div class="section-body">
           <div id="dashPendingList"></div>
@@ -414,7 +439,7 @@
 
       <!-- Recent activity log -->
       <div class="section">
-        <div class="section-head"><div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> Recent Activity</div></div>
+        <div class="section-head"><div class="section-title"><svg class="ic" aria-hidden="true"><use href="#i-clipboard"/></svg> <span data-i18n="admin.dash.recent_activity">Recent Activity</span></div></div>
         <div class="section-body" id="dashLogs"></div>
       </div>
     </div>
@@ -453,17 +478,17 @@
           <div class="section-title" data-i18n="admin.users.title">All Users</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
             <input type="text" id="userSearch" data-i18n-placeholder="admin.users.search_ph" placeholder="Search name / ID…" oninput="renderUsers()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:var(--font-body);font-size:0.8rem;outline:none;width:160px;">
-            <select id="userRoleFilter" onchange="renderUsers()" style="padding:6px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-family:var(--font-body);font-size:0.78rem;outline:none;cursor:pointer;">
-              <option value="">All Roles</option>
-              <option value="paramedic">Paramedic</option>
-              <option value="supervisor">Supervisor</option>
+            <select id="userRoleFilter" class="filter-select" onchange="renderUsers()">
+              <option value="" data-i18n="admin.users.role_all">All Roles</option>
+              <option value="paramedic" data-i18n="admin.users.role_paramedic">Paramedic</option>
+              <option value="supervisor" data-i18n="admin.users.role_supervisor">Supervisor</option>
             </select>
-            <select id="userFilter" onchange="renderUsers()" style="padding:6px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-family:var(--font-body);font-size:0.78rem;outline:none;cursor:pointer;">
-              <option value="">All Status</option>
-              <option value="approved">Approved</option>
-              <option value="pending">Pending</option>
-              <option value="rejected">Rejected</option>
-              <option value="inactive">Inactive</option>
+            <select id="userFilter" class="filter-select" onchange="renderUsers()">
+              <option value="" data-i18n="admin.users.status_all">All Status</option>
+              <option value="approved" data-i18n="admin.users.status_approved">Approved</option>
+              <option value="pending" data-i18n="admin.users.status_pending">Pending</option>
+              <option value="rejected" data-i18n="admin.users.status_rejected">Rejected</option>
+              <option value="inactive" data-i18n="admin.users.status_inactive">Inactive</option>
             </select>
             <button onclick="exportUsersCSV()" style="padding:6px 12px;background:rgba(16,185,129,.1);color:#6EE7B7;border:1px solid rgba(16,185,129,.25);border-radius:7px;font-family:var(--font-body);font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap;">⬇ <span data-i18n="admin.users.export_csv">Export CSV</span></button>
           </div>
@@ -630,19 +655,16 @@
     <div id="page-logs" class="page">
       <!-- Filter bar -->
       <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;">
-        <select id="logStationFilter" onchange="loadStationLog()"
-          style="padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-family:var(--font-body);font-size:.8rem;outline:none;cursor:pointer;">
+        <select id="logStationFilter" class="filter-select" onchange="loadStationLog()">
           <option value="" data-i18n="admin.log.station_all">All Stations</option>
         </select>
-        <select id="logSourceFilter" onchange="filterLogs()"
-          style="padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-family:var(--font-body);font-size:.8rem;outline:none;cursor:pointer;">
+        <select id="logSourceFilter" class="filter-select" onchange="filterLogs()">
           <option value="" data-i18n="admin.log.source_all">All Sources</option>
           <option value="app" data-i18n="admin.log.source_app_label">App (Paramedic)</option>
           <option value="supervisor" data-i18n="admin.log.source_sup_label">Supervisor</option>
           <option value="admin" data-i18n="admin.log.source_admin_label">Admin</option>
         </select>
-        <select id="logTypeFilter" onchange="filterLogs()"
-          style="padding:7px 10px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:7px;color:var(--text2);font-family:var(--font-body);font-size:.8rem;outline:none;cursor:pointer;">
+        <select id="logTypeFilter" class="filter-select" onchange="filterLogs()">
           <option value="" data-i18n="admin.log.action_all">All Actions</option>
           <option value="add" data-i18n="admin.log.action_add">Add Item</option>
           <option value="edit" data-i18n="admin.log.action_edit">Edit Item</option>
@@ -666,6 +688,11 @@
         <div class="section-head"><div class="section-title" data-i18n="admin.log.local_title"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg> Admin Actions (local)</div></div>
         <div class="section-body" id="logsList"></div>
       </div>
+    </div>
+
+    <!-- ═══ REPORTS ═══════════════════════════════════════ -->
+    <div id="page-reports" class="page">
+      <div id="adminReports"></div>
     </div>
 
     <!-- ═══ SETTINGS ══════════════════════════════════════ -->
@@ -702,6 +729,14 @@
           <div id="adminSettingsStatus" style="margin-top:10px;font-size:.85rem;color:var(--success);opacity:0;transition:opacity .3s;"></div>
         </div>
       </div>
+
+      <div class="section">
+        <div class="section-head"><div class="section-title" data-i18n="pwd.security_title"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg> Account Security</div></div>
+        <div class="section-body">
+          <p style="font-size:.85rem;color:var(--text2);margin-bottom:1rem;" data-i18n="pwd.security_desc">Change the password you use to sign in to AEMS.</p>
+          <button class="btn-save" onclick="openChangePasswordDialog()"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> <span data-i18n="pwd.change">Change password</span></button>
+        </div>
+      </div>
     </div>
 
   </div><!-- /content -->
@@ -714,9 +749,11 @@
   #approveModal.open{opacity:1;pointer-events:all;}
   #reassignModal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:1001;opacity:0;pointer-events:none;transition:opacity .2s;}
   #reassignModal.open{opacity:1;pointer-events:all;}
+  #stationEditModal{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:1001;opacity:0;pointer-events:none;transition:opacity .2s;padding:1rem;}
+  #stationEditModal.open{opacity:1;pointer-events:all;}
   .field-label{display:block;font-size:.7rem;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;}
-  .field-input{width:100%;padding:9px 12px;background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);border-radius:9px;font-family:var(--font-body);font-size:.88rem;color:var(--text);outline:none;}
-  .field-input:focus{border-color:rgba(59,130,246,.5);}
+  .field-input{width:100%;padding:9px 12px;background-color:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.1);border-radius:9px;font-family:var(--font-body);font-size:.88rem;color:var(--text);outline:none;transition:border-color .2s,box-shadow .2s;}
+  .field-input:focus{border-color:var(--red);box-shadow:0 0 0 4px rgba(200,16,46,.18);}
   #templateModal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;pointer-events:none;transition:opacity .2s;}
   #templateModal.open{opacity:1;pointer-events:all;}
   #applyModal{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;pointer-events:none;transition:opacity .2s;}
@@ -741,12 +778,38 @@
     <div style="font-size:0.82rem;color:var(--text3);margin-bottom:1.25rem;">Staff: <strong id="reassignName"></strong> &nbsp;·&nbsp; Current: <code id="reassignCurrentStation" style="background:rgba(200,16,46,.12);color:#FDA4AF;padding:2px 8px;border-radius:4px;font-size:.8rem;"></code></div>
     <div style="margin-bottom:.9rem;">
       <label class="field-label">Transfer To</label>
-      <select id="reassignStation" class="field-input" style="cursor:pointer;"></select>
+      <select id="reassignStation" class="field-input"></select>
       <div style="font-size:.68rem;color:var(--text3);margin-top:4px;">The user's station is updated immediately. They'll see the change on next login.</div>
     </div>
     <div style="display:flex;gap:10px;margin-top:1.25rem;">
       <button onclick="closeReassignModal()" style="flex:1;padding:11px;background:rgba(255,255,255,.05);color:var(--text2);border:1px solid rgba(255,255,255,.07);border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:600;cursor:pointer;">Cancel</button>
       <button onclick="confirmReassign()" style="flex:2;padding:11px;background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:white;border:none;border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:700;cursor:pointer;">✔ Confirm Transfer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Station Modal -->
+<div id="stationEditModal">
+  <div style="background:#161B22;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:2rem;width:100%;max-width:460px;box-shadow:0 40px 80px rgba(0,0,0,.6);">
+    <div style="font-family:var(--font-display);font-size:1.2rem;font-weight:800;margin-bottom:4px;"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg> <span data-i18n="admin.station.edit_title">Edit Unit</span></div>
+    <div style="font-size:0.82rem;color:var(--text3);margin-bottom:1.25rem;" data-i18n="admin.station.edit_sub">Update this unit's details. Inventory, assigned staff and history are not affected.</div>
+    <div style="margin-bottom:.9rem;">
+      <label class="field-label" data-i18n="admin.station.code_label">Unit Number</label>
+      <input type="text" id="editStationCode" class="field-input" maxlength="6" inputmode="numeric" autocomplete="off">
+      <div style="font-size:.68rem;color:var(--text3);margin-top:4px;" data-i18n="admin.station.code_hint"></div>
+    </div>
+    <div style="margin-bottom:.9rem;">
+      <label class="field-label" data-i18n="admin.station.name_label">Unit Name</label>
+      <input type="text" id="editStationName" class="field-input" maxlength="120" autocomplete="off">
+    </div>
+    <div style="margin-bottom:.9rem;">
+      <label class="field-label" data-i18n="admin.station.location_label">Location</label>
+      <input type="text" id="editStationLocation" class="field-input" maxlength="200" autocomplete="off">
+      <div style="font-size:.68rem;color:var(--text3);margin-top:4px;" data-i18n="admin.station.location_hint"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:1.25rem;">
+      <button onclick="closeEditStation()" style="flex:1;padding:11px;background:rgba(255,255,255,.05);color:var(--text2);border:1px solid rgba(255,255,255,.07);border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:600;cursor:pointer;" data-i18n="common.cancel">Cancel</button>
+      <button onclick="saveEditStation()" style="flex:2;padding:11px;background:linear-gradient(135deg,#3B82F6,#1D4ED8);color:white;border:none;border-radius:9px;font-family:var(--font-body);font-size:.88rem;font-weight:700;cursor:pointer;"><svg class="ic" aria-hidden="true"><use href="#i-save"/></svg> <span data-i18n="admin.station.save_btn">Save Changes</span></button>
     </div>
   </div>
 </div>
@@ -788,9 +851,15 @@
     <div class="section" style="margin-bottom:14px;border:none;background:var(--bg3);">
       <div class="section-head" style="padding:.8rem 1rem;">
         <div class="section-title" style="font-size:.95rem;" data-i18n="admin.dist.items_label">Items</div>
-        <button onclick="openItemForm()" style="padding:5px 12px;background:rgba(59,130,246,.12);color:#93C5FD;border:1px solid rgba(59,130,246,.25);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.add_item">+ Add Item</button>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button type="button" onclick="exportDistCsv()" style="padding:5px 12px;background:rgba(34,197,94,.12);color:#86EFAC;border:1px solid rgba(34,197,94,.25);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.export_csv">Export CSV</button>
+          <button type="button" onclick="document.getElementById('distImportFile').click()" style="padding:5px 12px;background:rgba(255,255,255,.06);color:var(--text2);border:1px solid rgba(255,255,255,.12);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.import_csv">Import CSV</button>
+          <button onclick="openItemForm()" style="padding:5px 12px;background:rgba(59,130,246,.12);color:#93C5FD;border:1px solid rgba(59,130,246,.25);border-radius:6px;font-family:var(--font-body);font-size:.75rem;font-weight:700;cursor:pointer;" data-i18n="admin.dist.add_item">+ Add Item</button>
+          <input type="file" id="distImportFile" accept=".csv,text/csv" style="display:none" onchange="importDistCsv(event)">
+        </div>
       </div>
       <div id="distItemsList"></div>
+      <div id="distImportReport" style="display:none;margin:0 1rem 1rem;padding:10px 12px;border-radius:8px;font-size:.78rem;line-height:1.55;white-space:pre-line;"></div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:1.25rem;">
@@ -825,20 +894,13 @@
   <div style="background:#161B22;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:2rem;width:100%;max-width:720px;max-height:92vh;overflow-y:auto;box-shadow:0 40px 80px rgba(0,0,0,.6);">
     <div style="font-family:var(--font-display);font-size:1.1rem;font-weight:800;margin-bottom:1.25rem;" id="itemFormTitle">Add Item</div>
 
-    <div class="item-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-      <div><label class="field-label" data-i18n="modal.item.name">Name *</label><input type="text" id="dist-item-name" class="field-input" data-i18n-placeholder="modal.item.name.ph" placeholder="Enter name" required></div>
-      <div><label class="field-label" data-i18n="modal.item.cat">Category *</label>
-        <select id="dist-item-cat" class="field-input" required>
-          <option value="MEDICATION" data-i18n="modal.item.cat.medication">Medication Bag</option>
-          <option value="LIFEPAK" data-i18n="modal.item.cat.lifepak">Lifepak</option>
-          <option value="RESPONDER" data-i18n="modal.item.cat.responder">Responder Bag</option>
-          <option value="SUCTION" data-i18n="modal.item.cat.suction">Suction Bag</option>
-          <option value="CAREVENT" data-i18n="modal.item.cat.carevent">CAREVENT Bag</option>
-          <option value="STATION_STORE" data-i18n="modal.item.cat.store">Station Store</option>
-          <option value="CAR_CONTENTS" data-i18n="modal.item.cat.car">Car Contents</option>
-        </select>
-      </div>
+    <div style="margin-bottom:16px;">
+      <div class="field-label" style="text-align:center;margin-bottom:8px;" data-i18n="admin.dist.cat_pick">Choose a bag / category, then fill in the items</div>
+      <div class="dist-cat-pick" id="distCatPick"></div>
+      <input type="hidden" id="dist-item-cat" value="MEDICATION">
     </div>
+
+    <div style="margin-bottom:12px;"><label class="field-label" data-i18n="modal.item.name">Name *</label><input type="text" id="dist-item-name" class="field-input" data-i18n-placeholder="modal.item.name.ph" placeholder="Enter name" required></div>
 
     <div class="item-form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
       <div><label class="field-label" data-i18n="modal.item.location">Location</label><input type="text" id="dist-item-location" class="field-input" data-i18n-placeholder="modal.item.location.ph" placeholder="e.g. Upper cabinet"></div>
@@ -855,7 +917,7 @@
 
     <div class="batch-box" style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
       <div style="font-size:.88rem;font-weight:700;color:var(--text);margin-bottom:10px;" data-i18n="modal.item.batches"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Batches (different expiry dates)</div>
-      <div class="batch-row" style="display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:8px;align-items:end;">
+      <div class="batch-row">
         <div><div class="form-label" data-i18n="modal.item.batchexpiry">Expiry Date</div><input type="date" id="b-expiry-dist" class="field-input"></div>
         <div><div class="form-label" data-i18n="modal.item.batchno">Batch No.</div><input type="text" id="b-lot-dist" class="field-input" placeholder="LOT-2024-001" dir="ltr"></div>
         <div><div class="form-label" data-i18n="modal.item.batchqty">Qty</div><input type="number" id="b-qty-dist" class="field-input" min="1" value="1"></div>
@@ -873,7 +935,7 @@
 
 <script type="module">
 
-  import { initI18n, setLanguage, getCurrentLang, t, unitLabel } from './js/i18n.js';
+  import { initI18n, setLanguage, getCurrentLang, onLanguageChanged, t, unitLabel } from './js/i18n.js';
   import { mountSprite } from './js/icons.js';
   import { FIREBASE_CONFIG } from './js/config.js';
   import { initFirebase, firebaseSignOut, stationKey } from './js/services/firebase.js';
@@ -881,11 +943,37 @@
   import { initAppSession, signOutAll, clearSession } from './js/auth.js';
   import { startHealthMonitor } from './js/health.js';
   import { expiryStatus } from './js/ui.js';
+  import { confirmDialog } from './js/confirm.js';
+  import { initSidebarNavigation } from './js/sidebar-nav.js';
+  import { initNotificationCenter } from './js/notifications.js';
+  import { createReportsDashboard } from './js/reports.js';
+  import { openChangePasswordDialog, openAdminPasswordDialog } from './js/password.js';
 
   initI18n();
+  initSidebarNavigation();
   initFirebase(FIREBASE_CONFIG);
   startHealthMonitor();
   mountSprite();
+
+  // Static [data-i18n] nodes are re-translated by initI18n/setLanguage, but every
+  // table, row, badge and chart title built by JS has to be rebuilt. Without
+  // this, switching language left dynamic admin content in the old language.
+  onLanguageChanged(() => {
+    const safe = (fn) => { try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(() => {}); } catch { /* ignore */ } };
+    paintAdminPageTitle();
+    safe(renderAll);
+    safe(renderEquipment);
+    safe(renderAuditViews);
+    safe(populateStationLogFilter);
+    safe(renderDistCatPicker);
+    safe(renderDistTemplates);
+    safe(renderDistHistory);
+    safe(refreshConnUI);
+    // Only repaint a visible dashboard; charts in a hidden panel have no size.
+    if (reportsDash && document.getElementById('page-reports')?.classList.contains('active')) {
+      safe(() => reportsDash.rerender());
+    }
+  });
 
   /** Maps a backend user to the shape the admin panel renders with. */
   function backendUser(u) {
@@ -911,6 +999,8 @@
     const session = await initAppSession();
     if (!session) { clearSession(); window.location.href = '/login.html'; return; }
     if (session.user?.role !== 'ADMIN') { window.location.href = '/app.html'; return; }
+    _selfUserId = session.user?.id || '';
+    initNotificationCenter();
     await Promise.all([refreshUsers(), refreshStations(), refreshInventory(), refreshAuditLogs()]);
     renderAll();
   })();
@@ -946,6 +1036,7 @@
   setInterval(refreshConnUI, 15000);
   let _users = [];
   let _usersLoaded = false;
+  let _selfUserId = '';
   async function refreshUsers() {
     try {
       const data = await api.users({ pageSize: 200 });
@@ -1064,6 +1155,7 @@
         <button class="btn-approve" onclick="openReassignModal('${esc(u.uid)}')" title="${t('admin.users.reassign_title')}" style="font-size:.7rem;padding:4px 9px;"><svg class="ic" aria-hidden="true"><use href="#i-pin"/></svg> <span data-i18n="admin.users.reassign_btn">Reassign</span></button>
         ${['admin','supervisor'].includes(u.role) ? '' : `<button class="btn-approve units-btn" onclick="openUnitsModal('${esc(u.uid)}')" title="${t('admin.users.units_title')}" style="font-size:.7rem;padding:4px 9px;background:rgba(245,158,11,.12);color:#FCD34D;border:1px solid rgba(245,158,11,.3);"><svg class="ic" aria-hidden="true"><use href="#i-ambulance"/></svg> <span data-i18n="admin.users.units_btn">Units</span></button>`}
         <button class="btn-delete" onclick="deleteUser('${esc(u.uid)}')"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>
+        ${u.uid === _selfUserId ? '' : `<button class="btn-approve" onclick="openUserPassword('${esc(u.uid)}')" title="${t('admin.users.password_title')}" style="font-size:.7rem;padding:4px 9px;background:rgba(255,255,255,.06);color:var(--text2);border:1px solid var(--border);"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> <span data-i18n="admin.users.password_btn">Password</span></button>`}
       </div></td>
     </tr>`;
   }
@@ -1126,7 +1218,8 @@
 
   async function refreshInventory() {
     try {
-      const data = await api.inventory({ pageSize: 5000, includeEmpty: true });
+      // The API rejects pageSize > 200; inventoryAll walks the bounded pages for us.
+      const data = await api.inventoryAll({ includeEmpty: true });
       const rows = (Array.isArray(data) ? data : (data.items || []));
       _invRows = rows;
       const now = new Date();
@@ -1268,7 +1361,7 @@
   };
 
   window.deleteUser = async function(id) {
-    if (!confirm(t('admin.user.delete_confirm'))) return;
+    if (!await confirmDialog({ message: t('admin.user.delete_confirm'), tone: 'danger', title: t('ui.dialog.title_delete') })) return;
     const u = _users.find(u => u.uid === id);
     try {
       await api.deleteUser(id);
@@ -1337,9 +1430,14 @@
     _unitsUserId = null;
   };
 
+  /** Admin action: set a new password for another user (from the users table). */
+  window.openUserPassword = function(id) {
+    const u = _users.find(x => x.uid === id);
+    openAdminPasswordDialog({ userId: id, name: u?.name || u?.email || '' });
+  };
+
   window.openUnitsModal = function(id) {
-    const existing = document.querySelector('.units-panel-row');
-    if (existing && existing.dataset.for === id) { closeUnitsPanel(); return; }
+    const existing = document.querySelector('.units-panel-row');    if (existing && existing.dataset.for === id) { closeUnitsPanel(); return; }
     closeUnitsPanel();
 
     const u = _users.find(x => x.uid === id);
@@ -1444,7 +1542,10 @@ window.exportUsersCSV = function() {
         id: s.id,
         code: s.code,
         name: s.name,
+        location: s.location || '',
+        status: s.status || 'ACTIVE',
         createdAt: s.createdAt,
+        counts: s._count || {},
       }));
     } catch (err) {
       toast(err.message || 'Failed to load stations', 'error');
@@ -1490,11 +1591,12 @@ window.exportUsersCSV = function() {
     else if (action === 'CREATE_REPORT') type = 'report';
     else if (action === 'DUTY_SWITCH') type = 'switch';
     else if (action === 'UPDATE_USER_UNITS') type = 'edit';
+    else if (action === 'CHANGE_PASSWORD' || action === 'RESET_USER_PASSWORD') type = 'edit';
     else if (action === 'APPROVE_USER') type = 'approve_user';
     else if (action === 'REJECT_USER') type = 'reject_user';
 
     let source = 'app';
-    if (['APPROVE_USER','REJECT_USER','CHANGE_ROLE','DELETE_USER','CREATE_USER','CREATE_STATION','UPDATE_STATION','DELETE_STATION','CREATE_AMBULANCE','UPDATE_AMBULANCE','DELETE_AMBULANCE','CREATE_MEDICINE','UPDATE_MEDICINE','DELETE_MEDICINE','CREATE_BATCH','UPDATE_USER_UNITS'].includes(action)) source = 'admin';
+    if (['APPROVE_USER','REJECT_USER','CHANGE_ROLE','CHANGE_PASSWORD','RESET_USER_PASSWORD','DELETE_USER','CREATE_USER','CREATE_STATION','UPDATE_STATION','DELETE_STATION','CREATE_AMBULANCE','UPDATE_AMBULANCE','DELETE_AMBULANCE','CREATE_MEDICINE','UPDATE_MEDICINE','DELETE_MEDICINE','CREATE_BATCH','UPDATE_USER_UNITS'].includes(action)) source = 'admin';
     else if (['SUPERVISOR_EDIT','TRANSFER'].includes(action)) source = 'supervisor';
     else if (['DISTRIBUTE_STOCK','CREATE_DISTRIBUTION_TEMPLATE','UPDATE_DISTRIBUTION_TEMPLATE','DELETE_DISTRIBUTION_TEMPLATE','ARCHIVE_DISTRIBUTION_TEMPLATE'].includes(action)) source = 'admin';
 
@@ -1549,7 +1651,10 @@ window.exportUsersCSV = function() {
         return `Batch added — ${parts.join(' · ') || '—'}`;
       }
       case 'CREATE_STATION':   return `Station created${m.code ? ` — ${m.code}` : ''}`;
-      case 'UPDATE_STATION':   return `Station updated${m.code ? ` — ${m.code}` : ''}`;
+      case 'UPDATE_STATION': {
+        const diffs = Object.entries(m.changes || {}).map(([k, d]) => `${k}: ${fmtLog(d.from)} → ${fmtLog(d.to)}`).join('; ');
+        return `Station updated${m.code ? ` — ${m.code}` : ''}${diffs ? ` | ${diffs}` : ''}`;
+      }
       case 'DELETE_STATION':   return `Station deleted${m.code ? ` — ${m.code}` : ''}`;
       case 'CREATE_AMBULANCE': return `Ambulance created${m.vehicleNumber ? ` — ${m.vehicleNumber}` : ''}`;
       case 'UPDATE_AMBULANCE': return `Ambulance updated${m.vehicleNumber ? ` — ${m.vehicleNumber}` : ''}`;
@@ -1557,6 +1662,8 @@ window.exportUsersCSV = function() {
       case 'APPROVE_USER':     return `User approved${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
       case 'REJECT_USER':      return `User rejected${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
       case 'CHANGE_ROLE':      return `Role changed${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
+      case 'CHANGE_PASSWORD':  return 'Password changed by user';
+      case 'RESET_USER_PASSWORD': return `Password reset by admin${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
       case 'DELETE_USER':      return `User deleted${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
       case 'CREATE_USER':      return `Account created${m.targetEmail ? ` — ${m.targetEmail}` : ''}`;
       case 'LOGIN':            return 'Login';
@@ -1660,7 +1767,11 @@ window.exportUsersCSV = function() {
       </div>`).join('');
       return `<tr>
         <td><code style="background:rgba(200,16,46,.1);color:#FDA4AF;padding:3px 10px;border-radius:5px;font-size:.82rem;font-weight:700;letter-spacing:.05em;">${esc(st.code)}</code></td>
-        <td><strong>${esc(st.name)}</strong></td>
+        <td>
+          <strong>${esc(st.name)}</strong>
+          ${st.location ? `<div style="font-size:.68rem;color:var(--text3);margin-top:2px;">${esc(st.location)}</div>` : ''}
+          <span class="station-status ${st.status === 'INACTIVE' ? 'st-inactive' : 'st-active'}" style="margin-top:4px;display:inline-block;">${st.status === 'INACTIVE' ? t('admin.station.status_inactive') : t('admin.station.status_active')}</span>
+        </td>
         <td>
           <div style="display:flex;align-items:center;gap:8px;">${staffBadge}
             ${stStaff.length ? `<button onclick="this.closest('tr').querySelector('.staff-expand').classList.toggle('open'); this.textContent=this.closest('tr').querySelector('.staff-expand').classList.contains('open')?'▲ Hide':'▼ View'" style="font-size:.65rem;padding:2px 7px;background:rgba(255,255,255,.04);color:var(--text2);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-family:var(--font-body);">▼ View</button>` : ''}
@@ -1684,7 +1795,11 @@ window.exportUsersCSV = function() {
         </td>
         <td style="color:var(--text3);font-size:.78rem;">${createdDate}</td>
         <td>
-          <button class="btn-delete" onclick="removeStation('${esc(st.code)}')"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> Delete</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <button class="btn-edit" onclick="openEditStation('${esc(st.id)}')"><svg class="ic" aria-hidden="true"><use href="#i-edit"/></svg> ${t('admin.station.edit_btn')}</button>
+            <button class="btn-toggle ${st.status === 'INACTIVE' ? 'is-active' : ''}" onclick="toggleStationStatus('${esc(st.id)}')"><svg class="ic" aria-hidden="true"><use href="#${st.status === 'INACTIVE' ? 'i-checkCircle' : 'i-xCircle'}"/></svg> ${st.status === 'INACTIVE' ? t('admin.station.activate_btn') : t('admin.station.deactivate_btn')}</button>
+            <button class="btn-delete" onclick="removeStation('${esc(st.id)}')"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> ${t('admin.station.delete_btn')}</button>
+          </div>
         </td>
       </tr>`;
     }).join('');
@@ -1708,18 +1823,104 @@ window.exportUsersCSV = function() {
     }
   };
 
-  window.removeStation = async function(code) {
-    if (!confirm(t('admin.station.delete_confirm', { code }))) return;
-    const st = _stations.find(s => s.code === code);
+  window.removeStation = async function(id) {
+    const st = _stations.find(s => s.id === id);
     if (!st) return;
+    if (!await confirmDialog({ message: t('admin.station.delete_confirm', { code: st.code }), tone: 'danger', title: t('ui.dialog.title_delete') })) return;
     try {
-      await api.deleteStation(st.id);
-      toast(t('admin.station.deleted', { code }), 'success');
+      await api.deleteStation(id);
+      toast(t('admin.station.deleted', { code: st.code }), 'success');
       await refreshStations();
     } catch (err) {
-      toast(t('admin.station.failed_delete', { msg: err.message }), 'error');
+      // The backend refuses to hard-delete a unit that still has history and
+      // says exactly what is attached. Offer the safe alternative instead of
+      // leaving the admin stuck — deactivation keeps every record for audit.
+      if (st.status === 'ACTIVE' && await confirmDialog({ message: t('admin.station.has_history', { msg: err.message }), tone: 'warning', title: t('ui.dialog.title_warning') })) {
+        await setStationStatus(id, 'INACTIVE');
+      } else {
+        toast(err.message || t('admin.station.failed_delete', { msg: '' }), 'error');
+      }
     }
   };
+
+  async function setStationStatus(id, status) {
+    const st = _stations.find(s => s.id === id);
+    const code = st ? st.code : '';
+    try {
+      await api.updateStation(id, { status });
+      toast(t(status === 'INACTIVE' ? 'admin.station.deactivated' : 'admin.station.activated', { code }), 'success');
+      await refreshStations();
+    } catch (err) {
+      toast(t('admin.station.failed_status', { msg: err.message }), 'error');
+    }
+  }
+
+  window.toggleStationStatus = async function(id) {
+    const st = _stations.find(s => s.id === id);
+    if (!st) return;
+    const next = st.status === 'INACTIVE' ? 'ACTIVE' : 'INACTIVE';
+    if (next === 'INACTIVE' && !await confirmDialog({ message: t('admin.station.deactivate_confirm', { code: st.code }), tone: 'warning', title: t('ui.dialog.title_warning') })) return;
+    await setStationStatus(id, next);
+  };
+
+  // ── Edit station ────────────────────────────────────────
+  let _editStationId = null;
+
+  window.openEditStation = function(id) {
+    const st = _stations.find(s => s.id === id);
+    if (!st) return;
+    _editStationId = id;
+    document.getElementById('editStationCode').value = st.code;
+    document.getElementById('editStationName').value = st.name;
+    document.getElementById('editStationLocation').value = st.location || '';
+    document.getElementById('stationEditModal').classList.add('open');
+  };
+
+  window.closeEditStation = function() {
+    document.getElementById('stationEditModal').classList.remove('open');
+    _editStationId = null;
+  };
+
+  window.saveEditStation = async function() {
+    const st = _stations.find(s => s.id === _editStationId);
+    if (!st) { closeEditStation(); return; }
+    const code = document.getElementById('editStationCode').value.trim();
+    const name = document.getElementById('editStationName').value.trim();
+    const location = document.getElementById('editStationLocation').value.trim();
+
+    if (!code) { toast(t('admin.station.enter_code'), 'error'); return; }
+    if (!name) { toast(t('admin.station.enter_name'), 'error'); return; }
+    if (!/^\d{1,6}$/.test(code)) { toast(t('admin.station.invalid_code'), 'error'); return; }
+    // Only a *change* to the code can collide; compare against other units.
+    if (code !== st.code && _stations.some(s => s.code === code)) {
+      toast(t('admin.station.exists'), 'error');
+      return;
+    }
+
+    const body = {};
+    if (code !== st.code) body.code = code;
+    if (name !== st.name) body.name = name;
+    if (location !== (st.location || '')) body.location = location;
+    if (!Object.keys(body).length) { toast(t('admin.station.no_changes'), 'error'); return; }
+
+    try {
+      await api.updateStation(_editStationId, body);
+      toast(t('admin.station.updated', { code }), 'success');
+      closeEditStation();
+      // A code change re-labels the unit; refresh staff so badges stay matched.
+      if (body.code) { await refreshUsers(); }
+      await refreshStations();
+    } catch (err) {
+      toast(t('admin.station.failed_update', { msg: err.message }), 'error');
+    }
+  };
+
+  document.getElementById('stationEditModal').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeEditStation();
+  });
+  document.getElementById('editStationName')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveEditStation();
+  });
 
   // ── Admin Settings ──────────────────────────────────────
   window.saveAdminSettings = function() {
@@ -1829,6 +2030,32 @@ window.exportUsersCSV = function() {
   };
   const distCatInfo = c => DIST_CATS[c] || { ar: c || '', en: c || '', ic: 'i-package' };
   const distCatLabel = c => distCatInfo(c)[getCurrentLang()] || c;
+
+  // Colours mirror the dashboard category tiles (js/data/initial-data.js).
+  const DIST_CAT_COLORS = {
+    MEDICATION: '#DC2626', LIFEPAK: '#D97706', RESPONDER: '#7C3AED',
+    SUCTION: '#0D9488', CAREVENT: '#2563EB', STATION_STORE: '#059669', CAR_CONTENTS: '#EA580C',
+  };
+  const distCatColor = c => DIST_CAT_COLORS[c] || '#6B7280';
+
+  /** Dashboard-style icon picker for the item's bag/category. */
+  function renderDistCatPicker() {
+    const el = document.getElementById('distCatPick');
+    if (!el) return;
+    const cur = document.getElementById('dist-item-cat')?.value || 'MEDICATION';
+    el.innerHTML = Object.keys(DIST_CATS).map(key => `
+      <button type="button" class="dist-cat-btn${key === cur ? ' active' : ''}" data-cat="${key}"
+              style="--cc:${distCatColor(key)}" onclick="pickDistCat('${key}')">
+        <span class="dc-ic"><svg class="ic" aria-hidden="true"><use href="#${distCatInfo(key).ic}"/></svg></span>
+        <span class="dc-tx">${esc(distCatLabel(key))}</span>
+      </button>`).join('');
+  }
+
+  window.pickDistCat = function(key) {
+    const input = document.getElementById('dist-item-cat');
+    if (input) input.value = key;
+    renderDistCatPicker();
+  };
   const fmtDistDate = d => {
     if (d == null) return '—';
     const s = String(d);
@@ -1876,6 +2103,7 @@ window.exportUsersCSV = function() {
         <td><div class="action-row">
           ${tpl.isActive ? `<button class="btn-approve" onclick="openApplyModal('${esc(tpl.id)}')">${t('admin.dist.apply_btn')}</button>` : ''}
           <button class="btn-deact" onclick="openTemplateModal('${esc(tpl.id)}')" style="color:#93C5FD;background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.2);">${t('admin.dist.edit_btn')}</button>
+          <button class="btn-deact" onclick="exportTemplateCsv('${esc(tpl.id)}')" title="${t('admin.dist.export_csv')}" style="color:#86EFAC;background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.2);">⇩ CSV</button>
           <button class="btn-delete" onclick="deleteDistributionTemplate('${esc(tpl.id)}')"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>
         </div></td>
       </tr>`;
@@ -1913,9 +2141,11 @@ window.exportUsersCSV = function() {
       barcode: it.barcode ?? null,
       notes: it.notes ?? null,
       technicalNotes: it.technicalNotes ?? null,
-      batches: (it.batches || []).map(b => ({ id: _uuid(), batchNumber: b.batchNumber ?? null, expiryDate: fmtDistDate(b.expiryDate), quantity: b.quantity ?? 1 })),
+      batches: (it.batches || []).map(b => ({ id: _uuid(), batchNumber: b.batchNumber ?? null, expiryDate: fmtDistDate(b.expiryDate), receivedDate: b.receivedDate ? fmtDistDate(b.receivedDate) : null, supplier: b.supplier ?? null, quantity: b.quantity ?? 1 })),
     }));
     renderDistItems();
+    const report = document.getElementById('distImportReport');
+    if (report) { report.style.display = 'none'; report.textContent = ''; }
     document.getElementById('templateModal').classList.add('open');
   };
   window.closeTemplateModal = function() { document.getElementById('templateModal').classList.remove('open'); _editTemplateId = null; _distDraftItems = []; };
@@ -1936,7 +2166,7 @@ window.exportUsersCSV = function() {
         <span class="dist-draft-cat" title="${esc(distCatLabel(it.category))}"><svg class="ic" aria-hidden="true"><use href="#${ci.ic}"/></svg></span>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:600;font-size:.86rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(it.name)}</div>
-          <div style="font-size:.72rem;color:var(--text3);margin-top:2px;">${batches.length} ${t('admin.dist.batches_label')} · ${units} ${t('admin.dist.units_label')}</div>
+          <div style="font-size:.72rem;color:var(--text3);margin-top:2px;">${esc(distCatLabel(it.category))}${it.location ? ` · ${t('admin.dist.from')}: ${esc(it.location)}` : ''} · ${batches.length} ${t('admin.dist.batches_label')} · ${units} ${t('admin.dist.units_label')}</div>
         </div>
         <button class="dist-draft-btn" onclick="openEditItem('${esc(it.id)}')" title="${t('admin.dist.edit_item')}">✎</button>
         <button class="dist-draft-btn" onclick="removeDistItem('${esc(it.id)}')" title="${t('admin.dist.remove_item')}" style="color:#FCA5A5;">✕</button>
@@ -1954,6 +2184,7 @@ window.exportUsersCSV = function() {
     _distTempBatches = [];
     renderDistTempBatches();
     document.getElementById('itemFormModal').classList.add('open');
+    try { renderDistCatPicker(); } catch (e) { /* ignore */ }
   };
   window.openEditItem = function(id) {
     const item = _distDraftItems.find(x => x.id === id);
@@ -1971,6 +2202,7 @@ window.exportUsersCSV = function() {
     _distTempBatches = (item.batches || []).map(b => ({ ...b }));
     renderDistTempBatches();
     document.getElementById('itemFormModal').classList.add('open');
+    try { renderDistCatPicker(); } catch (e) { /* ignore */ }
   };
   window.closeItemForm = function() { document.getElementById('itemFormModal').classList.remove('open'); _distEditItemId = null; };
 
@@ -1996,8 +2228,8 @@ window.exportUsersCSV = function() {
     }
     el.innerHTML = _distTempBatches.map((b, i) => `
       <div class="dist-batch-chip">
-        <span><strong>${b.quantity}×</strong> — ${t('ui.batch.expiry', { date: fmtDistDate(b.expiryDate) })}${b.batchNumber ? ` &nbsp;| ${esc(b.batchNumber)}` : ''}</span>
-        <button class="dist-batch-remove" onclick="removeDistBatch(${i})" title="${t('admin.dist.remove_item')}">✕</button>
+        <span><strong>${b.quantity}x</strong> - ${t('ui.batch.expiry', { date: fmtDistDate(b.expiryDate) })}${b.batchNumber ? ` &nbsp;| ${esc(b.batchNumber)}` : ''}</span>
+        <button class="dist-batch-remove" onclick="removeDistBatch(${i})" title="${t('admin.dist.remove_item')}">X</button>
       </div>`).join('');
   }
 
@@ -2016,7 +2248,7 @@ window.exportUsersCSV = function() {
       barcode: document.getElementById('dist-item-dcas').value.trim() || null,
       notes: document.getElementById('dist-item-notes').value.trim() || null,
       technicalNotes: document.getElementById('dist-item-technotes').value.trim() || null,
-      batches: _distTempBatches.map(b => ({ batchNumber: b.batchNumber, expiryDate: b.expiryDate, quantity: b.quantity })),
+      batches: _distTempBatches.map(b => ({ batchNumber: b.batchNumber, expiryDate: b.expiryDate, receivedDate: b.receivedDate ?? null, supplier: b.supplier ?? null, quantity: b.quantity })),
     };
     const idx = _distDraftItems.findIndex(x => x.id === item.id);
     if (idx >= 0) _distDraftItems[idx] = item; else _distDraftItems.push(item);
@@ -2038,9 +2270,278 @@ window.exportUsersCSV = function() {
       barcode: it.barcode,
       notes: it.notes,
       technicalNotes: it.technicalNotes,
-      batches: it.batches.map(b => ({ batchNumber: b.batchNumber, expiryDate: b.expiryDate, quantity: b.quantity })),
+      batches: it.batches.map(b => ({ batchNumber: b.batchNumber, expiryDate: b.expiryDate, receivedDate: b.receivedDate ?? null, supplier: b.supplier ?? null, quantity: b.quantity })),
     }));
   }
+
+  // ── Distribution CSV export / import ──────────────────────────
+  // One row per batch. "Category" = destination bag, "Location" = where the
+  // stock is taken from, so the allocations survive a round-trip through Excel.
+  const DIST_CSV_HEADERS = [
+    'Item Name', 'Category', 'Location', 'Serial Number', 'Size',
+    'DCAS Code', 'Notes', 'Technical Notes',
+    'Batch Number', 'Expiry Date', 'Received Date', 'Supplier', 'Quantity',
+  ];
+
+  const distCsvCell = v => {
+    const s = v == null ? '' : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  // Accepts a category KEY ("STATION_STORE"), an English label ("Station Store")
+  // or the Arabic label, so hand-edited files work either way.
+  const distCatKeyFromInput = raw => {
+    const v = String(raw || '').trim();
+    if (!v) return null;
+    const up = v.toUpperCase().replace(/\s+/g, '_');
+    if (DIST_CATS[up]) return up;
+    const lower = v.toLowerCase();
+    for (const [key, info] of Object.entries(DIST_CATS)) {
+      if (info.en.toLowerCase() === lower || info.ar === v) return key;
+    }
+    return null;
+  };
+
+  function buildDistCsv(items) {
+    const lines = [DIST_CSV_HEADERS.map(distCsvCell).join(',')];
+    (items || []).forEach(it => {
+      const batches = (it.batches && it.batches.length) ? it.batches : [{}];
+      batches.forEach(b => {
+        const exp = fmtDistDate(b.expiryDate);
+        lines.push([
+          it.name || '',
+          distCatLabel(it.category || 'MEDICATION'),
+          it.location || '',
+          it.serialNumber || '',
+          it.size || '',
+          it.barcode || '',
+          it.notes || '',
+          it.technicalNotes || '',
+          b.batchNumber || '',
+          exp === '—' ? '' : exp,
+          b.receivedDate ? fmtDistDate(b.receivedDate) : '',
+          b.supplier || '',
+          b.quantity != null ? b.quantity : '',
+        ].map(distCsvCell).join(','));
+      });
+    });
+    return '\uFEFF' + lines.join('\r\n') + '\r\n';
+  }
+
+  function downloadCsvText(filename, text) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8;' }));
+    a.download = filename;
+    a.click();
+  }
+
+  const distCsvFilename = name => {
+    const safe = String(name || 'distribution-list').trim().replace(/[^\w\u0600-\u06FF-]+/g, '_').slice(0, 60) || 'distribution-list';
+    return `AEMS_Distribution_${safe}_${new Date().toISOString().split('T')[0]}.csv`;
+  };
+
+  window.exportDistCsv = function() {
+    if (!_distDraftItems.length) { toast(t('admin.dist.export_empty'), 'error'); return; }
+    downloadCsvText(distCsvFilename(document.getElementById('distName')?.value || 'distribution-list'), buildDistCsv(_distDraftItems));
+    toast(t('admin.dist.toast.exported'), 'success');
+  };
+
+  window.exportTemplateCsv = function(id) {
+    const tpl = _distTemplates.find(x => x.id === id);
+    if (!tpl || !(tpl.items || []).length) { toast(t('admin.dist.export_empty'), 'error'); return; }
+    downloadCsvText(distCsvFilename(tpl.name), buildDistCsv(tpl.items));
+    toast(t('admin.dist.toast.exported'), 'success');
+  };
+
+  // Minimal RFC-4180 parser: quoted fields, doubled quotes, commas and
+  // newlines inside quotes, optional BOM.
+  function parseCsv(text) {
+    const src = String(text || '').replace(/^\uFEFF/, '');
+    const rows = [];
+    let row = [], field = '', inQuotes = false, i = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (src[i + 1] === '"') { field += '"'; i += 2; continue; }
+          inQuotes = false; i++; continue;
+        }
+        field += c; i++; continue;
+      }
+      if (c === '"') { inQuotes = true; i++; continue; }
+      if (c === ',') { row.push(field); field = ''; i++; continue; }
+      if (c === '\r') { i++; continue; }
+      if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
+      field += c; i++;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  const DIST_HEADER_ALIASES = {
+    name:           ['item name', 'name', 'item', 'medicine', 'medication'],
+    category:       ['category', 'bag', 'type', 'destination'],
+    location:       ['location', 'source', 'from'],
+    serialNumber:   ['serial number', 'serial', 'store code', 'serial / store code'],
+    size:           ['size'],
+    barcode:        ['dcas code', 'dcas', 'barcode'],
+    notes:          ['notes', 'general notes', 'note'],
+    technicalNotes: ['technical notes', 'technical notes / warnings', 'tech notes', 'warnings'],
+    batchNumber:    ['batch number', 'batch', 'batch no', 'batch no.', 'lot', 'lot number'],
+    expiryDate:     ['expiry date', 'expiry', 'exp', 'expires'],
+    receivedDate:   ['received date', 'received'],
+    supplier:       ['supplier'],
+    quantity:       ['quantity', 'qty', 'units', 'unit qty'],
+  };
+
+  const normDistHeader = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+  function mapDistHeaders(headerRow) {
+    const normed = headerRow.map(normDistHeader);
+    const idx = {};
+    for (const [key, aliases] of Object.entries(DIST_HEADER_ALIASES)) {
+      const at = normed.findIndex(h => aliases.includes(h));
+      if (at >= 0) idx[key] = at;
+    }
+    return idx;
+  }
+
+  // Accepts YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, MM/DD/YYYY (resolved by value)
+  // and whatever Excel may have turned the date into.
+  function parseDistDate(v) {
+    const s = String(v || '').trim();
+    if (!s) return null;
+    const pad = n => String(n).padStart(2, '0');
+    let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (m) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+    m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+    if (m) {
+      let a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+      if (b > 12 && a <= 12) { const t2 = a; a = b; b = t2; }      // DD/MM vs MM/DD
+      if (a > 12 && b > 12) return null;
+      return `${m[3]}-${pad(b)}-${pad(a)}`;
+    }
+    const d2 = new Date(s);
+    if (!Number.isNaN(d2.getTime())) return `${d2.getFullYear()}-${pad(d2.getMonth() + 1)}-${pad(d2.getDate())}`;
+    return null;
+  }
+
+  function showDistImportReport(html, isError) {
+    const el = document.getElementById('distImportReport');
+    if (!el) return;
+    el.style.display = 'block';
+    el.style.background = isError ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)';
+    el.style.border = `1px solid ${isError ? 'rgba(239,68,68,.3)' : 'rgba(34,197,94,.3)'}`;
+    el.style.color = isError ? '#FCA5A5' : '#86EFAC';
+    el.textContent = html;
+  }
+
+  window.importDistCsv = function(ev) {
+    const input = ev && ev.target;
+    const file = input && input.files && input.files[0];
+    if (input) input.value = '';
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onerror = () => { toast(t('admin.dist.import_badfile'), 'error'); };
+    reader.onload = async () => {
+      try {
+        const rows = parseCsv(reader.result).filter(r => r.some(c => String(c).trim() !== ''));
+        if (!rows.length) { toast(t('admin.dist.import_empty_file'), 'error'); showDistImportReport(t('admin.dist.import_empty_file'), true); return; }
+
+        const headers = mapDistHeaders(rows[0]);
+        const missing = [];
+        if (headers.name == null) missing.push('Item Name');
+        if (headers.category == null) missing.push('Category');
+        if (headers.expiryDate == null) missing.push('Expiry Date');
+        if (headers.quantity == null) missing.push('Quantity');
+        if (missing.length) {
+          showDistImportReport(t('admin.dist.csv.bad_header', { cols: missing.join(', ') }), true);
+          toast(t('admin.dist.import_badfile'), 'error');
+          return;
+        }
+
+        const get = (row, key) => (headers[key] == null ? '' : String(row[headers[key]] ?? '').trim());
+        const errors = [];
+        const groups = new Map();
+        let dataRows = 0;
+
+        for (let r = 1; r < rows.length; r++) {
+          const row = rows[r];
+          const rowNo = r + 1;
+          dataRows++;
+
+          const name = get(row, 'name');
+          if (!name) { errors.push(t('admin.dist.csv.err.name', { row: rowNo })); continue; }
+
+          const category = distCatKeyFromInput(get(row, 'category'));
+          if (!category) { errors.push(t('admin.dist.csv.err.category', { row: rowNo, value: get(row, 'category') || '—' })); continue; }
+
+          const expiryRaw = get(row, 'expiryDate');
+          const expiry = parseDistDate(expiryRaw);
+          if (!expiry) { errors.push(t('admin.dist.csv.err.expiry', { row: rowNo, value: expiryRaw || '—' })); continue; }
+
+          const qtyRaw = get(row, 'quantity');
+          const qty = Number(qtyRaw);
+          if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty < 1) {
+            errors.push(t('admin.dist.csv.err.qty', { row: rowNo, value: qtyRaw || '—' }));
+            continue;
+          }
+
+          // Rows for the same allocation (name + bag + source + identifiers)
+          // collapse into one item carrying every batch.
+          const head = {
+            name,
+            category,
+            location: get(row, 'location') || null,
+            serialNumber: get(row, 'serialNumber') || null,
+            size: get(row, 'size') || null,
+            barcode: get(row, 'barcode') || null,
+            notes: get(row, 'notes') || null,
+            technicalNotes: get(row, 'technicalNotes') || null,
+          };
+          const key = JSON.stringify(head);
+          if (!groups.has(key)) groups.set(key, { ...head, id: _uuid(), batches: [] });
+          groups.get(key).batches.push({
+            id: _uuid(),
+            batchNumber: get(row, 'batchNumber') || null,
+            expiryDate: expiry,
+            receivedDate: parseDistDate(get(row, 'receivedDate')),
+            supplier: get(row, 'supplier') || null,
+            quantity: qty,
+          });
+        }
+
+        const items = [...groups.values()];
+        const errBlock = errors.length
+          ? `\n\n${t('admin.dist.import_errors', { n: errors.length, s: errors.length === 1 ? '' : 's' })}\n• ${errors.join('\n• ')}`
+          : '';
+
+        if (!items.length) {
+          showDistImportReport(`${t('admin.dist.import_none')}${errBlock}`, true);
+          toast(t('admin.dist.import_none'), 'error');
+          return;
+        }
+
+        if (_distDraftItems.length &&
+            !(await confirmDialog({ message: t('admin.dist.import_replace', { n: _distDraftItems.length, s: _distDraftItems.length === 1 ? '' : 's' }), tone: 'warning', title: t('ui.dialog.title_warning') }))) return;
+
+        _distDraftItems = items;
+        renderDistItems();
+
+        const ok = t('admin.dist.import_done', {
+          items: items.length, iplur: items.length === 1 ? '' : 's',
+          rows: dataRows, rplur: dataRows === 1 ? '' : 's',
+        });
+        showDistImportReport(`${ok}${errBlock}`, !!errors.length);
+        toast(ok, errors.length ? 'error' : 'success');
+      } catch (e) {
+        showDistImportReport(t('admin.dist.import_badfile'), true);
+        toast(t('admin.dist.import_badfile'), 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   window.saveTemplate = async function() {
     const name = document.getElementById('distName').value.trim();
@@ -2071,7 +2572,7 @@ window.exportUsersCSV = function() {
   };
 
   window.deleteDistributionTemplate = async function(id) {
-    if (!confirm(t('admin.dist.remove_confirm'))) return;
+    if (!await confirmDialog({ message: t('admin.dist.remove_confirm'), tone: 'danger', title: t('ui.dialog.title_delete') })) return;
     try {
       await api.deleteDistributionTemplate(id);
       toast(t('admin.dist.toast.deleted'), 'success');
@@ -2117,7 +2618,7 @@ window.exportUsersCSV = function() {
     if (!ids.length) { toast(t('admin.dist.select_one'), 'error'); return; }
     const tpl = _distTemplates.find(t => t.id === _applyTemplateId);
     if (!tpl) return;
-    if (!confirm(t('admin.dist.apply_confirm', { n: ids.length, plur: ids.length === 1 ? '' : 's' }))) return;
+    if (!await confirmDialog({ message: t('admin.dist.apply_confirm', { n: ids.length, plur: ids.length === 1 ? '' : 's' }), tone: 'warning', title: t('ui.dialog.title_confirm') })) return;
     const btn = document.getElementById('confirmApplyBtn');
     btn.disabled = true;
     btn.textContent = 'Applying…';
@@ -2162,23 +2663,52 @@ window.exportUsersCSV = function() {
   document.getElementById('itemFormModal')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeItemForm(); });
 
   // Nav
+  const ADMIN_TITLE_KEYS = {
+    dashboard: 'admin.nav.dashboard', pending: 'admin.nav.pending',
+    users: 'admin.nav.users', equipment: 'admin.nav.equipment',
+    logs: 'admin.nav.logs', settings: 'admin.nav.settings',
+    stations: 'admin.nav.stations', distributions: 'admin.nav.distributions',
+    reports: 'admin.nav.reports',
+  };
+
+  /** Re-applies the topbar title for whichever page is currently visible. */
+  function paintAdminPageTitle() {
+    const el = document.getElementById('pageTitle');
+    if (!el) return;
+    const active = document.querySelector('.page.active');
+    const page = active ? active.id.replace(/^page-/, '') : 'dashboard';
+    el.textContent = ADMIN_TITLE_KEYS[page] ? t(ADMIN_TITLE_KEYS[page]) : page;
+  }
+
   window.navTo = function(page) {
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
     document.getElementById(`page-${page}`)?.classList.add('active');
     document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
-    const titleMap = {
-      dashboard: t('admin.nav.dashboard'), pending: t('admin.nav.pending'),
-      users: t('admin.nav.users'), equipment: t('admin.nav.equipment'),
-      logs: t('admin.nav.logs'), settings: t('admin.nav.settings'), stations: t('admin.nav.stations'),
-    };
-    document.getElementById('pageTitle').textContent = titleMap[page] || page;
+    paintAdminPageTitle();
     if (page==='users')     renderUsers();
     if (page==='equipment') renderEquipment();
     if (page==='logs')      { renderFbLogs(); renderLogs('logsList'); }
     if (page==='stations')  renderStations();
     if (page==='distributions') { refreshDistTemplates(); refreshDistHistory(); }
+    if (page==='reports')   ensureReports();
     document.getElementById('sidebar').classList.remove('open');
   };
+
+  // ── Reports dashboard (lazy) ───────────────────────────────
+  let reportsDash = null;
+  function ensureReports() {
+    if (!reportsDash) {
+      reportsDash = createReportsDashboard({
+        rootId: 'adminReports',
+        getStations: async () => {
+          const list = await api.stations();
+          return (list || []).map(s => ({ id: s.id, code: s.code, name: s.name }));
+        },
+      });
+    }
+    reportsDash?.refresh();
+    return reportsDash;
+  }
 
   // Search/filter
   document.getElementById('userSearch')?.addEventListener('input', renderUsers);

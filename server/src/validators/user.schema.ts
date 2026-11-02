@@ -47,8 +47,17 @@ export const setUserStatusSchema = z.object({
   status: z.enum(['SUSPENDED', 'DISABLED']),
 });
 
+export const setUserPasswordSchema = z.object({
+  // Firebase allows 6–128 characters; we require 8 for a little more strength.
+  password: z.string().min(8, 'Password must be at least 8 characters').max(128, 'Password is too long'),
+});
+
 export const setManagedStationsSchema = z.object({
   stationCodes: z.array(z.string().trim().max(20)).max(50),
+});
+
+export const updateMySupervisorZoneSchema = z.object({
+  supervisorZone: z.string().trim().max(100).or(z.literal('')),
 });
 
 export const idParamSchema = z.object({

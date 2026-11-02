@@ -2,9 +2,18 @@ import type { Prisma, TransactionType } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { classifyExpiry } from '../utils/fefo.js';
+import {
+  effectiveBatchNumber,
+  effectiveExpiryDate,
+  effectiveReceivedDate,
+  effectiveSupplier,
+  hasLotOverride,
+} from '../utils/lotOverrides.js';
 import { createAudit, type AuditEntryInput } from './audit.service.js';
+import * as notificationService from './notification.service.js';
 
 type Tx = Prisma.TransactionClient;
+const MAX_LEGACY_INVENTORY_ROWS = 5_000;
 
 export interface InventoryOperationMeta extends AuditEntryInput {}
 
@@ -13,6 +22,10 @@ const INVENTORY_DETAIL = {
   ambulanceId: true,
   quantity: true,
   notes: true,
+  overrideBatchNumber: true,
+  overrideExpiryDate: true,
+  overrideSupplier: true,
+  overrideReceivedDate: true,
   deletedAt: true,
   updatedAt: true,
   batch: {
@@ -46,6 +59,28 @@ const INVENTORY_DETAIL = {
 type InventoryDetail = Prisma.InventoryGetPayload<{ select: typeof INVENTORY_DETAIL }>;
 
 /**
+ * Collapses per-unit lot overrides into the `batch` sub-object so every reader
+ * (including the web app) transparently sees the effective lot number / expiry /
+ * supplier / received date. `batch.id` and `batch.medicine` stay the shared ones
+ * (stock operations still target the real batch), and `hasLotOverride` lets the
+ * UI flag a line the unit has customised.
+ */
+function toEffectiveLot(row: InventoryDetail) {
+  return {
+    ...row,
+    batch: {
+      ...row.batch,
+      batchNumber: effectiveBatchNumber(row, row.batch),
+      expiryDate: effectiveExpiryDate(row, row.batch),
+      supplier: effectiveSupplier(row, row.batch),
+      receivedDate: effectiveReceivedDate(row, row.batch),
+    },
+    hasLotOverride: hasLotOverride(row),
+    expiryStatus: classifyExpiry(effectiveExpiryDate(row, row.batch)),
+  };
+}
+
+/**
  * Locks inventory rows in a deterministic order (sorted by id) to prevent
  * deadlocks when multiple transactions touch overlapping rows.
  */
@@ -74,6 +109,7 @@ async function recordChange(
   reason: string | null,
   referenceId: string,
   performedById: string,
+  reasonCode: string | null = null,
 ): Promise<InventoryDetail> {
   const updated = await tx.inventory.update({
     where: { id: inventoryId },
@@ -89,12 +125,13 @@ async function recordChange(
       quantityBefore: updated.quantity - delta,
       quantityAfter: updated.quantity,
       reason,
+      reasonCode,
       referenceId,
       performedById,
     },
   });
 
-  return updated;
+  return toEffectiveLot(updated);
 }
 
 function assertPositiveQuantity(qty: number): void {
@@ -105,10 +142,10 @@ function assertPositiveQuantity(qty: number): void {
 
 // ── Reads ──────────────────────────────────────────────────────
 
-export async function getInventoryDetail(id: string): Promise<InventoryDetail> {
+export async function getInventoryDetail(id: string) {
   const row = await prisma.inventory.findUnique({ where: { id }, select: INVENTORY_DETAIL });
   if (!row) throw AppError.notFound('Inventory record not found');
-  return row;
+  return toEffectiveLot(row);
 }
 
 export interface ListInventoryInput {
@@ -120,7 +157,12 @@ export interface ListInventoryInput {
   includeEmpty?: boolean;
 }
 
-export async function listInventory(input: ListInventoryInput = {}) {
+export interface ListInventoryPageInput extends ListInventoryInput {
+  page: number;
+  pageSize: number;
+}
+
+function inventoryWhere(input: ListInventoryInput): Prisma.InventoryWhereInput {
   const batchFilters: Prisma.MedicineBatchWhereInput[] = [
     { deletedAt: null },
     { medicine: { deletedAt: null } },
@@ -138,24 +180,62 @@ export async function listInventory(input: ListInventoryInput = {}) {
     });
   }
 
-  const where: Prisma.InventoryWhereInput = {
+  return {
     ...(input.ambulanceId ? { ambulanceId: input.ambulanceId } : {}),
     ...(input.stationIds ? { ambulance: { stationId: { in: input.stationIds } } } : {}),
     deletedAt: null,
     batch: { AND: batchFilters },
     ...(input.includeEmpty ? {} : { quantity: { gt: 0 } }),
   };
+}
 
+function sortEffectiveInventory<T extends { batch: { expiryDate: Date }; ambulanceId: string }>(rows: T[]): T[] {
+  return rows.sort(
+    (a, b) =>
+      a.batch.expiryDate.getTime() - b.batch.expiryDate.getTime() ||
+      a.ambulanceId.localeCompare(b.ambulanceId),
+  );
+}
+
+export async function listInventory(input: ListInventoryInput = {}) {
   const rows = await prisma.inventory.findMany({
-    where,
+    where: inventoryWhere(input),
     select: INVENTORY_DETAIL,
-    orderBy: [{ batch: { expiryDate: 'asc' } }, { ambulanceId: 'asc' }],
+    take: MAX_LEGACY_INVENTORY_ROWS + 1,
   });
+  if (rows.length > MAX_LEGACY_INVENTORY_ROWS) {
+    throw AppError.conflict(
+      `This inventory is too large for an unpaged response. Request page/pageSize (maximum ${MAX_LEGACY_INVENTORY_ROWS} legacy rows).`,
+    );
+  }
 
-  return rows.map((row) => ({
-    ...row,
-    expiryStatus: classifyExpiry(row.batch.expiryDate),
-  }));
+  // Sort on the EFFECTIVE expiry (override first, else shared batch) so a unit's
+  // corrected date drives display order, not just the shared batch date.
+  return sortEffectiveInventory(rows.map(toEffectiveLot));
+}
+
+/** Bounded inventory page for clients loading a large station/fleet. */
+export async function listInventoryPage(input: ListInventoryPageInput) {
+  const where = inventoryWhere(input);
+  const pageQuery = prisma.inventory.findMany({
+    where,
+    orderBy: [{ ambulanceId: 'asc' }, { id: 'asc' }],
+    skip: (input.page - 1) * input.pageSize,
+    take: input.pageSize,
+    select: INVENTORY_DETAIL,
+  });
+  // Count once on page one; repeating COUNT(*) on every page makes bulk loads
+  // needlessly expensive as the inventory table grows.
+  const [total, rows] = input.page === 1
+    ? await prisma.$transaction([prisma.inventory.count({ where }), pageQuery])
+    : [null, await pageQuery] as const;
+
+  return {
+    items: sortEffectiveInventory(rows.map(toEffectiveLot)),
+    total,
+    page: input.page,
+    pageSize: input.pageSize,
+  };
 }
 
 // ── USE (FEFO) ─────────────────────────────────────────────────
@@ -165,6 +245,7 @@ export interface UseMedicineInput {
   medicineId: string;
   quantity: number;
   reason: string;
+  reasonCode?: string | null;
   performedById: string;
   meta?: InventoryOperationMeta;
 }
@@ -183,8 +264,11 @@ export async function useMedicine(input: UseMedicineInput) {
 
   const referenceId = crypto.randomUUID();
 
-  return prisma.$transaction(async (tx) => {
-    const ambulance = await tx.ambulance.findUnique({ where: { id: input.ambulanceId } });
+  const result = await prisma.$transaction(async (tx) => {
+    const ambulance = await tx.ambulance.findUnique({
+      where: { id: input.ambulanceId },
+      include: { station: { select: { id: true, code: true, name: true } } },
+    });
     if (!ambulance) throw AppError.notFound('Ambulance not found');
 
     const candidates = await tx.inventory.findMany({
@@ -195,7 +279,6 @@ export async function useMedicine(input: UseMedicineInput) {
         quantity: { gt: 0 },
       },
       select: { id: true },
-      orderBy: [{ batch: { expiryDate: 'asc' } }, { id: 'asc' }],
     });
 
     if (candidates.length === 0) {
@@ -208,10 +291,14 @@ export async function useMedicine(input: UseMedicineInput) {
     const rows = await tx.inventory.findMany({
       where: { id: { in: ids } },
       select: INVENTORY_DETAIL,
-      orderBy: [{ batch: { expiryDate: 'asc' } }, { id: 'asc' }],
     });
 
-    const available = rows.reduce((sum, r) => sum + r.quantity, 0);
+    // FEFO on the EFFECTIVE expiry per unit (override first, else shared batch).
+    const ordered = rows
+      .map(toEffectiveLot)
+      .sort((a, b) => a.batch.expiryDate.getTime() - b.batch.expiryDate.getTime() || a.id.localeCompare(b.id));
+
+    const available = ordered.reduce((sum, r) => sum + r.quantity, 0);
     if (available < input.quantity) {
       throw AppError.conflict(
         `Insufficient stock: ${available} available, ${input.quantity} requested (FEFO order)`,
@@ -221,12 +308,12 @@ export async function useMedicine(input: UseMedicineInput) {
     let remaining = input.quantity;
     const consumed: Consumption[] = [];
 
-    for (const row of rows) {
+    for (const row of ordered) {
       if (remaining <= 0) break;
       if (row.quantity <= 0) continue;
 
       const take = Math.min(remaining, row.quantity);
-      await recordChange(tx, row.id, 'USE', -take, input.reason, referenceId, input.performedById);
+      await recordChange(tx, row.id, 'USE', -take, input.reason, referenceId, input.performedById, input.reasonCode ?? null);
       consumed.push({
         inventoryId: row.id,
         batchId: row.batch.id,
@@ -253,8 +340,25 @@ export async function useMedicine(input: UseMedicineInput) {
       ...input.meta,
     });
 
-    return { referenceId, consumed, quantity: input.quantity, remaining: available - input.quantity };
+    const remainingAfter = available - input.quantity;
+    return {
+      payload: { referenceId, consumed, quantity: input.quantity, remaining: remainingAfter },
+      stockUnavailable: remainingAfter === 0 ? {
+        stationId: ambulance.stationId,
+        stationName: ambulance.station.name,
+        stationCode: ambulance.station.code,
+        ambulanceId: ambulance.id,
+        ambulanceNumber: ambulance.vehicleNumber,
+        medicineId: input.medicineId,
+        medicineName: ordered[0]?.batch.medicine.name ?? input.medicineId,
+        category: ordered[0]?.batch.medicine.category ?? 'MEDICATION',
+        actorId: input.performedById,
+        referenceId,
+      } : null,
+    };
   });
+  if (result.stockUnavailable) await notificationService.notifyStockUnavailable(result.stockUnavailable);
+  return result.payload;
 }
 
 // ── RESTOCK ────────────────────────────────────────────────────
@@ -264,6 +368,7 @@ export interface RestockInput {
   batchId: string;
   quantity: number;
   reason?: string | null;
+  reasonCode?: string | null;
   performedById: string;
   meta?: InventoryOperationMeta;
 }
@@ -272,13 +377,22 @@ export async function restock(input: RestockInput) {
   assertPositiveQuantity(input.quantity);
   const referenceId = crypto.randomUUID();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const batch = await tx.medicineBatch.findUnique({ where: { id: input.batchId }, include: { medicine: true } });
     if (!batch || batch.deletedAt || batch.medicine.deletedAt) throw AppError.notFound('Batch not found');
     if (!batch.isActive) throw AppError.conflict('Batch is deactivated');
 
     const ambulance = await tx.ambulance.findUnique({ where: { id: input.ambulanceId } });
     if (!ambulance) throw AppError.notFound('Ambulance not found');
+
+    const stockBefore = await tx.inventory.aggregate({
+      where: {
+        ambulanceId: input.ambulanceId,
+        deletedAt: null,
+        batch: { medicineId: batch.medicineId, isActive: true, deletedAt: null },
+      },
+      _sum: { quantity: true },
+    });
 
     const inventory = await tx.inventory.upsert({
       where: { ambulanceId_batchId: { ambulanceId: input.ambulanceId, batchId: input.batchId } },
@@ -295,6 +409,7 @@ export async function restock(input: RestockInput) {
         quantityBefore: inventory.quantity - input.quantity,
         quantityAfter: inventory.quantity,
         reason: input.reason ?? null,
+        reasonCode: input.reasonCode ?? null,
         referenceId,
         performedById: input.performedById,
       },
@@ -317,8 +432,10 @@ export async function restock(input: RestockInput) {
       ...input.meta,
     });
 
-    return inventory;
+    return { payload: toEffectiveLot(inventory), restoreUnavailable: (stockBefore._sum.quantity ?? 0) === 0 };
   });
+  if (result.restoreUnavailable) await notificationService.resolveStockUnavailable(input.ambulanceId, result.payload.batch.medicine.id);
+  return result.payload;
 }
 
 // ── ADJUST ─────────────────────────────────────────────────────
@@ -327,6 +444,7 @@ export interface AdjustInput {
   inventoryId: string;
   newQuantity: number;
   reason: string;
+  reasonCode?: string | null;
   performedById: string;
   meta?: InventoryOperationMeta;
 }
@@ -339,7 +457,7 @@ export async function adjustQuantity(input: AdjustInput) {
 
   const referenceId = crypto.randomUUID();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const inventory = await lockInventory(tx, input.inventoryId);
     const delta = input.newQuantity - inventory.quantity;
     if (delta === 0) {
@@ -354,7 +472,18 @@ export async function adjustQuantity(input: AdjustInput) {
       input.reason,
       referenceId,
       input.performedById,
+      input.reasonCode ?? null,
     );
+
+    const available = await tx.inventory.aggregate({
+      where: {
+        ambulanceId: inventory.ambulanceId,
+        deletedAt: null,
+        batch: { medicineId: inventory.batch.medicine.id, isActive: true, deletedAt: null },
+      },
+      _sum: { quantity: true },
+    });
+    const totalAvailable = available._sum.quantity ?? 0;
 
     await createAudit(tx, {
       userId: input.performedById,
@@ -374,8 +503,28 @@ export async function adjustQuantity(input: AdjustInput) {
       ...input.meta,
     });
 
-    return updated;
+    return {
+      payload: updated,
+      stockUnavailable: input.newQuantity === 0 && totalAvailable === 0 ? {
+        stationId: inventory.ambulance.station.id,
+        stationName: inventory.ambulance.station.name,
+        stationCode: inventory.ambulance.station.code,
+        ambulanceId: inventory.ambulance.id,
+        ambulanceNumber: inventory.ambulance.vehicleNumber,
+        medicineId: inventory.batch.medicine.id,
+        medicineName: inventory.batch.medicine.name,
+        category: inventory.batch.medicine.category,
+        actorId: input.performedById,
+        referenceId,
+      } : null,
+      restoreUnavailable: inventory.quantity === 0 && totalAvailable > 0
+        ? { ambulanceId: inventory.ambulance.id, medicineId: inventory.batch.medicine.id }
+        : null,
+    };
   });
+  if (result.stockUnavailable) await notificationService.notifyStockUnavailable(result.stockUnavailable);
+  if (result.restoreUnavailable) await notificationService.resolveStockUnavailable(result.restoreUnavailable.ambulanceId, result.restoreUnavailable.medicineId);
+  return result.payload;
 }
 
 // ── NOTES / EXPIRY METADATA ────────────────────────────────────
@@ -414,12 +563,12 @@ export async function updateItemNotes(input: UpdateNotesInput) {
         from,
         to: notes,
         medicineName: inventory.batch.medicine.name,
-        batchNumber: inventory.batch.batchNumber,
+        batchNumber: effectiveBatchNumber(inventory, inventory.batch),
         reason: input.reason,
       },
       ...input.meta,
     });
-    return updated;
+    return toEffectiveLot(updated);
   });
 }
 
@@ -431,9 +580,10 @@ export interface UpdateExpiryInput {
 }
 
 /**
- * Corrects the expiry date of the batch backing a stock line. The expiry lives
- * on the shared batch, so this changes it for every unit stocking that batch —
- * which is the desired behaviour for field crews fixing a mis-entered date.
+ * Corrects the expiry date of a single stock line. This is now a PER-UNIT
+ * override on the inventory row: the shared batch every other ambulance points
+ * at is left untouched. Setting the date back to the shared batch value clears
+ * the override so the unit inherits again.
  */
 export async function updateItemExpiry(input: UpdateExpiryInput) {
   const newExpiry = new Date(`${input.expiryDate}T00:00:00.000Z`);
@@ -442,14 +592,15 @@ export async function updateItemExpiry(input: UpdateExpiryInput) {
   }
   return prisma.$transaction(async (tx) => {
     const inventory = await lockInventory(tx, input.inventoryId);
-    const from = inventory.batch.expiryDate;
+    const from = effectiveExpiryDate(inventory, inventory.batch);
     if (from.getTime() === newExpiry.getTime()) {
       throw AppError.badRequest('Expiry date is unchanged; nothing to save');
     }
-    const updated = await tx.medicineBatch.update({
-      where: { id: inventory.batch.id },
-      data: { expiryDate: newExpiry },
-      select: { id: true, batchNumber: true, expiryDate: true },
+    const override = newExpiry.getTime() === inventory.batch.expiryDate.getTime() ? null : newExpiry;
+    const updated = await tx.inventory.update({
+      where: { id: inventory.id },
+      data: { overrideExpiryDate: override },
+      select: INVENTORY_DETAIL,
     });
     await createAudit(tx, {
       userId: input.performedById,
@@ -463,12 +614,123 @@ export async function updateItemExpiry(input: UpdateExpiryInput) {
         from: from.toISOString().slice(0, 10),
         to: input.expiryDate,
         medicineName: inventory.batch.medicine.name,
-        batchNumber: inventory.batch.batchNumber,
-        reason: 'Expiry date corrected',
+        batchNumber: effectiveBatchNumber(inventory, inventory.batch),
+        reason: 'Expiry date corrected (this unit only)',
       },
       ...input.meta,
     });
-    return { ...updated, expiryDate: input.expiryDate };
+    return toEffectiveLot(updated);
+  });
+}
+
+// ── PER-UNIT LOT OVERRIDES ─────────────────────────────────────
+
+export interface UpdateStockLotInput {
+  inventoryId: string;
+  batchNumber?: string;
+  expiryDate?: string;
+  supplier?: string | null;
+  receivedDate?: string | null;
+  reason: string;
+  performedById: string;
+  meta?: InventoryOperationMeta;
+}
+
+/**
+ * Edits the lot metadata (number / expiry / supplier / received date) for ONE
+ * stock line. Overrides are written to the inventory row, so the change is
+ * scoped to that ambulance: the shared batch everyone else stocked is untouched.
+ * Passing a value that matches the shared batch clears that override. A reason
+ * is mandatory and the from→to diff is written to the audit log.
+ */
+export async function updateStockLot(input: UpdateStockLotInput) {
+  const reason = input.reason?.trim();
+  if (!reason) throw AppError.badRequest('A reason is required to edit a lot');
+
+  return prisma.$transaction(async (tx) => {
+    const inventory = await lockInventory(tx, input.inventoryId);
+    const data: Prisma.InventoryUpdateInput = {};
+    const changes: Record<string, { from: unknown; to: unknown }> = {};
+
+    if (input.batchNumber !== undefined) {
+      const value = input.batchNumber.trim();
+      if (!value) throw AppError.badRequest('Batch number cannot be empty');
+      const current = effectiveBatchNumber(inventory, inventory.batch);
+      // Setting the shared number back clears the override.
+      const override = value === inventory.batch.batchNumber ? null : value;
+      if (value !== current) {
+        data.overrideBatchNumber = override;
+        changes.batchNumber = { from: current, to: value };
+      }
+    }
+
+    if (input.expiryDate !== undefined) {
+      const value = new Date(`${input.expiryDate}T00:00:00.000Z`);
+      if (Number.isNaN(value.getTime())) throw AppError.badRequest('Invalid expiry date');
+      const current = effectiveExpiryDate(inventory, inventory.batch);
+      const override = value.getTime() === inventory.batch.expiryDate.getTime() ? null : value;
+      if (value.getTime() !== current.getTime()) {
+        data.overrideExpiryDate = override;
+        changes.expiryDate = { from: current.toISOString().slice(0, 10), to: input.expiryDate };
+      }
+    }
+
+    if (input.supplier !== undefined) {
+      const value = input.supplier?.trim() || null;
+      const current = effectiveSupplier(inventory, inventory.batch);
+      const override = value === (inventory.batch.supplier ?? null) ? null : value;
+      if (value !== current) {
+        data.overrideSupplier = override;
+        changes.supplier = { from: current, to: value };
+      }
+    }
+
+    if (input.receivedDate !== undefined) {
+      const value = input.receivedDate ? new Date(`${input.receivedDate}T00:00:00.000Z`) : null;
+      if (input.receivedDate && Number.isNaN(value!.getTime())) {
+        throw AppError.badRequest('Invalid received date');
+      }
+      const current = effectiveReceivedDate(inventory, inventory.batch);
+      const currentKey = current ? current.toISOString().slice(0, 10) : null;
+      const nextKey = value ? input.receivedDate! : null;
+      const sharedKey = inventory.batch.receivedDate
+        ? inventory.batch.receivedDate.toISOString().slice(0, 10)
+        : null;
+      const override = nextKey === sharedKey ? null : value;
+      if (nextKey !== currentKey) {
+        data.overrideReceivedDate = override;
+        changes.receivedDate = { from: currentKey, to: nextKey };
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw AppError.badRequest('No changes to save');
+    }
+
+    const updated = await tx.inventory.update({
+      where: { id: inventory.id },
+      data,
+      select: INVENTORY_DETAIL,
+    });
+
+    await createAudit(tx, {
+      userId: input.performedById,
+      action: 'UPDATE_STOCK_LOT',
+      entityType: 'Inventory',
+      entityId: inventory.id,
+      ambulanceId: inventory.ambulanceId,
+      stationId: inventory.ambulance.station.id,
+      metadata: {
+        medicineName: inventory.batch.medicine.name,
+        batchId: inventory.batch.id,
+        sharedBatchNumber: inventory.batch.batchNumber,
+        changes,
+        reason,
+      },
+      ...input.meta,
+    });
+
+    return toEffectiveLot(updated);
   });
 }
 
@@ -478,6 +740,7 @@ interface RemoveStockInput {
   inventoryId: string;
   quantity: number;
   reason: string;
+  reasonCode?: string | null;
   performedById: string;
   type: 'DAMAGED' | 'EXPIRED';
   meta?: InventoryOperationMeta;
@@ -490,7 +753,7 @@ async function removeStock(input: RemoveStockInput) {
   const referenceId = crypto.randomUUID();
   const action = input.type === 'DAMAGED' ? 'DAMAGED' : 'PROCESS_EXPIRED';
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const inventory = await lockInventory(tx, input.inventoryId);
     if (input.quantity > inventory.quantity) {
       throw AppError.conflict(
@@ -506,7 +769,17 @@ async function removeStock(input: RemoveStockInput) {
       input.reason,
       referenceId,
       input.performedById,
+      input.reasonCode ?? null,
     );
+
+    const available = await tx.inventory.aggregate({
+      where: {
+        ambulanceId: inventory.ambulanceId,
+        deletedAt: null,
+        batch: { medicineId: inventory.batch.medicine.id, isActive: true, deletedAt: null },
+      },
+      _sum: { quantity: true },
+    });
 
     await createAudit(tx, {
       userId: input.performedById,
@@ -525,8 +798,24 @@ async function removeStock(input: RemoveStockInput) {
       ...input.meta,
     });
 
-    return updated;
+    return {
+      payload: updated,
+      stockUnavailable: inventory.quantity > 0 && (available._sum.quantity ?? 0) === 0 ? {
+        stationId: inventory.ambulance.station.id,
+        stationName: inventory.ambulance.station.name,
+        stationCode: inventory.ambulance.station.code,
+        ambulanceId: inventory.ambulance.id,
+        ambulanceNumber: inventory.ambulance.vehicleNumber,
+        medicineId: inventory.batch.medicine.id,
+        medicineName: inventory.batch.medicine.name,
+        category: inventory.batch.medicine.category,
+        actorId: input.performedById,
+        referenceId,
+      } : null,
+    };
   });
+  if (result.stockUnavailable) await notificationService.notifyStockUnavailable(result.stockUnavailable);
+  return result.payload;
 }
 
 export function markDamaged(input: Omit<RemoveStockInput, 'type'>) {
@@ -541,6 +830,8 @@ export function processExpired(input: Omit<RemoveStockInput, 'type'>) {
 
 export interface RemoveStockLineInput {
   inventoryId: string;
+  reason?: string | null;
+  reasonCode?: string | null;
   performedById: string;
   meta?: InventoryOperationMeta;
 }
@@ -554,7 +845,7 @@ export interface RemoveStockLineInput {
 export async function removeStockLine(input: RemoveStockLineInput) {
   const referenceId = crypto.randomUUID();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const inventory = await lockInventory(tx, input.inventoryId);
     if (inventory.deletedAt) throw AppError.notFound('Inventory record not found');
     const now = new Date();
@@ -563,6 +854,15 @@ export async function removeStockLine(input: RemoveStockLineInput) {
       where: { id: inventory.id },
       data: { deletedAt: now },
       select: INVENTORY_DETAIL,
+    });
+
+    const available = await tx.inventory.aggregate({
+      where: {
+        ambulanceId: inventory.ambulanceId,
+        deletedAt: null,
+        batch: { medicineId: inventory.batch.medicine.id, isActive: true, deletedAt: null },
+      },
+      _sum: { quantity: true },
     });
 
     await createAudit(tx, {
@@ -576,15 +876,33 @@ export async function removeStockLine(input: RemoveStockLineInput) {
         referenceId,
         medicineName: inventory.batch.medicine.name,
         batchId: inventory.batch.id,
-        batchNumber: inventory.batch.batchNumber,
+        batchNumber: effectiveBatchNumber(inventory, inventory.batch),
         quantity: inventory.quantity,
         notes: inventory.notes ?? null,
+        reason: input.reason ?? null,
+        reasonCode: input.reasonCode ?? null,
       },
       ...input.meta,
     });
 
-    return updated;
+    return {
+      payload: toEffectiveLot(updated),
+      stockUnavailable: inventory.quantity > 0 && (available._sum.quantity ?? 0) === 0 ? {
+        stationId: inventory.ambulance.station.id,
+        stationName: inventory.ambulance.station.name,
+        stationCode: inventory.ambulance.station.code,
+        ambulanceId: inventory.ambulance.id,
+        ambulanceNumber: inventory.ambulance.vehicleNumber,
+        medicineId: inventory.batch.medicine.id,
+        medicineName: inventory.batch.medicine.name,
+        category: inventory.batch.medicine.category,
+        actorId: input.performedById,
+        referenceId,
+      } : null,
+    };
   });
+  if (result.stockUnavailable) await notificationService.notifyStockUnavailable(result.stockUnavailable);
+  return result.payload;
 }
 
 export interface ReturnInput {
@@ -592,6 +910,7 @@ export interface ReturnInput {
   batchId: string;
   quantity: number;
   reason?: string | null;
+  reasonCode?: string | null;
   performedById: string;
   meta?: InventoryOperationMeta;
 }
@@ -600,12 +919,17 @@ export async function returnStock(input: ReturnInput) {
   assertPositiveQuantity(input.quantity);
   const referenceId = crypto.randomUUID();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const batch = await tx.medicineBatch.findUnique({ where: { id: input.batchId }, include: { medicine: true } });
     if (!batch || batch.deletedAt || batch.medicine.deletedAt) throw AppError.notFound('Batch not found');
 
     const ambulance = await tx.ambulance.findUnique({ where: { id: input.ambulanceId } });
     if (!ambulance) throw AppError.notFound('Ambulance not found');
+
+    const stockBefore = await tx.inventory.aggregate({
+      where: { ambulanceId: input.ambulanceId, deletedAt: null, batch: { medicineId: batch.medicineId, isActive: true, deletedAt: null } },
+      _sum: { quantity: true },
+    });
 
     const inventory = await tx.inventory.upsert({
       where: { ambulanceId_batchId: { ambulanceId: input.ambulanceId, batchId: input.batchId } },
@@ -622,6 +946,7 @@ export async function returnStock(input: ReturnInput) {
         quantityBefore: inventory.quantity - input.quantity,
         quantityAfter: inventory.quantity,
         reason: input.reason ?? null,
+        reasonCode: input.reasonCode ?? null,
         referenceId,
         performedById: input.performedById,
       },
@@ -644,8 +969,10 @@ export async function returnStock(input: ReturnInput) {
       ...input.meta,
     });
 
-    return inventory;
+    return { payload: toEffectiveLot(inventory), restoreUnavailable: (stockBefore._sum.quantity ?? 0) === 0 };
   });
+  if (result.restoreUnavailable) await notificationService.resolveStockUnavailable(input.ambulanceId, result.payload.batch.medicine.id);
+  return result.payload;
 }
 
 // ── INITIAL STOCK (seed/import) ────────────────────────────────
@@ -665,11 +992,16 @@ export async function setInitialStock(input: InitialStockInput) {
   }
   const referenceId = crypto.randomUUID();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const batch = await tx.medicineBatch.findUnique({ where: { id: input.batchId }, include: { medicine: true } });
     if (!batch || batch.deletedAt || batch.medicine.deletedAt) throw AppError.notFound('Batch not found');
     const ambulance = await tx.ambulance.findUnique({ where: { id: input.ambulanceId } });
     if (!ambulance) throw AppError.notFound('Ambulance not found');
+
+    const stockBefore = await tx.inventory.aggregate({
+      where: { ambulanceId: input.ambulanceId, deletedAt: null, batch: { medicineId: batch.medicineId, isActive: true, deletedAt: null } },
+      _sum: { quantity: true },
+    });
 
     const inventory = await tx.inventory.upsert({
       where: { ambulanceId_batchId: { ambulanceId: input.ambulanceId, batchId: input.batchId } },
@@ -702,6 +1034,8 @@ export async function setInitialStock(input: InitialStockInput) {
       ...input.meta,
     });
 
-    return inventory;
+    return { payload: toEffectiveLot(inventory), restoreUnavailable: (stockBefore._sum.quantity ?? 0) === 0 && inventory.quantity > 0 };
   });
+  if (result.restoreUnavailable) await notificationService.resolveStockUnavailable(input.ambulanceId, result.payload.batch.medicine.id);
+  return result.payload;
 }

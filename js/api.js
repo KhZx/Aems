@@ -91,6 +91,59 @@ async function request(path, { method = 'GET', body, token } = {}) {
   return json ? json.data : undefined;
 }
 
+/**
+ * Loads a caller-scoped inventory in bounded API pages. The legacy `inventory`
+ * method still returns the original array contract for older integrations.
+ */
+async function inventoryAll(params = {}) {
+  const pageSize = 200;
+  const first = await request('/inventory' + qs({ ...params, page: 1, pageSize }));
+  if (Array.isArray(first)) return first;
+
+  const rows = [...(first?.items || [])];
+  const total = Number(first?.total) || rows.length;
+  const pageCount = Math.ceil(total / pageSize);
+  for (let start = 2; start <= pageCount; start += 4) {
+    const pages = Array.from({ length: Math.min(4, pageCount - start + 1) }, (_, i) => start + i);
+    const resultPages = await Promise.all(pages.map((page) =>
+      request('/inventory' + qs({ ...params, page, pageSize })),
+    ));
+    resultPages.forEach((result) => rows.push(...(result?.items || [])));
+  }
+
+  const unique = [...new Map(rows.map((row) => [row.id, row])).values()];
+  return unique.sort((a, b) =>
+    new Date(a.batch?.expiryDate || 0).getTime() - new Date(b.batch?.expiryDate || 0).getTime() ||
+    String(a.ambulanceId || '').localeCompare(String(b.ambulanceId || '')),
+  );
+}
+
+/** Opens an authenticated SSE response for live notification refresh events. */
+export async function openNotificationStream(signal) {
+  if (!API_BASE) throw new ApiError(0, 'API_NOT_CONFIGURED', 'AEMS API URL is not configured');
+  const headers = { Accept: 'text/event-stream' };
+  if (_token) headers.Authorization = `Bearer ${_token}`;
+  let response;
+  try {
+    response = await fetch(`${API_BASE}/notifications/stream`, { headers, signal });
+  } catch (error) {
+    const alternate = altLoopbackBase();
+    if (!alternate) throw error;
+    response = await fetch(`${alternate}/notifications/stream`, { headers, signal });
+    API_BASE = alternate;
+  }
+  if (response.status === 401) {
+    const { renewSession } = await import('./auth.js');
+    if (await renewSession()) return openNotificationStream(signal);
+  }
+  if (!response.ok || !response.body) {
+    let message = `Notification stream unavailable (${response.status})`;
+    try { message = (await response.json())?.error?.message || message; } catch { /* SSE/plain response */ }
+    throw new ApiError(response.status, 'NOTIFICATION_STREAM_ERROR', message);
+  }
+  return response.body;
+}
+
 export const api = {
   // ── Auth ────────────────────────────────────────────────
   login: (token) => request('/auth/login', { method: 'POST', body: {}, token }),
@@ -104,6 +157,11 @@ export const api = {
   register: (data, token) => request('/auth/register', { method: 'POST', body: data, token }),
   publicStations: () => request('/public/stations'),
 
+  // ── In-app notifications ─────────────────────────────────
+  notifications: (params) => request('/notifications' + qs(params)),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: 'POST', body: {} }),
+  markAllNotificationsRead: () => request('/notifications/read-all', { method: 'POST', body: {} }),
+
   // 🗺️ Duty unit (crew: current unit + roster allow-list)
   dutyState: () => request('/me/duty'),
   // Switching is unlimited; the reason is mandatory and lands in the audit trail.
@@ -114,12 +172,15 @@ export const api = {
 
   // ── Inventory ───────────────────────────────────────────
   inventory: (params) => request('/inventory' + qs(params)),
+  inventoryAll: (params) => inventoryAll(params),
   useMedicine: (body) => request('/inventory/use', { method: 'POST', body }),
   restock: (body) => request('/inventory/restock', { method: 'POST', body }),
   adjust: (body) => request('/inventory/adjust', { method: 'POST', body }),
   updateItemNotes: (inventoryId, notes, reason) => request('/inventory/notes', { method: 'POST', body: { inventoryId, notes, reason } }),
   updateItemExpiry: (inventoryId, expiryDate) => request('/inventory/expiry', { method: 'POST', body: { inventoryId, expiryDate } }),
-  deleteStock: (inventoryId) => request('/inventory/' + inventoryId, { method: 'DELETE' }),
+  // Per-unit lot edit — overrides this ambulance's stock line only.
+  updateInventoryLot: (inventoryId, body) => request(`/inventory/${inventoryId}/lot`, { method: 'PATCH', body }),
+  deleteStock: (inventoryId, body) => request('/inventory/' + inventoryId, { method: 'DELETE', body }),
   importInventory: (body) => request('/inventory/import', { method: 'POST', body }),
 
   // ── Medicines / Batches ─────────────────────────────────
@@ -128,11 +189,26 @@ export const api = {
   createMedicine: (body) => request('/medicines', { method: 'POST', body }),
   deleteMedicine: (id, force) => request(`/medicines/${id}`, { method: 'DELETE', body: { force: !!force } }),
   createBatch: (body) => request('/batches', { method: 'POST', body }),
+  // Edit a lot (number/expiry/supplier/received date). Reason is required.
+  updateBatch: (id, body) => request(`/batches/${id}`, { method: 'PATCH', body }),
+
+  // ── Stock Reasons ───────────────────────────────────────
+  // Code-based reason catalogue, filtered by item type and/or action.
+  stockReasons: (params) => request('/stock-reasons' + qs(params)),
 
   // ── Inspections ─────────────────────────────────────────
   inspections: (params) => request('/inspections' + qs(params)),
   inspection: (id) => request('/inspections/' + id),
+  // Supervisor at-a-glance rollup across the units they look after.
+  inspectionOverview: (params) => request('/inspections/overview' + qs(params)),
   createInspection: (body) => request('/inspections', { method: 'POST', body }),
+  // Save/resume a draft (replaces its lines entirely).
+  updateInspection: (id, body) => request('/inspections/' + id, { method: 'PUT', body }),
+  completeInspection: (id) => request(`/inspections/${id}/complete`, { method: 'POST', body: {} }),
+  acknowledgeInspection: (id, reviewNotes) =>
+    request(`/inspections/${id}/acknowledge`, { method: 'POST', body: { reviewNotes } }),
+  voidInspection: (id, voidReason) => request(`/inspections/${id}/void`, { method: 'POST', body: { voidReason } }),
+  deleteInspection: (id) => request('/inspections/' + id, { method: 'DELETE' }),
 
   // ── Shift Notes ─────────────────────────────────────────
   shiftNotes: (params) => request('/shift-notes' + qs(params)),
@@ -145,18 +221,25 @@ export const api = {
   createHandover: (body) => request('/handovers', { method: 'POST', body }),
   acknowledgeHandover: (id, body) => request(`/handovers/${id}/acknowledge`, { method: 'POST', body }),
 
-  // ── Reports ─────────────────────────────────────────────
-  reports: (params) => request('/reports' + qs(params)),
-  createReport: (body) => request('/reports', { method: 'POST', body }),
-
-  // ── Audit Log ───────────────────────────────────────────
-  auditLogs: (params) => request('/audit-logs' + qs(params)),
-
   // ── Supply Requests ─────────────────────────────────────
   supplyRequests: (params) => request('/supply-requests' + qs(params)),
   createSupplyRequest: (body) => request('/supply-requests', { method: 'POST', body }),
   updateSupplyRequestStatus: (id, status) => request(`/supply-requests/${id}/status`, { method: 'PATCH', body: { status } }),
   cancelSupplyRequest: (id) => request(`/supply-requests/${id}/cancel`, { method: 'POST', body: {} }),
+  // Fulfilment lifecycle: held on arrival (DISPATCHED→RECEIVED) until double-confirmed.
+  dispatchSupplyRequest: (id, body) => request(`/supply-requests/${id}/dispatch`, { method: 'POST', body }),
+  receiveSupplyRequest: (id, body) => request(`/supply-requests/${id}/receive`, { method: 'POST', body }),
+  confirmSupplyRequest: (id) => request(`/supply-requests/${id}/confirm`, { method: 'POST', body: {} }),
+  closeSupplyRequest: (id) => request(`/supply-requests/${id}/close`, { method: 'POST', body: {} }),
+
+  // ── Reports ─────────────────────────────────────────────
+  reports: (params) => request('/reports' + qs(params)),
+  createReport: (body) => request('/reports', { method: 'POST', body }),
+  // Fleet/station analytics rollup for the Reports Dashboard.
+  reportAnalytics: (params) => request('/reports/analytics' + qs(params)),
+
+  // ── Audit Log ───────────────────────────────────────────
+  auditLogs: (params) => request('/audit-logs' + qs(params)),
 
   // ── Admin: Users ────────────────────────────────────────
   users: (params) => request('/users' + qs(params)),
@@ -164,11 +247,20 @@ export const api = {
   rejectUser: (id) => request(`/users/${id}/reject`, { method: 'POST', body: {} }),
   setUserStatus: (id, status) => request(`/users/${id}/status`, { method: 'PATCH', body: { status } }),
   changeRole: (id, body) => request(`/users/${id}/role`, { method: 'PATCH', body }),
+  setUserPassword: (id, password) => request(`/users/${id}/password`, { method: 'PUT', body: { password } }),
   deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
+
+  // ── Auth: password ──────────────────────────────────────
+  // Records a self-service password change (the change itself happens in
+  // Firebase on the client; this only writes the audit trail).
+  recordPasswordChange: () => request('/auth/password-changed', { method: 'POST', body: {} }),
+  updateMySupervisorZone: (supervisorZone) =>
+    request('/me/supervisor-zone', { method: 'PUT', body: { supervisorZone } }),
 
   // ── Admin: Stations ─────────────────────────────────────
   stations: (params) => request('/stations' + qs(params)),
   createStation: (body) => request('/stations', { method: 'POST', body }),
+  updateStation: (id, body) => request(`/stations/${id}`, { method: 'PATCH', body }),
   deleteStation: (id) => request(`/stations/${id}`, { method: 'DELETE' }),
 
   // ── Admin: Distribution ─────────────────────────────────

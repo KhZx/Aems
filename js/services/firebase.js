@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp }       from 'https://www.gstatic.com/fi
 import {
   getAuth, onAuthStateChanged, signOut,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  reauthenticateWithCredential, EmailAuthProvider,
+  reauthenticateWithCredential, EmailAuthProvider, updatePassword,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 // ─────────────────────────────────────────────────────────────────
@@ -54,6 +54,28 @@ export async function reauthenticateAdmin(password) {
   if (!email) throw new Error('No email on current user');
   const credential = EmailAuthProvider.credential(email, password);
   await reauthenticateWithCredential(_auth.currentUser, credential);
+}
+
+/**
+ * Change the signed-in user's own password. Re-authenticates with the current
+ * password first (Firebase requires a recent login) and then updates it. The
+ * current session is kept — the user does not have to sign in again.
+ */
+export async function changeOwnPassword(currentPassword, newPassword) {
+  if (!_auth || !_auth.currentUser) {
+    const err = new Error('Not authenticated');
+    err.code = 'auth/not-signed-in';
+    throw err;
+  }
+  const email = _auth.currentUser.email;
+  if (!email) {
+    const err = new Error('No email on current user');
+    err.code = 'auth/not-signed-in';
+    throw err;
+  }
+  const credential = EmailAuthProvider.credential(email, currentPassword);
+  await reauthenticateWithCredential(_auth.currentUser, credential);
+  await updatePassword(_auth.currentUser, newPassword);
 }
 
 export const isConfigured = (config) => !config.apiKey.includes('YOUR');

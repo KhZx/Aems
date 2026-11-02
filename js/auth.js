@@ -97,7 +97,16 @@ export async function initAppSession() {
   }
   // Sessions cached before the duty-roster upgrade lack `dutyRoster` — refresh them once.
   if (cached && cached.user?.firebaseUid === fbUser.uid && 'dutyRoster' in cached) {
-    return cached; // re-validated lazily on first 401
+    // Refresh the profile/permissions/roster in place (no audit write) so admin
+    // changes — e.g. widening a duty roster — show up without a re-login.
+    try {
+      const payload = await api.me();
+      const session = { ...cached, ...payload };
+      setSession(session);
+      return session;
+    } catch {
+      return cached; // re-validated lazily on first 401
+    }
   }
   return loginWithBackend();
 }

@@ -5,6 +5,7 @@ import { createAudit, type AuditEntryInput } from './audit.service.js';
 
 const HANDOVER_INCLUDE = {
   createdBy: { select: { id: true, displayName: true } },
+  station: { select: { id: true, code: true, name: true } },
 } satisfies Prisma.HandoverInclude;
 
 type HandoverRow = Prisma.HandoverGetPayload<{ include: typeof HANDOVER_INCLUDE }>;
@@ -14,6 +15,7 @@ function toApiHandover(h: HandoverRow) {
   return {
     id: h.id,
     status: h.status === 'ACKNOWLEDGED' ? 'acknowledged' : 'submitted',
+    station: h.station ? { id: h.station.id, code: h.station.code, name: h.station.name } : null,
     createdAt: h.createdAt,
     acknowledgedAt: h.acknowledgedAt,
     outgoing: {
