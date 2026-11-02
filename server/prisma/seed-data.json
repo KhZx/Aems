@@ -848,7 +848,7 @@
       "quantityAfter": 1,
       "reason": "Initial stock — new item",
       "referenceId": "3c66a5fc-d605-4df2-ad31-1bc929edc792",
-      "performedById": null,
+      "performedById": "052aee95-908e-48a2-b73f-35d62218c1fe",
       "createdAt": "2026-08-28T20:07:35.679Z"
     },
     {
@@ -860,7 +860,7 @@
       "quantityAfter": 4,
       "reason": "the old ones are removed",
       "referenceId": "4857166e-bc0a-485c-9a47-36f6d4a3f423",
-      "performedById": null,
+      "performedById": "5070082a-ae4c-4a99-819c-6e66f8344c57",
       "createdAt": "2026-08-28T22:47:51.569Z"
     },
     {
@@ -872,7 +872,7 @@
       "quantityAfter": 0,
       "reason": "already expired",
       "referenceId": "a37906fc-17a7-4c83-8bc0-735062c54adb",
-      "performedById": null,
+      "performedById": "5070082a-ae4c-4a99-819c-6e66f8344c57",
       "createdAt": "2026-08-29T17:00:04.246Z"
     },
     {
@@ -884,7 +884,7 @@
       "quantityAfter": 3,
       "reason": "Initial stock — new item",
       "referenceId": "8a9a696e-f0ca-41bc-b0f9-d4d9692fcae2",
-      "performedById": null,
+      "performedById": "052aee95-908e-48a2-b73f-35d62218c1fe",
       "createdAt": "2026-08-29T23:21:42.471Z"
     },
     {
@@ -896,7 +896,7 @@
       "quantityAfter": 2,
       "reason": "my self usage",
       "referenceId": "cd0bb0ab-23d6-4dcd-bbd4-7bf2013fd687",
-      "performedById": null,
+      "performedById": "052aee95-908e-48a2-b73f-35d62218c1fe",
       "createdAt": "2026-08-29T23:22:18.730Z"
     },
     {
@@ -908,10 +908,96 @@
       "quantityAfter": 1,
       "reason": "Initial stock — new item",
       "referenceId": "27e6485d-8271-42bc-8f4c-069263e75de8",
-      "performedById": null,
+      "performedById": "052aee95-908e-48a2-b73f-35d62218c1fe",
       "createdAt": "2026-08-29T23:47:49.023Z"
     }
   ],
-  "users": [],
-  "managedStations": []
+  "users": [
+    {
+      "id": "5070082a-ae4c-4a99-819c-6e66f8344c57",
+      "firebaseUid": "OSajtEKpGdYT1VhvkstZar5JH252",
+      "email": "dedo@aems.ae",
+      "displayName": "dedo",
+      "role": "TECHNICIAN",
+      "status": "ACTIVE",
+      "requestedRole": "TECHNICIAN",
+      "stationId": "2efc72c8-7058-43e0-b11f-9676764ff32d",
+      "empId": "121",
+      "badgeNumber": "",
+      "supervisorZone": "",
+      "approvedAt": "2026-08-29T23:36:00.303Z",
+      "approvedBy": "8eb71c5b-b6bf-476f-aa79-083bcb300ab7",
+      "createdAt": "2026-08-28T20:12:56.964Z",
+      "updatedAt": "2026-08-29T23:36:09.812Z",
+      "lastLoginAt": "2026-08-29T23:36:09.810Z"
+    },
+    {
+      "id": "cce02c63-e945-4681-b310-75d95f440446",
+      "firebaseUid": "53BnykUPd1XvztM8bnaxx1XnhL53",
+      "email": "abood@aems.ae",
+      "displayName": "abood",
+      "role": "SUPERVISOR",
+      "status": "ACTIVE",
+      "requestedRole": "SUPERVISOR",
+      "stationId": "2efc72c8-7058-43e0-b11f-9676764ff32d",
+      "empId": "101",
+      "badgeNumber": "333",
+      "supervisorZone": "33",
+      "approvedAt": "2026-08-28T21:32:04.809Z",
+      "approvedBy": "8eb71c5b-b6bf-476f-aa79-083bcb300ab7",
+      "createdAt": "2026-08-28T21:31:46.527Z",
+      "updatedAt": "2026-08-29T23:41:42.418Z",
+      "lastLoginAt": "2026-08-29T23:41:42.417Z"
+    },
+    {
+      "id": "052aee95-908e-48a2-b73f-35d62218c1fe",
+      "firebaseUid": "gslgBlRT3cUcDeHXg43q1osRQU62",
+      "email": "dada@aems.ae",
+      "displayName": "dada",
+      "role": "EMT",
+      "status": "ACTIVE",
+      "requestedRole": "EMT",
+      "stationId": "0cec1c8b-213c-4b71-8135-919de803fc1e",
+      "empId": "222",
+      "badgeNumber": "",
+      "supervisorZone": "",
+      "approvedAt": "2026-08-28T17:06:58.654Z",
+      "approvedBy": "8eb71c5b-b6bf-476f-aa79-083bcb300ab7",
+      "createdAt": "2026-08-28T16:41:33.288Z",
+      "updatedAt": "2026-08-30T00:19:38.828Z",
+      "lastLoginAt": "2026-08-30T00:19:38.827Z"
+    },
+    {
+      "id": "8eb71c5b-b6bf-476f-aa79-083bcb300ab7",
+      "firebaseUid": "Q5Nnrm3caBSTcJbPaLvMW9UHsem1",
+      "email": "admin@aems.ae",
+      "displayName": "Administrator",
+      "role": "ADMIN",
+      "status": "ACTIVE",
+      "requestedRole": null,
+      "stationId": null,
+      "empId": null,
+      "badgeNumber": null,
+      "supervisorZone": null,
+      "approvedAt": "2026-08-28T20:40:01.739Z",
+      "approvedBy": null,
+      "createdAt": "2026-08-28T20:40:01.739Z",
+      "updatedAt": "2026-08-29T23:32:28.471Z",
+      "lastLoginAt": "2026-08-29T23:32:28.470Z"
+    }
+  ],
+  "managedStations": [
+    {
+      "userId": "cce02c63-e945-4681-b310-75d95f440446",
+      "stationId": "2efc72c8-7058-43e0-b11f-9676764ff32d"
+    },
+    {
+      "userId": "cce02c63-e945-4681-b310-75d95f440446",
+      "stationId": "521f8136-a699-4f7e-9d8e-28821798c245"
+    },
+    {
+      "userId": "cce02c63-e945-4681-b310-75d95f440446",
+      "stationId": "0cec1c8b-213c-4b71-8135-919de803fc1e"
+    }
+  ]
 }
