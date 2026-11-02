@@ -1,6 +1,6 @@
 /* Demo hold switch. Set to false when the public demo is ready. */
 (() => {
-  const MAINTENANCE_MODE = true;
+  const MAINTENANCE_MODE = false;
   if (!MAINTENANCE_MODE) return;
 
   const path = window.location.pathname.replace(/\/$/, '');
